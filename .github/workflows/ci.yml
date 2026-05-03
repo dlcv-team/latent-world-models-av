@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  contract:
+    name: Canonical contract + reproducibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install minimal test deps
+        # The full requirements.txt pulls torch + nuscenes-devkit which are
+        # heavyweight. The contract + reproducibility gate only needs the
+        # leaves below; module-specific test jobs can install more.
+        run: python -m pip install --upgrade pip pyyaml pytest scipy
+
+      - name: Verify canonical contract
+        run: python scripts/check_canonical_contract.py
+
+      - name: Run pytest
+        env:
+          PYTHONPATH: .
+        run: pytest -q tests/test_canonical_contract.py tests/test_reproduces_baselines.py
+
+  hardcoded-constants-scan:
+    name: Soft scan for hardcoded canonical constants
+    runs-on: ubuntu-latest
+    # This job NEVER blocks merges (continue-on-error: true). It surfaces
+    # likely cases where a module hardcodes something that should come from
+    # configs/canonical.yaml. Reviewers decide what's a real violation.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Grep for known canonical constants in module code
+        shell: bash
+        run: |
+          set +e  # don't exit on grep no-match
+          PATTERNS='(\bseed\s*=\s*42\b|\blr\s*=\s*1e-?3\b|\blearning_rate\s*=\s*1e-?3\b|\blearning_rate\s*=\s*0\.001\b|/\s*6\.0(?!\d)|/\s*10\.0(?!\d)|\bdpi\s*=\s*300\b|\bbatch_size\s*=\s*256\b|\bepochs\s*=\s*50\b)'
+          DIRS="encoders models data evaluation training analysis scripts"
+          hits=0
+          for d in $DIRS; do
+            [ -d "$d" ] || continue
+            # Use grep -P (PCRE) for the lookahead. macOS grep doesn't
+            # support -P but ubuntu-latest does.
+            while IFS= read -r line; do
+              # Skip empty results
+              [ -z "$line" ] && continue
+              echo "::warning::$line"
+              hits=$((hits + 1))
+            done < <(grep -RPn --include='*.py' --color=never "$PATTERNS" "$d" 2>/dev/null)
+          done
+          echo
+          echo "Found $hits potential hardcoded-constant occurrences."
+          echo "Reviewers: confirm whether each one should pull from configs/canonical.yaml."
+          # Always exit 0 — this job is informational.
+          exit 0
