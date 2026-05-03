@@ -8,6 +8,7 @@ from encoders.base import BaseEncoderWrapper
 from encoders.clip_enc import CLIPB32Wrapper
 from encoders.dinov2 import DINOv2S14Wrapper
 from encoders.vits16 import ViTS16Wrapper
+from encoders.vjepa2 import VJEPA2Wrapper
 from encoders.vqvae import VQFallbackUsed, VQVAEWrapper
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "CLIPB32Wrapper",
     "DINOv2S14Wrapper",
     "ViTS16Wrapper",
+    "VJEPA2Wrapper",
     "VQFallbackUsed",
     "VQVAEWrapper",
 ]
