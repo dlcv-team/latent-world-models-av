@@ -1,0 +1,14 @@
+torch>=2.0
+timm
+open_clip_torch
+nuscenes-devkit
+pytorch-grad-cam
+wandb
+scipy
+numpy
+pandas
+pyyaml
+matplotlib
+pillow
+tqdm
+pytest

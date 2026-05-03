@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Project outputs (large; not committed)
+outputs/
+data/raw/
+data/processed/
+data/cache/
+*.npz
+*.pt
+*.ckpt
+*.pth
+
+# Logs
+*.log
+wandb/

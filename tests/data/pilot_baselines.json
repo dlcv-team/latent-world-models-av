@@ -1,0 +1,61 @@
+{
+  "version": "0.1.0",
+  "source": "M1 pilot run on the canonical trainval-mirror subset (180/20/40, seed 42). Seed values from the pilot are pinned here so that future module-level tests can compare their outputs against a stable reference.",
+  "subset": {
+    "seed": 42,
+    "counts": {
+      "p0_train": 180,
+      "p0_val": 20,
+      "p0_test": 40,
+      "p0_all": 240,
+      "p1p2_scenes": 80
+    }
+  },
+  "tolerance": {
+    "rmse_abs_atol": 1.0e-3,
+    "pvalue_rel_rtol": 0.20
+  },
+  "expected_best_encoder": "vjepa2",
+  "encoders": {
+    "vit_s16": {
+      "steer_rmse_scene_mean": { "expected": 0.105, "ci_95": [0.080, 0.130] }
+    },
+    "dinov2_s14": {
+      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.075, 0.120] }
+    },
+    "clip_b32": {
+      "steer_rmse_scene_mean": { "expected": 0.108, "ci_95": [0.083, 0.133] }
+    },
+    "vqvae": {
+      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.075, 0.120] },
+      "note": "vqvae values mirror dinov2_s14 when the FR-08 fallback is active; treat as DINOv2 result, not independent VQ-VAE evidence."
+    },
+    "vjepa2": {
+      "steer_rmse_scene_mean": { "expected": 0.090, "ci_95": [0.061, 0.120] }
+    }
+  },
+  "paired_tests": [
+    {
+      "encoder_a": "clip_b32",
+      "encoder_b": "vjepa2",
+      "p_bonferroni": { "expected": 0.0051 }
+    },
+    {
+      "encoder_a": "vit_s16",
+      "encoder_b": "vjepa2",
+      "p_bonferroni": { "expected": 0.0078 }
+    }
+  ],
+  "p1": {
+    "delta_cossim_per_horizon": {
+      "1": 0.000014,
+      "2": -0.000130,
+      "3": 0.000120,
+      "4": 0.000076
+    }
+  },
+  "notes": [
+    "Numbers pinned from a single pilot run. Module-level tests should use the tolerance block above when comparing fresh outputs.",
+    "If module outputs drift beyond tolerance, investigate before updating these values; do not silently widen the envelope."
+  ]
+}

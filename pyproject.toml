@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "latent-world-models-av"
+version = "0.1.0"
+description = "Benchmarking pretrained visual encoders for action-conditioned world models on nuScenes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "DLCV Team" }]
+
+[tool.setuptools]
+py-modules = ["config"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "encoders*",
+  "models*",
+  "data*",
+  "evaluation*",
+  "training*",
+  "analysis*",
+]
+exclude = ["tests*", "scripts*", "configs*", "docs*", "outputs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

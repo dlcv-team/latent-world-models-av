@@ -1,0 +1,192 @@
+# Canonical configuration for DriveWAM Encoders.
+#
+# This file is the single source of truth for every choice that affects
+# cross-member result comparability. Module code MUST NOT hardcode any of
+# these values; load them via `config.load_canonical()` instead.
+#
+# Owned by Member 1. Changes require joint sign-off in Slack and a PR that
+# bumps `version` and updates `docs/CANONICAL_ARTIFACTS.md` accordingly.
+
+version: "1.0.0"
+last_updated: "2026-05-02"
+
+dataset:
+  name: nuscenes
+  version: v1.0-trainval
+  policy: "trainval mirror subset (180 train / 20 val / 40 test scenes for P0; +80 scenes for P1/P2)"
+
+  # The split manifest lives in the repo so contract checks are hermetic.
+  # sha256 is verified by scripts/check_canonical_contract.py and by
+  # tests/test_canonical_contract.py.
+  subset_manifest:
+    path: configs/trainval_subset_manifest.json
+    sha256: "15c7ddfc8806aa03ced91010031fd259425b8b4c3d8f21a1b9dc0c24a926fd79"
+    expected_split_counts:
+      p0_train: 180
+      p0_val: 20
+      p0_test: 40
+      p0_all: 240
+      p1p2_scenes: 80
+
+  # Action labels are kept outside the repo (~10 MB CSV). Members resolve
+  # this file locally; the contract check verifies the sha256 if it is found
+  # at the expected path or if NUSCENES_ACTIONS_CSV environment variable is
+  # set.
+  action_labels:
+    relative_path: data/raw/camfront_keyframe_actions.csv
+    sha256: "ff70d20ffb4dd152ed06661fe63dd00942d4ed35b87d39f53728a3b22c292a94"
+    expected_rows: 34149  # plus header
+    columns:
+      - sample_token
+      - scene_token
+      - scene_name
+      - timestamp_us
+      - steer_norm
+      - accel_norm
+
+  # Active camera + image geometry. Encoder-specific normalization
+  # (mean/std per checkpoint) is applied INSIDE each encoder wrapper, not
+  # here.
+  camera: CAM_FRONT
+  image_size: [224, 224]
+  keyframe_rate_hz: 2
+
+  # Action label normalization. Applied at dataset load time; reverse
+  # transforms used at evaluation time.
+  normalization:
+    steering:
+      raw_unit: rad
+      divisor: 6.0
+      clip_range: [-1.0, 1.0]
+      eval_back_to_deg_factor: 34.37746770784939   # = 6 * 180 / pi
+    acceleration:
+      raw_unit: m_per_s2
+      divisor: 10.0
+      clip_range: [-1.0, 1.0]
+
+  # CAN-bus ↔ keyframe alignment policy.
+  can_bus:
+    max_alignment_us: 50000
+    drop_blacklisted_scenes: true
+    drop_missing_can: true
+
+# Reproducibility primitives. ALL randomness paths must seed from these.
+reproducibility:
+  global_seed: 42
+  cv:
+    n_folds: 5
+    seeds_per_fold: [0, 1, 2]
+
+# Probe training hyperparameters (P0). Frozen across all encoders to keep
+# the comparison fair — no per-encoder tuning.
+probe:
+  architecture: "Linear(384,256) -> GELU -> Dropout(0.1) -> Linear(256,2)"
+  hidden_dim: 256
+  dropout: 0.1
+  output_dim: 2  # (steer_norm, accel_norm)
+  optimizer: adam
+  learning_rate: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 50
+  loss: mse
+  early_stopping: false  # P0 probe trains for fixed 50 epochs
+
+# Behavioral cloning baseline (P0, Member 3, task C3).
+bc_baseline:
+  architecture: "Linear(384,256) -> GELU -> Dropout(0.1) -> Linear(256,2)"
+  optimizer: adam
+  learning_rate: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 50
+  early_stopping_patience: 10
+  loss: mse
+
+# Latent predictor (P1, Member 1, tasks A15-A18).
+latent_predictor:
+  architecture: "Linear(768,512) -> GELU -> Linear(512,512) -> GELU -> Linear(512, 384*4)"
+  fourier_action_embed:
+    n_frequencies: 64
+    base: 2
+    out_dim: 384
+  prediction_horizon: 4
+  optimizer: adam
+  learning_rate: 1.0e-3
+  batch_size: 128
+  epochs: 50
+  loss: mse
+
+# Encoders under benchmark. `output_dim_native` is what the backbone returns
+# before any projection adapter. `target_dim` is the standardized 384.
+encoders:
+  vit_s16:
+    framework: timm
+    model_id: vit_small_patch16_224
+    pretrained: imagenet
+    output_dim_native: 384
+    needs_projection: false
+    input_mode: single_frame
+  dinov2_s14:
+    framework: torch_hub
+    repo: facebookresearch/dinov2
+    model_id: dinov2_vits14
+    output_dim_native: 384
+    needs_projection: false
+    input_mode: single_frame
+  clip_b32:
+    framework: open_clip
+    model_id: ViT-B-32
+    pretrained: openai
+    output_dim_native: 512
+    needs_projection: true
+    input_mode: single_frame
+  vqvae:
+    framework: vector_quantize_pytorch
+    model_id: vqgan_imagenet_f16_1024
+    output_dim_native: 256
+    needs_projection: true
+    input_mode: single_frame
+    fallback_policy: "FR-08: on checkpoint load failure, copy dinov2_s14 embeddings; raise VQFallbackUsed; tag every figure caption with VQ→DINOv2 fallback notice"
+  vjepa2:
+    framework: huggingface
+    model_id: facebook/vjepa2-vitl-fpc64-256
+    output_dim_native: 1024
+    needs_projection: true
+    input_mode: clip
+    clip_frames: 16
+
+target_embedding_dim: 384
+
+# Evaluation policy.
+evaluation:
+  bootstrap:
+    n_resamples: 1000
+    seed: 42
+    confidence_level: 0.95
+  paired_tests:
+    test: ttest_rel
+    correction: bonferroni
+    # n_comparisons is COMPUTED from the encoders actually present in the
+    # input table, not asserted. Modules must read it back from the emitted
+    # paired_tests.csv rather than hardcoding 10 or 15.
+    alpha: 0.05
+  scenario_buckets:
+    - highway
+    - urban
+    - intersection
+    - other
+  # Extended buckets used by P2 strict scene-type evaluation (task C7).
+  scenario_buckets_p2:
+    - highway
+    - urban
+    - intersection
+    - night
+    - rain
+    - other
+
+figures:
+  dpi: 300
+  required_captions:
+    subset: "trainval-mirror subset (180/20/40, seed 42)"
+    vq_fallback: "VQ-VAE checkpoint failed to load reproducibly; vq_track shown is a DINOv2 fallback per FR-08 policy and does not represent independent VQ performance."
