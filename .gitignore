@@ -33,6 +33,14 @@ data/cache/
 *.ckpt
 *.pth
 
+# nuScenes dataset files (large; not committed)
+data/sweeps/
+data/can_bus/
+data/samples/
+data/maps/
+data/v1.0-*/
+data/prediction/
+
 # Logs
 *.log
 wandb/

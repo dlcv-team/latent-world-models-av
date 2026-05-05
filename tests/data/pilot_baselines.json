@@ -11,6 +11,12 @@
       "p1p2_scenes": 80
     }
   },
+  "validation": {
+    "csv_sha256_at_pilot": "ff70d20ffb4dd152ed06661fe63dd00942d4ed35b87d39f53728a3b22c292a94",
+    "csv_sha256_current": "18ba46c35d57ab799a32cdebf711dacfd566ff3f5002589f861701a9e8442a66",
+    "status": "pending_revalidation",
+    "note": "CSV regenerated in m1/nuscenes-frame-clip-actions (byte-level diff, scientific content equivalent). Envelopes not yet validated against new CSV. TODO: on next probe run, confirm sample encoder lands within pinned envelope. If not, bump tolerance with justification."
+  },
   "tolerance": {
     "rmse_abs_atol": 1.0e-3,
     "pvalue_rel_rtol": 0.20

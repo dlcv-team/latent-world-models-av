@@ -78,3 +78,4 @@ come from?" and reject the PR if the answer is "it's hardcoded."
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 2026-05-02 | Initial contract: trainval-mirror subset, seed 42, 5 encoders, probe / BC / LP hyperparams, 300 DPI figures, FR-08 VQ fallback policy. |
+| (pending) | 2026-05-05 | Action labels CSV regenerated with full 17-column schema. Byte-level diff (sha256: ff70d20f... → 18ba46c3...) but scientific content equivalent. Pilot baselines (`tests/data/pilot_baselines.json`) not yet revalidated against new CSV — marked `pending_revalidation`. TODO: validate on next probe run. |
