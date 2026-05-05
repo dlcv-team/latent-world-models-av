@@ -90,7 +90,7 @@ def extract_action_labels(
         try:
             steer_msgs = nusc_can.get_messages(scene_name, "steeranglefeedback")
             pose_msgs = nusc_can.get_messages(scene_name, "pose")
-        except KeyError:
+        except (KeyError, Exception):
             # Scene not in CAN bus data
             dropped_missing_can += 1
             continue
