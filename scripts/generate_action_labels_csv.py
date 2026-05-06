@@ -5,7 +5,13 @@ This script extracts steering and acceleration labels from CAN bus messages
 and creates the CSV file required by NuScenesFrameDataset.
 
 Output: data/raw/camfront_keyframe_actions.csv
-Columns: sample_token, scene_token, scene_name, timestamp_us, steer_norm, accel_norm
+Columns (17): scene_token, scene_name, sample_token, cam_front_token, image_path,
+    timestamp_us, is_blacklisted_scene, has_steer_msgs, has_pose_msgs,
+    nearest_steer_dt_us, nearest_pose_dt_us, steer_raw, accel_raw,
+    steer_norm, accel_norm, kept, drop_reason
+
+All CAM_FRONT keyframes are included (34,149 rows for v1.0-trainval).
+Rows with missing CAN or alignment issues have kept=0 and a drop_reason.
 
 Usage:
     python scripts/generate_action_labels_csv.py
@@ -27,6 +33,7 @@ from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from tqdm import tqdm
 
 from config import load_canonical, sha256_file
+from data.splits import get_can_blacklist
 
 
 def extract_action_labels(
@@ -60,8 +67,11 @@ def extract_action_labels(
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns: sample_token, scene_token, scene_name,
-        timestamp_us, steer_norm, accel_norm
+        DataFrame with 17 columns: scene_token, scene_name, sample_token,
+        cam_front_token, image_path, timestamp_us, is_blacklisted_scene,
+        has_steer_msgs, has_pose_msgs, nearest_steer_dt_us, nearest_pose_dt_us,
+        steer_raw, accel_raw, steer_norm, accel_norm, kept, drop_reason.
+        Includes all CAM_FRONT keyframes (34,149 for v1.0-trainval).
     """
     print(f"Loading nuScenes {version} from {dataroot}")
     nusc = NuScenes(version=version, dataroot=str(dataroot), verbose=True)
@@ -77,83 +87,133 @@ def extract_action_labels(
 
     print(f"\nExtracting action labels from {len(nusc.scene)} scenes...")
 
+    # Pre-compute blacklist (formatted scene names)
+    can_blacklist = get_can_blacklist()
+
     for scene in tqdm(nusc.scene, desc="Processing scenes"):
         scene_name = scene["name"]
         scene_token = scene["token"]
 
-        # Check if scene is blacklisted or missing CAN
-        if scene_name in nusc_can.can_blacklist:
-            dropped_blacklist += 1
-            continue
+        # Check if scene is blacklisted
+        is_blacklisted = scene_name in can_blacklist
 
         # Try to get CAN messages for this scene
+        steer_msgs = []
+        pose_msgs = []
+        has_steer_msgs = False
+        has_pose_msgs = False
+
         try:
             steer_msgs = nusc_can.get_messages(scene_name, "steeranglefeedback")
             pose_msgs = nusc_can.get_messages(scene_name, "pose")
+            has_steer_msgs = len(steer_msgs) > 0
+            has_pose_msgs = len(pose_msgs) > 0
         except (KeyError, Exception):
-            # Scene not in CAN bus data
-            dropped_missing_can += 1
-            continue
+            # Scene not in CAN bus data - leave messages empty
+            pass
 
-        if len(steer_msgs) == 0 or len(pose_msgs) == 0:
-            dropped_missing_can += 1
-            continue
+        # Build timestamp lookup tables if CAN data available
+        steer_times = []
+        steer_values = []
+        pose_times = []
+        pose_accels = []
 
-        # Build timestamp lookup tables
-        steer_times = [msg["utime"] for msg in steer_msgs]
-        steer_values = [msg["value"] for msg in steer_msgs]
-        pose_times = [msg["utime"] for msg in pose_msgs]
-        pose_accels = [msg["accel"][0] for msg in pose_msgs]  # Longitudinal acceleration
+        if has_steer_msgs:
+            steer_times = [msg["utime"] for msg in steer_msgs]
+            steer_values = [msg["value"] for msg in steer_msgs]
+
+        if has_pose_msgs:
+            pose_times = [msg["utime"] for msg in pose_msgs]
+            pose_accels = [msg["accel"][0] for msg in pose_msgs]  # Longitudinal acceleration
 
         # Process all samples in this scene
         sample_token = scene["first_sample_token"]
         while sample_token:
             sample = nusc.get("sample", sample_token)
 
-            # Check if camera exists
+            # Skip if no CAM_FRONT (these aren't CAM_FRONT keyframes)
             if camera not in sample["data"]:
                 dropped_no_camera += 1
                 sample_token = sample["next"]
                 continue
 
+            # Get camera data
+            cam_front_token = sample["data"][camera]
+            cam_data = nusc.get("sample_data", cam_front_token)
+            image_path = cam_data["filename"]
+
+            # Use sample timestamp (not CAN average)
             sample_timestamp = sample["timestamp"]
 
-            # Find nearest steering CAN message
-            steer_deltas = [abs(t - sample_timestamp) for t in steer_times]
-            steer_idx = steer_deltas.index(min(steer_deltas))
-            steer_delta = steer_deltas[steer_idx]
+            # Initialize default values
+            steer_raw = None
+            accel_raw = None
+            steer_norm = None
+            accel_norm = None
+            nearest_steer_dt_us = None
+            nearest_pose_dt_us = None
+            kept = False
+            drop_reason = ""
 
-            # Find nearest pose CAN message
-            pose_deltas = [abs(t - sample_timestamp) for t in pose_times]
-            pose_idx = pose_deltas.index(min(pose_deltas))
-            pose_delta = pose_deltas[pose_idx]
+            # Determine if row should be kept
+            if is_blacklisted:
+                drop_reason = "blacklisted_scene"
+                dropped_blacklist += 1
+            elif not (has_steer_msgs and has_pose_msgs):
+                drop_reason = "missing_CAN_messages"
+                dropped_missing_can += 1
+            else:
+                # Find nearest steering CAN message
+                steer_deltas = [abs(t - sample_timestamp) for t in steer_times]
+                steer_idx = steer_deltas.index(min(steer_deltas))
+                steer_delta = steer_deltas[steer_idx]
+                nearest_steer_dt_us = steer_delta
 
-            # Check alignment tolerance
-            max_delta = max(steer_delta, pose_delta)
-            if max_delta > max_can_delta_us:
-                dropped_can_alignment += 1
-                sample_token = sample["next"]
-                continue
+                # Find nearest pose CAN message
+                pose_deltas = [abs(t - sample_timestamp) for t in pose_times]
+                pose_idx = pose_deltas.index(min(pose_deltas))
+                pose_delta = pose_deltas[pose_idx]
+                nearest_pose_dt_us = pose_delta
 
-            # Extract and normalize actions
-            steer_raw = steer_values[steer_idx]
-            accel_raw = pose_accels[pose_idx]
+                # Check alignment tolerance
+                max_delta = max(steer_delta, pose_delta)
+                if max_delta > max_can_delta_us:
+                    drop_reason = "alignment_exceeded"
+                    dropped_can_alignment += 1
+                    # Keep raw values and deltas even though dropped
+                    steer_raw = steer_values[steer_idx]
+                    accel_raw = pose_accels[pose_idx]
+                else:
+                    # Extract and normalize actions
+                    steer_raw = steer_values[steer_idx]
+                    accel_raw = pose_accels[pose_idx]
 
-            # Normalize: value / divisor, then clip
-            steer_norm = max(clip_range[0], min(clip_range[1], steer_raw / steer_divisor))
-            accel_norm = max(clip_range[0], min(clip_range[1], accel_raw / accel_divisor))
+                    # Normalize: value / divisor, then clip
+                    steer_norm = max(clip_range[0], min(clip_range[1], steer_raw / steer_divisor))
+                    accel_norm = max(clip_range[0], min(clip_range[1], accel_raw / accel_divisor))
 
-            # Use the CAN timestamp (average of steer and pose) for timestamp_us
-            can_timestamp = int((steer_times[steer_idx] + pose_times[pose_idx]) / 2)
+                    kept = True
 
+            # Always append record (don't skip)
             records.append(
                 {
-                    "sample_token": sample_token,
                     "scene_token": scene_token,
                     "scene_name": scene_name,
-                    "timestamp_us": can_timestamp,
+                    "sample_token": sample_token,
+                    "cam_front_token": cam_front_token,
+                    "image_path": image_path,
+                    "timestamp_us": sample_timestamp,
+                    "is_blacklisted_scene": is_blacklisted,
+                    "has_steer_msgs": has_steer_msgs,
+                    "has_pose_msgs": has_pose_msgs,
+                    "nearest_steer_dt_us": nearest_steer_dt_us,
+                    "nearest_pose_dt_us": nearest_pose_dt_us,
+                    "steer_raw": steer_raw,
+                    "accel_raw": accel_raw,
                     "steer_norm": steer_norm,
                     "accel_norm": accel_norm,
+                    "kept": 1 if kept else 0,
+                    "drop_reason": drop_reason,
                 }
             )
 
@@ -161,11 +221,12 @@ def extract_action_labels(
 
     print(f"\n{'='*60}")
     print(f"Extraction complete!")
-    print(f"  Total samples processed: {len(records)}")
+    print(f"  Total keyframes: {len(records)}")
+    print(f"  Kept (usable): {sum(1 for r in records if r['kept'] == 1)}")
     print(f"  Dropped (no camera): {dropped_no_camera}")
     print(f"  Dropped (blacklist): {dropped_blacklist}")
     print(f"  Dropped (missing CAN): {dropped_missing_can}")
-    print(f"  Dropped (CAN alignment): {dropped_can_alignment}")
+    print(f"  Dropped (alignment): {dropped_can_alignment}")
     print(f"{'='*60}\n")
 
     return pd.DataFrame(records)
