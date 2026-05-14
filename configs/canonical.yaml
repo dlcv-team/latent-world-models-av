@@ -34,15 +34,26 @@ dataset:
   # set.
   action_labels:
     relative_path: data/raw/camfront_keyframe_actions.csv
-    sha256: "ff70d20ffb4dd152ed06661fe63dd00942d4ed35b87d39f53728a3b22c292a94"
+    sha256: "18ba46c35d57ab799a32cdebf711dacfd566ff3f5002589f861701a9e8442a66"
     expected_rows: 34149  # plus header
     columns:
-      - sample_token
       - scene_token
       - scene_name
+      - sample_token
+      - cam_front_token
+      - image_path
       - timestamp_us
+      - is_blacklisted_scene
+      - has_steer_msgs
+      - has_pose_msgs
+      - nearest_steer_dt_us
+      - nearest_pose_dt_us
+      - steer_raw
+      - accel_raw
       - steer_norm
       - accel_norm
+      - kept
+      - drop_reason
 
   # Active camera + image geometry. Encoder-specific normalization
   # (mean/std per checkpoint) is applied INSIDE each encoder wrapper, not
