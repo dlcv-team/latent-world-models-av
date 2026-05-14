@@ -1,0 +1,12 @@
+{
+  "dataroot": "data/nuscenes",
+  "version": "v1.0-mini",
+  "scene_count": 10,
+  "expected_scene_count_mini": 10,
+  "cam_front_file_exists": true,
+  "cam_front_example": "data/nuscenes/samples/CAM_FRONT/n015-2018-07-24-11-22-45+0800__CAM_FRONT__1532402927612460.jpg",
+  "non_blacklisted_scene_with_can": "scene-0061",
+  "steeranglefeedback_count": 1797,
+  "pose_count": 938,
+  "errors": []
+}
