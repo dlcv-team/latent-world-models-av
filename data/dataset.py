@@ -1,381 +1,459 @@
-"""nuScenes dataset loader for frozen-encoder probing.
-
-Returns dictionaries with image(s), actions, and metadata:
-  - mode="single_frame": {"image": (3,224,224), "actions": (2,), ...}
-  - mode="clip": {"image": (16,3,224,224), "actions": (2,), ...}
-
-All images are [0, 1] float tensors with shared geometric transform.
-Encoder-specific normalization (ImageNet vs CLIP) is deferred to wrappers.
-
-Owner: Member 2
-"""
-
-from __future__ import annotations
-
-# Allow running directly for testing
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path as _Path
-    sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
-
-from pathlib import Path
-from typing import Any
+"""NuScenes dataset for action prediction from front camera images."""
 
 import numpy as np
 import torch
-from nuscenes.nuscenes import NuScenes
-from nuscenes.can_bus.can_bus_api import NuScenesCanBus
+from PIL import Image
+from pathlib import Path
+from torch import nn
 from torch.utils.data import Dataset
 from torchvision import transforms
-
-from config import load_canonical, manifest_split
-from data.splits import get_can_blacklist, get_split
+import torch.nn.functional as F
+from nuscenes.nuscenes import NuScenes
+from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 
 
 class NuScenesFrameDataset(Dataset):
-    """PyTorch Dataset for nuScenes keyframes with CAN-bus action labels.
+    """
+    NuScenes dataset that loads CAM_FRONT keyframes and extracts action labels from CAN bus.
 
-    Returns
-    -------
-    Dictionary with keys:
-        image : torch.Tensor
-            Single frame (3, 224, 224) if mode="single_frame"
-            Clip (16, 3, 224, 224) if mode="clip"
-            Values in [0, 1]
-        actions : torch.Tensor
-            Normalized actions, shape (2,) → [steering_norm, accel_norm]
-            steering: clip(steeranglefeedback.value / 6.0, -1, 1)
-            accel: clip(pose.accel[0] / 10.0, -1, 1)
-        sample_token : str
-            nuScenes sample token
-        scene_name : str
-            Scene name (e.g., "scene-0001")
-        timestamp_us : int
-            Sample timestamp in microseconds
+    Supports two modes:
+    - 'frame': Returns single keyframes (default, backward compatible)
+    - 'clip': Returns 16-frame temporal sequences for video encoders
 
-    Parameters
-    ----------
-    split
-        One of: "smoke_train", "smoke_val", "smoke_test", "p0_train", "p0_val", "p0_test", "p1p2_scenes"
-        Version auto-detected from split: smoke_* → v1.0-mini, others → v1.0-trainval
-    mode
-        Either "single_frame" or "clip"
-    clip_frames
-        Number of frames for clip mode (default: 16)
-    config_path
-        Override canonical config path (primarily for testing)
+    Returns (frame mode):
+        frame: PIL Image (224x224) with geometry transforms applied
+        action: numpy array [steering, accel] normalized to [-1, 1]
+        scene_token: str
+        timestamp_us: int
 
-    Examples
-    --------
-    >>> ds = NuScenesFrameDataset(split="p0_train", mode="single_frame")
-    >>> batch = ds[0]
-    >>> batch["image"].shape, batch["actions"].shape
-    (torch.Size([3, 224, 224]), torch.Size([2]))
-
-    >>> ds_clip = NuScenesFrameDataset(split="p0_train", mode="clip")
-    >>> batch = ds_clip[0]
-    >>> batch["image"].shape
-    torch.Size([16, 3, 224, 224])
+    Returns (clip mode):
+        clip: torch.Tensor (16, 3, 224, 224) with geometry transforms applied
+        action: numpy array [steering, accel] normalized to [-1, 1]
+        scene_token: str
+        timestamp_us: int (timestamp of target/last frame)
     """
 
-    def __init__(
-        self,
-        split: str,
-        mode: str = "single_frame",
-        clip_frames: int = 16,
-        config_path: Path | str | None = None,
-    ) -> None:
-        if mode not in ("single_frame", "clip"):
-            raise ValueError(f"mode must be 'single_frame' or 'clip', got {mode}")
+    def __init__(self, dataroot: str, version: str = 'v1.0-mini', split: str = None, max_timestamp_delta_us: int = 50_000, mode: str = 'frame'):
+        """
+        Args:
+            dataroot: Path to nuScenes dataset
+            version: Dataset version (e.g., 'v1.0-mini', 'v1.0-trainval')
+            split: Optional split name (e.g., 'smoke_train', 'train', 'test'). If None, uses all scenes.
+            max_timestamp_delta_us: Maximum allowed time delta between sample and CAN message (microseconds)
+            mode: Dataset mode - 'frame' for single frames or 'clip' for 16-frame sequences
+        """
+        if mode not in ['frame', 'clip']:
+            raise ValueError(f"Invalid mode '{mode}'. Must be 'frame' or 'clip'.")
 
-        self.cfg = load_canonical(config_path)
-        self.split = split
+        self.dataroot = Path(dataroot)
+        self.max_timestamp_delta_us = max_timestamp_delta_us
         self.mode = mode
-        self.clip_frames = clip_frames
+        self.clip_length = 16
 
-        # Load nuScenes dataset
-        nuscenes_root = self.cfg.root / "data"
+        # Initialize nuScenes
+        self.nusc = NuScenes(version=version, dataroot=str(dataroot), verbose=False)
+        self.nusc_can = NuScenesCanBus(dataroot=str(dataroot))
 
-        # Auto-detect nuScenes version from split prefix
-        if split.startswith("smoke_"):
-            # smoke_* splits require v1.0-mini
-            if (nuscenes_root / "v1.0-mini").exists():
-                version = "v1.0-mini"
-            else:
-                raise FileNotFoundError(
-                    f"Split '{split}' requires v1.0-mini, but not found at {nuscenes_root / 'v1.0-mini'}"
-                )
+        # Get split definitions if split is specified
+        if split:
+            from data.splits import create_action_splits
+            splits = create_action_splits(version, self.nusc, self.nusc_can)
+            if split not in splits:
+                available_splits = ', '.join(splits.keys())
+                raise ValueError(f"Split '{split}' not found. Available splits: {available_splits}")
+            self.split_info = splits[split]
+            self.allowed_scenes = set(self.split_info['scenes'])
         else:
-            # p0_*, p1p2_* splits require v1.0-trainval
-            if (nuscenes_root / "v1.0-trainval").exists():
-                version = "v1.0-trainval"
-            elif (nuscenes_root / "v1.0-mini").exists():
-                version = "v1.0-mini"
-            else:
-                raise FileNotFoundError(
-                    f"No nuScenes dataset found at {nuscenes_root}. "
-                    "Expected v1.0-trainval or v1.0-mini directory."
-                )
+            self.split_info = None
+            self.allowed_scenes = None
 
-        # Load scene list for this split (use different methods for smoke vs benchmark splits)
-        if split.startswith("smoke_"):
-            self.scene_names = set(get_split(split, dataroot=nuscenes_root))
-        else:
-            self.scene_names = set(manifest_split(self.cfg, split))
-
-        self.nusc = NuScenes(
-            version=version,
-            dataroot=str(nuscenes_root),
-            verbose=False,
-        )
-
-        # Load CAN bus data
-        self.nusc_can = NuScenesCanBus(dataroot=str(nuscenes_root))
-
-        # Load normalization constants from config
-        self.camera = self.cfg.raw["dataset"]["camera"]
-        self.image_size = tuple(self.cfg.raw["dataset"]["image_size"])
-        self.max_can_delta_us = self.cfg.raw["dataset"]["can_bus"]["max_alignment_us"]
-
-        steer_config = self.cfg.normalization("steering")
-        accel_config = self.cfg.normalization("acceleration")
-        self.steer_divisor = steer_config["divisor"]
-        self.accel_divisor = accel_config["divisor"]
-        self.clip_range = steer_config["clip_range"]
-
-        # Build sample index
-        self.samples = self._build_sample_index()
-
-        # Transform: resize to 224x224 and convert to [0,1] tensor
-        self.transform = transforms.Compose([
-            transforms.Resize(self.image_size),
-            transforms.ToTensor(),  # Converts PIL [0,255] to tensor [0,1]
+        # Shared geometry transform: resize and center crop to 224x224
+        self.geometry_transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
         ])
 
-    def _build_sample_index(self) -> list[dict[str, Any]]:
-        """Build filtered sample index based on split, camera, CAN alignment."""
-        samples = []
-        stats = {
-            "total_keyframes": 0,
-            "dropped_scene_not_in_split": 0,
-            "dropped_blacklist": 0,
-            "dropped_missing_can": 0,
-            "dropped_no_camera": 0,
-            "dropped_can_alignment": 0,
-        }
+        # Build valid sample index
+        self.samples = self._build_sample_index()
 
-        # Get drop policy from config
-        drop_blacklisted = self.cfg.raw["dataset"]["can_bus"]["drop_blacklisted_scenes"]
+    def _build_sample_index(self):
+        """Build index of valid samples with available CAN data."""
+        valid_samples = []
 
-        # Get formatted CAN blacklist (strings: ["scene-0161", ...])
-        can_blacklist_scenes = get_can_blacklist() if drop_blacklisted else []
-
-        scenes_by_name = {s["name"]: s for s in self.nusc.scene}
-        for scene_name in self.scene_names:
-            scene = scenes_by_name.get(scene_name)
-            if scene is None: continue
-
-            scene_token = scene["token"]
-
-            # Check CAN blacklist (only if config flag is True)
-            if scene_name in can_blacklist_scenes:
-                stats["dropped_blacklist"] += 1
+        for sample in self.nusc.sample:
+            # Only use keyframes
+            if sample['prev'] == '' or sample['next'] == '':
                 continue
 
-            # Check if CAN data exists (required for action labels)
+            # Get scene information
+            scene = self.nusc.get('scene', sample['scene_token'])
+            scene_name = scene['name']
+
+            # Filter by split if specified
+            if self.allowed_scenes and scene_name not in self.allowed_scenes:
+                continue
+
+            # Skip blacklisted scenes
+            if scene_name in self.nusc_can.can_blacklist:
+                continue
+
+            # Check if CAN data exists for this scene
             try:
-                steer_msgs = self.nusc_can.get_messages(scene_name, "steeranglefeedback")
-                pose_msgs = self.nusc_can.get_messages(scene_name, "pose")
+                # Try to access CAN messages to verify availability
+                self.nusc_can.get_messages(scene_name, 'steeranglefeedback')
+                self.nusc_can.get_messages(scene_name, 'pose')
             except KeyError:
-                stats["dropped_missing_can"] += 1
+                # Scene has missing CAN data
                 continue
 
-            if len(steer_msgs) == 0 or len(pose_msgs) == 0:
-                stats["dropped_missing_can"] += 1
-                continue
+            # Get CAM_FRONT sample_data token
+            cam_front_token = sample['data']['CAM_FRONT']
+            sample_data = self.nusc.get('sample_data', cam_front_token)
 
-            # Build timestamp lookup tables for this scene
-            steer_times = np.array([msg["utime"] for msg in steer_msgs])
-            steer_values = np.array([msg["value"] for msg in steer_msgs])
-            pose_times = np.array([msg["utime"] for msg in pose_msgs])
-            pose_accels = np.array([msg["accel"][0] for msg in pose_msgs])
+            valid_samples.append({
+                'sample_token': sample['token'],
+                'sample_data_token': cam_front_token,
+                'scene_token': sample['scene_token'],
+                'scene_name': scene_name,
+                'timestamp': sample_data['timestamp'],
+            })
 
-            # Process keyframes in this scene
-            sample_token = scene["first_sample_token"]
-            while sample_token:
-                stats["total_keyframes"] += 1
-                sample = self.nusc.get("sample", sample_token)
+        return valid_samples
 
-                # Check if camera exists
-                if self.camera not in sample["data"]:
-                    stats["dropped_no_camera"] += 1
-                    sample_token = sample["next"]
-                    continue
-
-                cam_token = sample["data"][self.camera]
-                sample_timestamp = sample["timestamp"]
-
-                # Find nearest CAN messages
-                steer_idx = np.abs(steer_times - sample_timestamp).argmin()
-                pose_idx = np.abs(pose_times - sample_timestamp).argmin()
-
-                steer_delta = abs(steer_times[steer_idx] - sample_timestamp)
-                pose_delta = abs(pose_times[pose_idx] - sample_timestamp)
-
-                # Check alignment tolerance
-                max_delta = max(steer_delta, pose_delta)
-                if max_delta > self.max_can_delta_us:
-                    stats["dropped_can_alignment"] += 1
-                    sample_token = sample["next"]
-                    continue
-
-                # Extract and normalize actions
-                steer_raw = float(steer_values[steer_idx])
-                accel_raw = float(pose_accels[pose_idx])
-
-                steer_norm = np.clip(steer_raw / self.steer_divisor, *self.clip_range)
-                accel_norm = np.clip(accel_raw / self.accel_divisor, *self.clip_range)
-
-                samples.append({
-                    "sample_token": sample_token,
-                    "scene_token": scene_token,
-                    "scene_name": scene_name,
-                    "cam_token": cam_token,
-                    "timestamp_us": int(sample_timestamp),
-                    "steer_norm": float(steer_norm),
-                    "accel_norm": float(accel_norm),
-                })
-
-                sample_token = sample["next"]
-
-        self.data_quality_stats = stats
-        self.data_quality_stats["retained_samples"] = len(samples)
-
-        return samples
-
-    def _load_frame(self, cam_token: str) -> torch.Tensor:
-        """Load single keyframe image.
-
-        Returns
-        -------
-        torch.Tensor
-            Shape (3, 224, 224), values in [0, 1]
+    def _collect_clip(self, target_sample_data_token, scene_token):
         """
-        cam_data = self.nusc.get("sample_data", cam_token)
-        img_path = Path(self.nusc.dataroot) / cam_data["filename"]
+        Collect 16-frame clip ending at target frame.
 
-        from PIL import Image
-        img = Image.open(img_path).convert("RGB")
-        return self.transform(img)
+        Traverses backward through sample_data chain to collect 15 previous frames
+        plus the target frame. If fewer than 16 frames exist before scene boundary,
+        duplicates the earliest frame at the front.
 
-    def _load_clip(self, cam_token: str, clip_len: int = 16) -> torch.Tensor:
-        """Load temporal clip by traversing sample_data['prev'] links.
+        Args:
+            target_sample_data_token: Token of target keyframe (last in clip)
+            scene_token: Scene token to detect boundary crossings
 
-        Collects up to clip_len frames (12 Hz sample_data), walking backwards
-        from the target keyframe. If fewer than clip_len frames exist before
-        scene start, duplicate the earliest frame at the front.
-
-        Parameters
-        ----------
-        cam_token
-            Target keyframe camera token
-        clip_len
-            Number of frames in clip (default: 16)
-
-        Returns
-        -------
-        torch.Tensor
-            Shape (clip_len, 3, 224, 224), values in [0, 1]
-            Frames ordered oldest → newest (target frame is last)
+        Returns:
+            List of 16 dicts with keys: {'token', 'timestamp', 'filename'}
+            Ordered chronologically (oldest first, target last)
         """
         frames = []
-        current_token = cam_token
+        current_token = target_sample_data_token
 
-        # Walk backwards collecting frames
-        while current_token and len(frames) < clip_len:
-            frame = self._load_frame(current_token)
-            frames.append(frame)
+        while current_token and len(frames) < self.clip_length:
+            sample_data = self.nusc.get('sample_data', current_token)
 
-            # Move to previous frame
-            cam_data = self.nusc.get("sample_data", current_token)
-            current_token = cam_data["prev"]
+            # Check scene boundary
+            sd_sample = self.nusc.get('sample', sample_data['sample_token'])
+            if sd_sample['scene_token'] != scene_token:
+                break
 
-        # Reverse so oldest frame is first
-        frames = frames[::-1]
+            frames.append({
+                'token': sample_data['token'],
+                'timestamp': sample_data['timestamp'],
+                'filename': sample_data['filename']
+            })
 
-        # Pad with earliest frame if needed
-        if len(frames) < clip_len:
-            earliest_frame = frames[0]
-            padding_needed = clip_len - len(frames)
-            frames = [earliest_frame] * padding_needed + frames
+            current_token = sample_data['prev']
 
-        return torch.stack(frames, dim=0)
+        # Reverse to chronological order (oldest first)
+        frames.reverse()
 
-    def __len__(self) -> int:
+        # Pad if necessary by duplicating earliest frame
+        while len(frames) < self.clip_length:
+            frames.insert(0, frames[0].copy())
+
+        return frames
+
+    def _get_nearest_can_value(self, messages, timestamp_us, key):
+        """
+        Get value from CAN message nearest to the given timestamp.
+
+        Args:
+            messages: List of CAN messages with 'utime' and data fields
+            timestamp_us: Target timestamp in microseconds
+            key: Key to extract from message data
+
+        Returns:
+            value: Extracted value or None if no message within tolerance
+            delta_us: Time difference in microseconds
+        """
+        if not messages:
+            return None, None
+
+        # Find nearest message by timestamp
+        min_delta = float('inf')
+        nearest_msg = None
+
+        for msg in messages:
+            delta = abs(msg['utime'] - timestamp_us)
+            if delta < min_delta:
+                min_delta = delta
+                nearest_msg = msg
+
+        if min_delta > self.max_timestamp_delta_us:
+            return None, None
+
+        # Extract value using key
+        if key == 'value':
+            # For steeranglefeedback
+            value = nearest_msg[key]
+        elif key == 'accel':
+            # For pose - extract accel[0] (longitudinal)
+            value = nearest_msg[key][0]
+        else:
+            raise ValueError(f"Unknown key: {key}")
+
+        return value, min_delta
+
+    def _get_action_label(self, scene_name, timestamp_us):
+        """
+        Extract action labels from CAN bus data.
+
+        Args:
+            scene_name: Scene identifier
+            timestamp_us: Sample timestamp in microseconds
+
+        Returns:
+            action: numpy array [steering, accel] normalized to [-1, 1]
+                    or None if CAN data not available within tolerance
+        """
+        # Get steering angle from steeranglefeedback
+        steer_msgs = self.nusc_can.get_messages(scene_name, 'steeranglefeedback')
+        steer_value, _ = self._get_nearest_can_value(steer_msgs, timestamp_us, 'value')
+
+        if steer_value is None:
+            return None
+
+        # Get longitudinal acceleration from pose
+        pose_msgs = self.nusc_can.get_messages(scene_name, 'pose')
+        accel_value, _ = self._get_nearest_can_value(pose_msgs, timestamp_us, 'accel')
+
+        if accel_value is None:
+            return None
+
+        # Normalize steering: clip(value / 6.0, -1, 1)
+        steering_normalized = np.clip(steer_value / 6.0, -1.0, 1.0)
+
+        # Normalize acceleration: clip(accel / 10.0, -1, 1)
+        accel_normalized = np.clip(accel_value / 10.0, -1.0, 1.0)
+
+        action = np.array([steering_normalized, accel_normalized], dtype=np.float32)
+        return action
+
+    def __len__(self):
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> dict[str, Any]:
-        """Load a sample.
-
-        Returns
-        -------
-        Dictionary with keys:
-            image : torch.Tensor
-                (3, 224, 224) if mode="single_frame"
-                (clip_frames, 3, 224, 224) if mode="clip"
-            actions : torch.Tensor, shape (2,)
-            sample_token : str
-            scene_name : str
-            timestamp_us : int
+    def __getitem__(self, idx):
         """
-        record = self.samples[idx]
-        cam_token = record["cam_token"]
+        Get dataset item.
 
-        # Load image based on mode
-        if self.mode == "single_frame":
-            image = self._load_frame(cam_token)
-        else:  # mode == "clip"
-            image = self._load_clip(cam_token, clip_len=self.clip_frames)
+        Returns (frame mode):
+            frame: PIL Image (224x224) with geometry transforms applied
+            action: numpy array [steering, accel] normalized to [-1, 1]
+            scene_token: str
+            timestamp_us: int
 
-        # Actions (already normalized during indexing)
-        actions = torch.tensor(
-            [record["steer_norm"], record["accel_norm"]],
-            dtype=torch.float32,
+        Returns (clip mode):
+            clip: torch.Tensor (16, 3, 224, 224) with geometry transforms applied
+            action: numpy array [steering, accel] normalized to [-1, 1]
+            scene_token: str
+            timestamp_us: int (timestamp of target/last frame)
+        """
+        sample_info = self.samples[idx]
+
+        if self.mode == 'frame':
+            # Load CAM_FRONT image
+            sample_data = self.nusc.get('sample_data', sample_info['sample_data_token'])
+            img_path = self.dataroot / sample_data['filename']
+            frame = Image.open(img_path).convert('RGB')
+
+            # Apply shared geometry transform (resize + crop to 224x224)
+            frame = self.geometry_transform(frame)
+
+            # Get action label from CAN bus
+            action = self._get_action_label(sample_info['scene_name'], sample_info['timestamp'])
+
+            if action is None:
+                action = np.array([0.0, 0.0], dtype=np.float32)
+
+            return frame, action, sample_info['scene_token'], sample_info['timestamp']
+
+        elif self.mode == 'clip':
+            # Collect 16-frame clip
+            frames = self._collect_clip(
+                sample_info['sample_data_token'],
+                sample_info['scene_token']
+            )
+
+            # Load and transform all frames
+            clip_frames = []
+            for frame_info in frames:
+                img_path = self.dataroot / frame_info['filename']
+                img = Image.open(img_path).convert('RGB')
+                img = self.geometry_transform(img)
+                clip_frames.append(img)
+
+            # Convert to tensor: (16, 3, 224, 224)
+            to_tensor = transforms.ToTensor()
+            clip_tensor = torch.stack([to_tensor(img) for img in clip_frames])
+
+            # Get action for target frame (last frame)
+            action = self._get_action_label(sample_info['scene_name'], sample_info['timestamp'])
+
+            if action is None:
+                action = np.array([0.0, 0.0], dtype=np.float32)
+
+            return clip_tensor, action, sample_info['scene_token'], sample_info['timestamp']
+
+
+# Encoder-specific normalization wrappers
+class ClipNormalizedDataset(Dataset):
+    """Wrapper that applies CLIP normalization to frames."""
+
+    def __init__(self, base_dataset):
+        self.base_dataset = base_dataset
+        self.normalize = transforms.Normalize(
+            mean=[0.48145466, 0.4578275, 0.40821073],
+            std=[0.26862954, 0.26130258, 0.27577711]
         )
+        self.to_tensor = transforms.ToTensor()
 
-        return {
-            "image": image,
-            "actions": actions,
-            "sample_token": record["sample_token"],
-            "scene_name": record["scene_name"],
-            "timestamp_us": record["timestamp_us"],
-        }
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        frame, action, scene_token, timestamp_us = self.base_dataset[idx]
+        # Convert to tensor and normalize
+        frame = self.to_tensor(frame)
+        frame = self.normalize(frame)
+        return frame, action, scene_token, timestamp_us
 
 
-if __name__ == "__main__":
-    # Test dataset
-    print("Testing NuScenesFrameDataset...")
+class ImageNetNormalizedDataset(Dataset):
+    """Wrapper that applies ImageNet normalization to frames."""
 
-    # Test single_frame mode
-    print("\n=== Single Frame Mode ===")
-    ds_single = NuScenesFrameDataset(split="p0_train", mode="single_frame")
-    print(f"✓ Created dataset with {len(ds_single)} samples")
+    def __init__(self, base_dataset):
+        self.base_dataset = base_dataset
+        self.normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+        self.to_tensor = transforms.ToTensor()
 
-    if len(ds_single) > 0:
-        batch = ds_single[0]
-        print(f"✓ Sample 0:")
-        print(f"  image: {batch['image'].shape}, range [{batch['image'].min():.3f}, {batch['image'].max():.3f}]")
-        print(f"  actions: {batch['actions']}")
-        print(f"  scene: {batch['scene_name']}, token: {batch['sample_token'][:8]}...")
+    def __len__(self):
+        return len(self.base_dataset)
 
-    # Test clip mode
-    print("\n=== Clip Mode ===")
-    ds_clip = NuScenesFrameDataset(split="p0_train", mode="clip", clip_frames=16)
-    print(f"✓ Created dataset with {len(ds_clip)} samples")
+    def __getitem__(self, idx):
+        frame, action, scene_token, timestamp_us = self.base_dataset[idx]
+        # Convert to tensor and normalize
+        frame = self.to_tensor(frame)
+        frame = self.normalize(frame)
+        return frame, action, scene_token, timestamp_us
 
-    if len(ds_clip) > 0:
-        batch = ds_clip[0]
-        print(f"✓ Sample 0:")
-        print(f"  image: {batch['image'].shape}, range [{batch['image'].min():.3f}, {batch['image'].max():.3f}]")
-        print(f"  actions: {batch['actions']}")
-        print(f"  scene: {batch['scene_name']}, token: {batch['sample_token'][:8]}...")
+
+class VJEPANormalizedDataset(Dataset):
+    """
+    Wrapper for V-JEPA video encoder.
+
+    Applies ImageNet normalization to clip frames and optionally
+    passes through a V-JEPA encoder to produce embeddings.
+
+    For clip mode:
+        - Input: (16, 3, 224, 224) tensor
+        - Normalizes each frame with ImageNet stats
+        - If encoder provided: returns (384,) embeddings
+        - If encoder=None: returns normalized clip
+
+    For frame mode:
+        - Behaves like ImageNetNormalizedDataset
+    """
+
+    def __init__(self, base_dataset, encoder=None):
+        """
+        Args:
+            base_dataset: NuScenesFrameDataset instance
+            encoder: Optional V-JEPA encoder model
+                     Expected signature: encoder(clip) -> embeddings
+                     Input shape: (B, 16, 3, 224, 224)
+                     Output shape: (B, 384)
+        """
+        if not hasattr(base_dataset, 'mode') or base_dataset.mode not in ['frame', 'clip']:
+            raise ValueError("Base dataset must have mode='frame' or mode='clip'")
+
+        self.base_dataset = base_dataset
+        self.encoder = encoder
+        self.mode = base_dataset.mode
+
+        # ImageNet normalization (V-JEPA typically uses ImageNet stats)
+        self.normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+        self.to_tensor = transforms.ToTensor()
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        data, action, scene_token, timestamp = self.base_dataset[idx]
+
+        if self.mode == 'frame':
+            # Frame mode: apply normalization to single frame
+            frame = self.to_tensor(data)
+            frame = self.normalize(frame)
+            return frame, action, scene_token, timestamp
+
+        elif self.mode == 'clip':
+            # Clip mode: data is already tensor (16, 3, 224, 224)
+            clip = data
+
+            # Normalize each frame
+            normalized_frames = []
+            for i in range(clip.shape[0]):
+                normalized_frames.append(self.normalize(clip[i]))
+            clip_normalized = torch.stack(normalized_frames)
+
+            # If encoder provided, get embeddings
+            if self.encoder is not None:
+                # Add batch dimension: (1, 16, 3, 224, 224)
+                clip_batch = clip_normalized.unsqueeze(0)
+
+                with torch.no_grad():
+                    embeddings = self.encoder(clip_batch)
+
+                # Remove batch dimension: (384,)
+                embeddings = embeddings.squeeze(0)
+
+                return embeddings, action, scene_token, timestamp
+            else:
+                # No encoder: return normalized clip
+                return clip_normalized, action, scene_token, timestamp
+
+
+class MockVJEPAEncoder(nn.Module):
+    """Mock V-JEPA encoder for testing."""
+
+    def __init__(self, embedding_dim=384):
+        super().__init__()
+        # Simple conv + pool + fc architecture
+        self.conv = nn.Conv3d(3, 16, kernel_size=(3, 3, 3), padding=1)
+        self.pool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        self.fc = nn.Linear(16, embedding_dim)
+
+    def forward(self, x):
+        """
+        Args:
+            x: (B, 16, 3, 224, 224) clip tensor
+        Returns:
+            embeddings: (B, 384) tensor
+        """
+        # Rearrange to (B, C, T, H, W)
+        x = x.permute(0, 2, 1, 3, 4)
+
+        x = self.conv(x)
+        x = F.relu(x)
+        x = self.pool(x)
+        x = x.flatten(1)
+        x = self.fc(x)
+
+        return x

@@ -1,353 +1,235 @@
-"""Split generation for nuScenes dataset.
+"""NuScenes action prediction dataset splits."""
 
-**For v1.0-mini (smoke tests):** Use `get_split()` for dynamic generation.
-**For v1.0-trainval (benchmarks):** Use `get_split_from_canonical()` with canonical manifest.
-
-All splits are deterministic and verified for no scene overlap.
-
-Example usage:
-    >>> from data.splits import get_split_from_canonical
-    >>> # Benchmark splits (v1.0-trainval)
-    >>> p0_train = get_split_from_canonical("p0_train")
-    >>> len(p0_train)
-    180
-    >>>
-    >>> # Smoke splits (v1.0-mini, internal dev only)
-    >>> from data.splits import get_split
-    >>> smoke_train_scenes = get_split("smoke_train", dataroot="data")
-    >>> len(smoke_train_scenes)
-    8
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-from typing import Literal
-
-import numpy as np
-from nuscenes.can_bus.can_bus_api import NuScenesCanBus
+from typing import Dict, List
+import random
 from nuscenes.nuscenes import NuScenes
+from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.utils.splits import create_splits_scenes
 
-SplitName = Literal[
-    "smoke_train",
-    "smoke_val",
-    "smoke_test",  # v1.0-mini only
-]
 
-
-def get_can_blacklist() -> list[str]:
-    """Return list of CAN-blacklisted scene names.
-
-    Returns
-    -------
-    list[str]
-        Scene names (e.g., ``["scene-0161", "scene-0162", ...]``) for scenes
-        without CAN bus data, pulled from the installed devkit version.
-
-    Notes
-    -----
-    Reads from ``nuscenes.can_bus.can_bus_api.NuScenesCanBus.can_blacklist``.
-    As of devkit 1.1.x, this includes scene IDs: 161-176 except 169, and 309-314.
-
-    This function creates a minimal temporary directory structure to instantiate
-    the devkit without requiring the full nuScenes dataset.
-    """
-    import shutil
-    import tempfile
-
-    # Create minimal structure to instantiate NuScenesCanBus
-    tmpdir = Path(tempfile.mkdtemp())
-    try:
-        (tmpdir / "can_bus").mkdir()
-        nusc_can = NuScenesCanBus(dataroot=str(tmpdir))
-        return [f"scene-{scene_id:04d}" for scene_id in nusc_can.can_blacklist]
-    finally:
-        shutil.rmtree(tmpdir)
-
-
-def filter_scenes_by_can(
-    scene_names: list[str],
-    nusc_can: NuScenesCanBus,
-) -> tuple[list[str], list[str]]:
-    """Filter scenes that have required CAN messages.
-
-    Parameters
-    ----------
-    scene_names
-        List of scene names to filter.
-    nusc_can
-        NuScenesCanBus instance for checking CAN message availability.
-
-    Returns
-    -------
-    kept_scenes : list[str]
-        Scenes with valid CAN data (steeranglefeedback and pose messages).
-    dropped_scenes : list[str]
-        Scenes without valid CAN data or in the blacklist.
-
-    Notes
-    -----
-    A scene is kept if:
-      1. Not in CAN blacklist
-      2. Has "steeranglefeedback" messages
-      3. Has "pose" messages
-    """
-    can_blacklist = get_can_blacklist()
-    kept, dropped = [], []
-
-    for scene_name in scene_names:
-        if scene_name in can_blacklist:
-            dropped.append(scene_name)
-            continue
-
-        try:
-            # Check if required CAN messages exist
-            nusc_can.get_messages(scene_name, "steeranglefeedback")
-            nusc_can.get_messages(scene_name, "pose")
-            kept.append(scene_name)
-        except KeyError:
-            # Scene doesn't have required CAN messages
-            dropped.append(scene_name)
-
-    return kept, dropped
-
-
-def generate_mini_splits(
+def create_action_splits(
+    version: str,
     nusc: NuScenes,
-    seed: int = 42,
-) -> dict[str, list[str]]:
-    """Generate smoke splits from v1.0-mini.
-
-    Parameters
-    ----------
-    nusc
-        NuScenes instance with ``version='v1.0-mini'``.
-    seed
-        Random seed for deterministic split of ``mini_val`` into val/test.
-
-    Returns
-    -------
-    dict[str, list[str]]
-        Keys: ``"smoke_train"``, ``"smoke_val"``, ``"smoke_test"``.
-        Values: Lists of scene names.
-
-    Notes
-    -----
-    - ``smoke_train``: 8 scenes from nuScenes official ``mini_train``
-    - ``smoke_val``: 1 scene from nuScenes official ``mini_val`` (1st after shuffle)
-    - ``smoke_test``: 1 scene from nuScenes official ``mini_val`` (2nd after shuffle)
+    nusc_can: NuScenesCanBus
+) -> Dict[str, Dict[str, any]]:
     """
-    if nusc.version != "v1.0-mini":
-        raise ValueError(
-            f"Expected v1.0-mini, got {nusc.version}. "
-            "Use generate_trainval_splits() for v1.0-trainval."
-        )
+    Create dataset splits for action prediction with CAN blacklist filtering.
 
+    Args:
+        version: Dataset version ('v1.0-mini' or 'v1.0-trainval')
+        nusc: NuScenes instance
+        nusc_can: NuScenesCanBus instance
+
+    Returns:
+        Dictionary mapping split names to split info:
+        {
+            'split_name': {
+                'scenes': List[str],  # Scene names
+                'num_scenes': int,
+                'num_frames': int
+            }
+        }
+
+    Raises:
+        ValueError: If version is not supported
+    """
+    if version not in ['v1.0-mini', 'v1.0-trainval']:
+        raise ValueError(f"Unsupported version: {version}. Use 'v1.0-mini' or 'v1.0-trainval'")
+
+    # Get official NuScenes splits
     official_splits = create_splits_scenes()
-    smoke_train = official_splits["mini_train"]  # 8 scenes
-    mini_val = official_splits["mini_val"]  # 2 scenes
 
-    # Deterministically split mini_val into smoke_val (1 scene) and smoke_test (1 scene)
-    rng = np.random.default_rng(seed)
-    shuffled = list(mini_val)
-    rng.shuffle(shuffled)
+    # Get CAN blacklist scene names
+    blacklist = _get_can_blacklist_scene_names(nusc_can)
 
-    smoke_val = shuffled[:1]
-    smoke_test = shuffled[1:]
+    # Create version-specific splits
+    if version == 'v1.0-mini':
+        splits = _create_mini_splits(official_splits, blacklist, nusc)
+    else:  # v1.0-trainval
+        splits = _create_trainval_splits(official_splits, blacklist, nusc)
+
+    # Validate splits
+    _validate_splits(splits)
+
+    return splits
+
+
+def _get_can_blacklist_scene_names(nusc_can: NuScenesCanBus) -> List[str]:
+    """
+    Convert CAN blacklist scene numbers to scene names.
+
+    Args:
+        nusc_can: NuScenesCanBus instance
+
+    Returns:
+        List of blacklisted scene names (e.g., ['scene-0161', 'scene-0162', ...])
+    """
+    blacklist_scene_names = [f"scene-{num:04d}" for num in nusc_can.can_blacklist]
+    return blacklist_scene_names
+
+
+def _count_frames_in_scenes(nusc: NuScenes, scene_names: List[str]) -> int:
+    """
+    Count total frames (samples) across given scenes.
+
+    Args:
+        nusc: NuScenes instance
+        scene_names: List of scene names
+
+    Returns:
+        Total number of samples/frames
+
+    Raises:
+        ValueError: If a scene is not found in the dataset
+    """
+    # Create scene name to scene object mapping
+    scene_map = {scene['name']: scene for scene in nusc.scene}
+
+    total_frames = 0
+    for scene_name in scene_names:
+        scene = scene_map.get(scene_name)
+        if scene is None:
+            raise ValueError(f"Scene {scene_name} not found in dataset")
+        total_frames += scene['nbr_samples']
+
+    return total_frames
+
+
+def _validate_splits(splits: Dict[str, Dict[str, any]]) -> None:
+    """
+    Validate that no scene appears in multiple splits.
+
+    Args:
+        splits: Dictionary of split definitions
+
+    Raises:
+        ValueError: If validation fails (scene in multiple splits or invalid frame count)
+    """
+    all_scenes = {}
+
+    for split_name, split_info in splits.items():
+        for scene_name in split_info['scenes']:
+            if scene_name in all_scenes:
+                raise ValueError(
+                    f"Scene {scene_name} appears in both "
+                    f"{all_scenes[scene_name]} and {split_name}"
+                )
+            all_scenes[scene_name] = split_name
+
+    # Verify frame counts are positive
+    for split_name, split_info in splits.items():
+        if split_info['num_frames'] <= 0:
+            raise ValueError(
+                f"Split {split_name} has {split_info['num_frames']} frames"
+            )
+
+
+def _create_mini_splits(
+    official_splits: Dict[str, List[str]],
+    blacklist: List[str],
+    nusc: NuScenes
+) -> Dict[str, Dict[str, any]]:
+    """
+    Create smoke test splits from v1.0-mini.
+
+    Args:
+        official_splits: Official NuScenes split definitions
+        blacklist: List of blacklisted scene names
+        nusc: NuScenes instance
+
+    Returns:
+        Dictionary with smoke_train, smoke_val, smoke_test splits
+    """
+    # smoke_train: use mini_train as-is (8 scenes)
+    smoke_train_scenes = official_splits['mini_train']
+
+    # smoke_val + smoke_test: split mini_val deterministically (2 scenes → 1 each)
+    mini_val_scenes = sorted(official_splits['mini_val'])  # Deterministic ordering
+
+    # Save and restore random state to avoid side effects
+    random_state = random.getstate()
+    random.seed(42)
+    random.shuffle(mini_val_scenes)
+    random.setstate(random_state)
+
+    # With 2 scenes: [0] goes to val, [1] goes to test
+    smoke_val_scenes = [mini_val_scenes[0]]
+    smoke_test_scenes = [mini_val_scenes[1]]
 
     return {
-        "smoke_train": smoke_train,
-        "smoke_val": smoke_val,
-        "smoke_test": smoke_test,
+        'smoke_train': {
+            'scenes': smoke_train_scenes,
+            'num_scenes': len(smoke_train_scenes),
+            'num_frames': _count_frames_in_scenes(nusc, smoke_train_scenes)
+        },
+        'smoke_val': {
+            'scenes': smoke_val_scenes,
+            'num_scenes': len(smoke_val_scenes),
+            'num_frames': _count_frames_in_scenes(nusc, smoke_val_scenes)
+        },
+        'smoke_test': {
+            'scenes': smoke_test_scenes,
+            'num_scenes': len(smoke_test_scenes),
+            'num_frames': _count_frames_in_scenes(nusc, smoke_test_scenes)
+        }
     }
 
 
-
-
-def verify_no_overlap(splits: dict[str, list[str]]) -> None:
-    """Verify no scene appears in multiple splits.
-
-    Parameters
-    ----------
-    splits
-        Dictionary mapping split names to scene name lists.
-
-    Raises
-    ------
-    ValueError
-        If any scene appears in more than one split.
-
-    Examples
-    --------
-    >>> splits = {"train": ["scene-0001"], "val": ["scene-0002"]}
-    >>> verify_no_overlap(splits)  # OK, no overlap
-    >>> splits = {"train": ["scene-0001"], "val": ["scene-0001"]}
-    >>> verify_no_overlap(splits)  # Raises ValueError
+def _create_trainval_splits(
+    official_splits: Dict[str, List[str]],
+    blacklist: List[str],
+    nusc: NuScenes
+) -> Dict[str, Dict[str, any]]:
     """
-    all_scenes = []
-    for split_name, scenes in splits.items():
-        all_scenes.extend([(scene, split_name) for scene in scenes])
+    Create benchmark splits from v1.0-trainval.
 
-    scene_counts = {}
-    for scene, split_name in all_scenes:
-        if scene not in scene_counts:
-            scene_counts[scene] = []
-        scene_counts[scene].append(split_name)
+    Args:
+        official_splits: Official NuScenes split definitions
+        blacklist: List of blacklisted scene names
+        nusc: NuScenes instance
 
-    overlaps = {
-        scene: split_list
-        for scene, split_list in scene_counts.items()
-        if len(split_list) > 1
+    Returns:
+        Dictionary with train, internal_val, test splits
+    """
+    blacklist_set = set(blacklist)
+
+    # Filter train scenes (remove CAN blacklist)
+    train_scenes_filtered = [
+        s for s in official_splits['train']
+        if s not in blacklist_set
+    ]
+
+    # Save and restore random state to avoid side effects
+    random_state = random.getstate()
+    random.seed(42)
+    random.shuffle(train_scenes_filtered)
+    random.setstate(random_state)
+
+    # Split 90/10
+    split_idx = int(0.9 * len(train_scenes_filtered))
+    train_scenes = train_scenes_filtered[:split_idx]
+    internal_val_scenes = train_scenes_filtered[split_idx:]
+
+    # Test: use official val after CAN filtering
+    test_scenes = [
+        s for s in official_splits['val']
+        if s not in blacklist_set
+    ]
+
+    return {
+        'train': {
+            'scenes': train_scenes,
+            'num_scenes': len(train_scenes),
+            'num_frames': _count_frames_in_scenes(nusc, train_scenes)
+        },
+        'internal_val': {
+            'scenes': internal_val_scenes,
+            'num_scenes': len(internal_val_scenes),
+            'num_frames': _count_frames_in_scenes(nusc, internal_val_scenes)
+        },
+        'test': {
+            'scenes': test_scenes,
+            'num_scenes': len(test_scenes),
+            'num_frames': _count_frames_in_scenes(nusc, test_scenes)
+        }
     }
-    if overlaps:
-        raise ValueError(f"Scene overlap detected: {overlaps}")
-
-
-def get_split_from_canonical(
-    split_name: str,
-    config_path: Path | str | None = None,
-) -> list[str]:
-    """Get scene names from canonical manifest (configs/trainval_subset_manifest.json).
-
-    Parameters
-    ----------
-    split_name
-        One of: ``"p0_train"``, ``"p0_val"``, ``"p0_test"``, ``"p1p2_scenes"``, ``"p0_all"``.
-    config_path
-        Optional path to canonical.yaml. Defaults to repo root config.
-
-    Returns
-    -------
-    list[str]
-        Scene names from the canonical manifest.
-
-    Notes
-    -----
-    This uses the pre-computed, SHA256-verified manifest from the canonical config.
-    Use this for reproducibility and alignment with the benchmark paper.
-
-    For development/smoke testing with v1.0-mini, use :func:`get_split` instead.
-
-    Examples
-    --------
-    >>> p0_train = get_split_from_canonical("p0_train")
-    >>> len(p0_train)
-    180
-    """
-    from config import load_canonical, manifest_split
-
-    cfg = load_canonical(config_path)
-    return manifest_split(cfg, split_name)
-
-
-def get_split(
-    split_name: SplitName,
-    dataroot: str | Path,
-    seed: int = 42,
-) -> list[str]:
-    """Get scene names for v1.0-mini smoke splits.
-
-    For v1.0-trainval benchmark splits, use :func:`get_split_from_canonical` instead.
-
-    Parameters
-    ----------
-    split_name
-        One of: ``"smoke_train"``, ``"smoke_val"``, ``"smoke_test"`` (v1.0-mini only).
-    dataroot
-        Path to nuScenes dataset root (must contain ``v1.0-mini``).
-    seed
-        Random seed for deterministic splits (default 42).
-
-    Returns
-    -------
-    list[str]
-        Scene names for the requested split.
-
-    Raises
-    ------
-    ValueError
-        If split_name is invalid or scene overlap detected.
-    FileNotFoundError
-        If v1.0-mini not found at dataroot.
-
-    Examples
-    --------
-    >>> smoke_train = get_split("smoke_train", dataroot="data")
-    >>> len(smoke_train)
-    8
-
-    Notes
-    -----
-    Smoke splits are for rapid development iteration only. For benchmark results,
-    use ``get_split_from_canonical("p0_train")`` which loads the canonical manifest.
-    """
-    dataroot = Path(dataroot)
-
-    # v1.0-mini splits only
-    if not (dataroot / "v1.0-mini").exists():
-        raise FileNotFoundError(
-            f"v1.0-mini not found at {dataroot}. "
-            f"Smoke splits require v1.0-mini dataset."
-        )
-
-    nusc = NuScenes(version="v1.0-mini", dataroot=str(dataroot), verbose=False)
-    splits = generate_mini_splits(nusc, seed)
-
-    # Verify no overlap
-    verify_no_overlap(splits)
-
-    return splits[split_name]
-
-
-def count_samples_per_split(
-    nusc: NuScenes,
-    splits: dict[str, list[str]],
-) -> dict[str, dict[str, int]]:
-    """Count total samples (keyframes) per split.
-
-    Parameters
-    ----------
-    nusc
-        NuScenes instance.
-    splits
-        Dictionary mapping split names to scene name lists.
-
-    Returns
-    -------
-    dict[str, dict[str, int]]
-        Nested dict: ``{split_name: {"scenes": count, "samples": count}}``.
-
-    Examples
-    --------
-    >>> nusc = NuScenes(version="v1.0-mini", dataroot="data", verbose=False)
-    >>> splits = generate_mini_splits(nusc, seed=42)
-    >>> counts = count_samples_per_split(nusc, splits)
-    >>> counts["smoke_train"]["scenes"]
-    8
-    >>> 300 < counts["smoke_train"]["samples"] < 350
-    True
-    """
-    counts = {}
-    for split_name, scene_names in splits.items():
-        scene_count = len(scene_names)
-        sample_count = 0
-
-        for scene_name in scene_names:
-            # Find scene record
-            scene = next((s for s in nusc.scene if s["name"] == scene_name), None)
-            if scene is None:
-                continue
-
-            # Count samples (keyframes) in this scene
-            sample_token = scene["first_sample_token"]
-            while sample_token:
-                sample_count += 1
-                sample = nusc.get("sample", sample_token)
-                sample_token = sample["next"]
-
-        counts[split_name] = {"scenes": scene_count, "samples": sample_count}
-
-    return counts
-
-
