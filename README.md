@@ -86,6 +86,60 @@ The full nuScenes dataset (raw images, CAN bus expansion) is referenced via
 `$NUSCENES_DATAROOT`; see `data/dataset.py` (forthcoming, M2 task B3) for
 the loader.
 
+## Dataset Splits
+
+This project supports two split configurations:
+
+### Smoke Splits (v1.0-mini)
+Fast iteration and smoke testing during development.
+
+- **smoke_train**: 8 scenes from nuScenes `mini_train`
+- **smoke_val**: 1 scene from nuScenes `mini_val` (deterministic split, seed 42)
+- **smoke_test**: 1 scene from nuScenes `mini_val` (deterministic split, seed 42)
+
+### Benchmark Splits (v1.0-trainval)
+Canonical splits from the project manifest (see `configs/canonical.yaml`).
+
+- **p0_train**: 180 scenes (frozen subset for Phase 0 benchmark)
+- **p0_val**: 20 scenes (frozen subset for Phase 0 validation)
+- **p0_test**: 40 scenes (frozen subset for Phase 0 evaluation)
+- **p1p2_scenes**: 80 additional scenes (reserved for future phases)
+
+**CAN Filtering**: Pre-applied in canonical manifest. Scenes without CAN bus data are excluded.
+
+**Verification**: All splits are SHA256-verified against the canonical manifest.
+
+### Usage
+
+```python
+from data.splits import get_split_from_canonical
+from data import NuScenesFrameDataset
+
+# Get canonical benchmark splits
+p0_train_scenes = get_split_from_canonical("p0_train")
+p0_val_scenes = get_split_from_canonical("p0_val")
+
+# Or use the dataset directly (canonical splits only)
+train_dataset = NuScenesFrameDataset(split="p0_train", mode="single_frame")
+```
+
+**Note**: For smoke testing during development, v1.0-mini splits are available via internal API.
+
+### Split Statistics
+
+| Split | Scenes | Samples |
+|-------|--------|---------|
+| **Smoke (v1.0-mini)** | | |
+| smoke_train | 8 | 323 |
+| smoke_val | 1 | 41 |
+| smoke_test | 1 | 40 |
+| **Benchmark (v1.0-trainval)** | | |
+| p0_train | 180 | ~18,000 |
+| p0_val | 20 | ~2,000 |
+| p0_test | 40 | ~4,000 |
+
+*Note: Benchmark sample counts are approximate (depends on CAN alignment filtering).*
+
 ## Branching
 
 | Branch | Owner | Scope |
