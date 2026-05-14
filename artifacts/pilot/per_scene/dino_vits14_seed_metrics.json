@@ -1,0 +1,32 @@
+[
+  {
+    "encoder": "dino_vits14",
+    "fold_id": 0,
+    "seed": 42,
+    "num_test_frames": 586,
+    "val_steer_rmse": 0.15318627655506134,
+    "val_accel_rmse": 0.07164536416530609,
+    "test_steer_rmse": 0.1402803510427475,
+    "test_accel_rmse": 0.08575429767370224
+  },
+  {
+    "encoder": "dino_vits14",
+    "fold_id": 0,
+    "seed": 43,
+    "num_test_frames": 586,
+    "val_steer_rmse": 0.1526033580303192,
+    "val_accel_rmse": 0.07346857339143753,
+    "test_steer_rmse": 0.15091457962989807,
+    "test_accel_rmse": 0.08244026452302933
+  },
+  {
+    "encoder": "dino_vits14",
+    "fold_id": 0,
+    "seed": 44,
+    "num_test_frames": 586,
+    "val_steer_rmse": 0.15594051778316498,
+    "val_accel_rmse": 0.08106117695569992,
+    "test_steer_rmse": 0.13580603897571564,
+    "test_accel_rmse": 0.09577558189630508
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "encoder": "clip_b32",
+    "fold_id": 0,
+    "seed": 42,
+    "num_test_frames": 586,
+    "val_steer_rmse": 0.1423385888338089,
+    "val_accel_rmse": 0.069493368268013,
+    "test_steer_rmse": 0.13653959333896637,
+    "test_accel_rmse": 0.07543361186981201
+  },
+  {
+    "encoder": "clip_b32",
+    "fold_id": 0,
+    "seed": 43,
+    "num_test_frames": 586,
+    "val_steer_rmse": 0.14704185724258423,
+    "val_accel_rmse": 0.06848549842834473,
+    "test_steer_rmse": 0.1349487453699112,
+    "test_accel_rmse": 0.07428068667650223
+  },
+  {
+    "encoder": "clip_b32",
+    "fold_id": 0,
+    "seed": 44,
+    "num_test_frames": 586,
+    "val_steer_rmse": 0.14641764760017395,
+    "val_accel_rmse": 0.06573906540870667,
+    "test_steer_rmse": 0.136165589094162,
+    "test_accel_rmse": 0.07419294118881226
+  }
+]
