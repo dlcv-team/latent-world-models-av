@@ -1,50 +1,35 @@
+# Data files - exclude large datasets but keep Python code
+data/maps/
+data/sweeps/
+data/can_bus/
+data/samples/
+data/v1.0-*/
+data/prediction/
+*.png
+*.json
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+env/
+venv/
 *.egg-info/
-.eggs/
-build/
 dist/
+build/
+
+# Testing
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .coverage
 htmlcov/
-
-# Virtual envs
-.venv/
-venv/
-env/
 
 # IDE
 .vscode/
 .idea/
 *.swp
+*.swo
+
+# OS
 .DS_Store
-CLAUDE.md
-
-# Project outputs (large; not committed)
-outputs/
-data/raw/
-data/processed/
-data/cache/
-*.npz
-*.pt
-*.ckpt
-*.pth
-
-# nuScenes dataset files (large; not committed)
-data/sweeps/
-data/can_bus/
-data/samples/
-data/maps/
-data/v1.0-*/
-data/prediction/
-
-# Logs
-*.log
-wandb/
-
-# PRD documentation
-docs/prd/
