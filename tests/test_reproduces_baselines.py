@@ -12,12 +12,25 @@ correct response is to investigate before updating the fixture.
 
 from __future__ import annotations
 
+import csv
 import math
+from pathlib import Path
 
 import pytest
 
 
 REQUIRED_TOP = {"version", "subset", "encoders", "paired_tests", "p1", "tolerance"}
+
+# Canonical-config encoder key -> pilot-artifact row name. The pilot
+# CSVs use the longer "pilot names" because that's what the canonical-
+# closure files in artifacts/pilot/ carry on every row.
+_CANONICAL_TO_PILOT_NAME = {
+    "vit_s16": "vit_s16",
+    "dinov2_s14": "dino_vits14",
+    "clip_b32": "clip_b32",
+    "vqvae": "vq_track",
+    "vjepa2": "vjepa2_rep64",
+}
 
 
 def test_pilot_baselines_well_formed(pilot_baselines):
@@ -84,4 +97,43 @@ def test_pilot_p1_delta_cossim_within_pinned_envelope(pilot_baselines):
         assert abs(expected) < 0.01, (
             f"P1 horizon {horizon} expected delta {expected} is unexpectedly "
             "large; either the fixture is wrong or P1 substance has changed."
+        )
+
+
+def test_pilot_baselines_match_in_repo_canonical_closure(cfg, pilot_baselines):
+    """Each pinned ``expected`` value must agree with the in-repo
+    canonical-closure pilot artifact within ``rmse_abs_atol``.
+
+    Locks the fixture to the on-disk pilot summary so a future drift
+    between the two sources is caught at CI time rather than at figure
+    rendering time. Skips cleanly when the in-repo pilot CSV is missing
+    (e.g. a partial checkout), so the fixture's other invariants still
+    run.
+    """
+    pilot_csv = (
+        cfg.root
+        / "artifacts" / "pilot" / "canonical_closure"
+        / "encoder_summary_with_ci_5enc.csv"
+    )
+    if not pilot_csv.exists():
+        pytest.skip(f"in-repo pilot summary not present at {pilot_csv}")
+
+    pilot_rows: dict[str, float] = {}
+    with pilot_csv.open() as fh:
+        for row in csv.DictReader(fh):
+            pilot_rows[row["encoder"]] = float(row["steer_rmse_scene_mean"])
+
+    atol = float(pilot_baselines["tolerance"]["rmse_abs_atol"])
+    for canonical_key, pinned in pilot_baselines["encoders"].items():
+        pilot_name = _CANONICAL_TO_PILOT_NAME[canonical_key]
+        assert pilot_name in pilot_rows, (
+            f"canonical encoder {canonical_key!r} maps to pilot name "
+            f"{pilot_name!r}, which is missing from {pilot_csv}"
+        )
+        expected = pinned["steer_rmse_scene_mean"]["expected"]
+        actual = pilot_rows[pilot_name]
+        assert abs(expected - actual) < atol, (
+            f"{canonical_key}: pinned expected {expected} drifted from "
+            f"in-repo pilot {actual} (atol={atol}); re-pin the fixture "
+            "or investigate the drift before merging."
         )
