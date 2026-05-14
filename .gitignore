@@ -34,6 +34,11 @@ data/cache/
 *.ckpt
 *.pth
 
+# Exception: pilot artifacts under artifacts/pilot/ are committed
+# as canonical inputs for analysis, figures, and the latent predictor.
+!artifacts/pilot/embeddings/*.npz
+!artifacts/pilot/smoke/*.npz
+
 # nuScenes dataset files (large; not committed)
 data/sweeps/
 data/can_bus/
