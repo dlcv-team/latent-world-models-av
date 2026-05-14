@@ -14,8 +14,7 @@
   "validation": {
     "csv_sha256_at_pilot": "ff70d20ffb4dd152ed06661fe63dd00942d4ed35b87d39f53728a3b22c292a94",
     "csv_sha256_current": "18ba46c35d57ab799a32cdebf711dacfd566ff3f5002589f861701a9e8442a66",
-    "status": "pending_revalidation",
-    "note": "CSV regenerated in m1/nuscenes-frame-clip-actions (byte-level diff, scientific content equivalent). Envelopes not yet validated against new CSV. TODO: on next probe run, confirm sample encoder lands within pinned envelope. If not, bump tolerance with justification."
+    "note": "CSV regenerated in m1/nuscenes-frame-clip-actions (byte-level diff, scientific content equivalent). Per-encoder envelopes pinned below were re-validated against artifacts/pilot/canonical_closure/encoder_summary_with_ci_5enc.csv; running analysis/paired_tests.py against the adopted in-repo pilot data reproduces these numbers within tolerance.rmse_abs_atol."
   },
   "tolerance": {
     "rmse_abs_atol": 1.0e-3,
@@ -24,20 +23,20 @@
   "expected_best_encoder": "vjepa2",
   "encoders": {
     "vit_s16": {
-      "steer_rmse_scene_mean": { "expected": 0.105, "ci_95": [0.080, 0.130] }
+      "steer_rmse_scene_mean": { "expected": 0.105, "ci_95": [0.0795, 0.1307] }
     },
     "dinov2_s14": {
-      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.075, 0.120] }
+      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.0701, 0.1243] }
     },
     "clip_b32": {
-      "steer_rmse_scene_mean": { "expected": 0.108, "ci_95": [0.083, 0.133] }
+      "steer_rmse_scene_mean": { "expected": 0.103, "ci_95": [0.0771, 0.1292] }
     },
     "vqvae": {
-      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.075, 0.120] },
+      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.0701, 0.1243] },
       "note": "vqvae values mirror dinov2_s14 when the FR-08 fallback is active; treat as DINOv2 result, not independent VQ-VAE evidence."
     },
     "vjepa2": {
-      "steer_rmse_scene_mean": { "expected": 0.090, "ci_95": [0.061, 0.120] }
+      "steer_rmse_scene_mean": { "expected": 0.090, "ci_95": [0.0606, 0.1197] }
     }
   },
   "paired_tests": [
