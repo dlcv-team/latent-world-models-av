@@ -64,14 +64,32 @@ class EncoderSpec:
     class_name: str
     mode: str  # "single_frame" or "clip"
     pilot_name: str  # name used in pilot artifacts + canonical output paths
+    pretrained_weights_id: str  # upstream weights identifier (timm tag,
+    #                            # torch.hub name, HF repo, or open_clip
+    #                            # pretrained tag)
 
 
 ENCODER_REGISTRY: dict[str, EncoderSpec] = {
-    "vits16": EncoderSpec("encoders.vits16", "ViTS16Wrapper", "single_frame", "vit_s16"),
-    "dinov2": EncoderSpec("encoders.dinov2", "DINOv2S14Wrapper", "single_frame", "dino_vits14"),
-    "clip": EncoderSpec("encoders.clip_enc", "CLIPB32Wrapper", "single_frame", "clip_b32"),
-    "vqvae": EncoderSpec("encoders.vqvae", "VQVAEWrapper", "single_frame", "vq_track"),
-    "vjepa2": EncoderSpec("encoders.vjepa2", "VJEPA2Wrapper", "clip", "vjepa2_rep64"),
+    "vits16": EncoderSpec(
+        "encoders.vits16", "ViTS16Wrapper", "single_frame", "vit_s16",
+        "vit_small_patch16_224",
+    ),
+    "dinov2": EncoderSpec(
+        "encoders.dinov2", "DINOv2S14Wrapper", "single_frame", "dino_vits14",
+        "dinov2_vits14",
+    ),
+    "clip": EncoderSpec(
+        "encoders.clip_enc", "CLIPB32Wrapper", "single_frame", "clip_b32",
+        "openai",
+    ),
+    "vqvae": EncoderSpec(
+        "encoders.vqvae", "VQVAEWrapper", "single_frame", "vq_track",
+        "vqgan-imagenet-f16-16384",
+    ),
+    "vjepa2": EncoderSpec(
+        "encoders.vjepa2", "VJEPA2Wrapper", "clip", "vjepa2_rep64",
+        "facebook/vjepa2-vitl-fpc64-256",
+    ),
 }
 
 
@@ -263,6 +281,7 @@ def write_provenance(
         "encoder_name": encoder_name,
         "pilot_name": spec.pilot_name,
         "wrapper_class": spec.class_name,
+        "pretrained_weights_id": spec.pretrained_weights_id,
         "pretrained": bool(pretrained),
         "config_version": cfg.version,
         "manifest_sha256": cfg.manifest_sha256,
