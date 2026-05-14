@@ -260,6 +260,7 @@ def test_provenance_schema_for_vits16(tmp_path, monkeypatch):
         "encoder_name",
         "pilot_name",
         "wrapper_class",
+        "pretrained_weights_id",
         "pretrained",
         "config_version",
         "manifest_sha256",
@@ -273,6 +274,7 @@ def test_provenance_schema_for_vits16(tmp_path, monkeypatch):
     assert set(payload.keys()) == expected_keys
     assert payload["encoder_name"] == "vits16"
     assert payload["pilot_name"] == "vit_s16"
+    assert payload["pretrained_weights_id"] == "vit_small_patch16_224"
     assert payload["fallback_caveat"] == ""  # no caveat for non-VQ
     assert payload["pretrained"] is True
     assert payload["seed"] == 42
@@ -318,18 +320,47 @@ def test_main_rejects_unknown_encoder():
         tp.main(["--encoder", "bogus", "--no-pretrained", "--epochs", "1"])
 
 
+@pytest.mark.parametrize(
+    "cli_name,pilot_name",
+    [
+        ("vits16", "vit_s16"),
+        ("vqvae", "vq_track"),
+        ("vjepa2", "vjepa2_rep64"),
+    ],
+)
 def test_main_smoke_with_pretrained_false_synthetic_data(
-    tmp_path, patched_dataset, monkeypatch
+    cli_name, pilot_name, tmp_path, patched_dataset
 ):
-    """End-to-end smoke: --no-pretrained, 1 epoch, tiny synthetic data.
+    """End-to-end smoke: ``--no-pretrained``, 1 epoch, synthetic data.
 
-    Verifies all four sidecars are written and parseable.
+    Parametrized across three encoders that exercise distinct CLI paths:
+
+    * ``vits16`` — single-frame baseline, no adapter, no fallback.
+    * ``vqvae`` — triggers the FR-08 DINOv2 fallback; checks
+      ``fallback_caveat`` persistence into provenance.
+    * ``vjepa2`` — runs in ``mode="clip"`` (5-D ``(B, T, 3, H, W)``
+      batches); exercises the V-JEPA-specific dataset stub path.
+
+    ``dinov2`` and ``clip`` are intentionally excluded — they exercise
+    the same CLI code path as ``vits16`` (single-frame, no fallback)
+    and are already covered by the construction tests.
+
+    Skips cleanly when the wrapper can't construct (e.g. no network or
+    HF cache for V-JEPA's config, or no torch-hub cache for the DINOv2
+    fallback that VQ-VAE pulls in).
     """
+    try:
+        tp.build_encoder(cli_name, pretrained=False)
+    except Exception as exc:
+        pytest.skip(
+            f"{cli_name} construction failed (likely no network/cache): {exc}"
+        )
+
     out_root = tmp_path / "outputs" / "probes"
     rc = tp.main(
         [
             "--encoder",
-            "vits16",
+            cli_name,
             "--no-pretrained",
             "--epochs",
             "1",
@@ -345,7 +376,7 @@ def test_main_smoke_with_pretrained_false_synthetic_data(
     )
     assert rc == 0
 
-    enc_dir = out_root / "vit_s16"
+    enc_dir = out_root / pilot_name
     assert (enc_dir / "train_log.csv").exists()
     assert (enc_dir / "checkpoint.pt").exists()
     assert (enc_dir / "per_scene_rmse.csv").exists()
@@ -357,11 +388,24 @@ def test_main_smoke_with_pretrained_false_synthetic_data(
 
     ckpt = torch.load(enc_dir / "checkpoint.pt", map_location="cpu", weights_only=False)
     assert "probe_state_dict" in ckpt
-    assert ckpt["pilot_name"] == "vit_s16"
+    assert ckpt["pilot_name"] == pilot_name
 
     payload = json.loads((enc_dir / "provenance.json").read_text())
     assert payload["pretrained"] is False
     assert payload["seed"] == 42  # from canonical config (global_seed)
+    assert payload["pilot_name"] == pilot_name
+    assert (
+        payload["pretrained_weights_id"]
+        == tp.ENCODER_REGISTRY[cli_name].pretrained_weights_id
+    )
+
+    # Encoder-specific provenance assertions.
+    if cli_name == "vqvae":
+        assert payload["fallback_caveat"], (
+            "vqvae provenance must carry the FR-08 fallback caveat"
+        )
+    else:
+        assert payload["fallback_caveat"] == ""
 
 
 def test_main_output_root_argument_is_honored(tmp_path, patched_dataset):

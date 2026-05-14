@@ -28,6 +28,9 @@ Source artifact layout (rooted at ``<repo>/artifacts/pilot/``)::
             perturbation_rmse_5enc.csv
         per_scene/
             per_scene_rmse.csv
+        retry_reports/
+            vq_retry_report.json
+            vjepa2_retry_report.json
 
 The script is idempotent — running it twice produces the same files.
 ``outputs/probes/`` is gitignored, so nothing committed by this script
@@ -63,6 +66,16 @@ from config import load_canonical  # noqa: E402  (after sys.path tweak)
 DEFAULT_ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "pilot"
 CANONICAL_CLOSURE_SUBDIR = Path("canonical_closure")
 PER_SCENE_RMSE_SUBPATH = Path("per_scene") / "per_scene_rmse.csv"
+
+# Retry reports document the FR-08 VQ fallback decision and the V-JEPA2
+# HF-transformers load path. They live under the same in-repo pilot
+# root. Override with --retry-report-root.
+DEFAULT_RETRY_REPORT_ROOT = REPO_ROOT / "artifacts" / "pilot" / "retry_reports"
+RETRY_REPORT_FILES: dict[str, str] = {
+    # pilot encoder name -> filename under DEFAULT_RETRY_REPORT_ROOT
+    "vq_track": "vq_retry_report.json",
+    "vjepa2_rep64": "vjepa2_retry_report.json",
+}
 
 # Pilot ran with the original action-labels CSV (M2 has since rotated it
 # byte-for-byte; scientific content is equivalent — see project-memory).
@@ -214,13 +227,47 @@ def split_summary_csv(
     return counts
 
 
+def copy_retry_reports(
+    retry_report_root: Path, output_root: Path
+) -> dict[str, Optional[str]]:
+    """Copy VQ + V-JEPA retry reports into per-encoder dirs.
+
+    Returns ``{pilot_encoder_name: relative_path_or_None}`` for the two
+    encoders that have retry reports. ``None`` when the source file is
+    missing; adoption then records ``retry_report_path: null`` in
+    ``provenance.json`` and reviewers can pull the report from
+    ``artifacts/pilot/retry_reports/`` directly.
+    """
+    out: dict[str, Optional[str]] = {}
+    for encoder_name, filename in RETRY_REPORT_FILES.items():
+        source = (retry_report_root / filename).resolve()
+        if not source.exists():
+            out[encoder_name] = None
+            continue
+        dest = output_root / encoder_name / filename
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        # Plain text copy (json); no need for shutil.copy2's metadata.
+        dest.write_text(source.read_text())
+        out[encoder_name] = filename
+    return out
+
+
 def write_provenance(
     encoder_name: str,
     out_root: Path,
     manifest_sha256: str,
     config_version: str,
+    retry_report_path: Optional[str] = None,
 ) -> None:
-    """Write a provenance.json for a single encoder dir."""
+    """Write a provenance.json for a single encoder dir.
+
+    ``retry_report_path`` is the filename of the FR-08 VQ retry report
+    (``vq_track``) or the V-JEPA HF-transformers load report
+    (``vjepa2_rep64``), relative to the encoder dir. Recorded as-is so
+    figure scripts can open the report without knowing the
+    artifact-root path. ``None`` for encoders without a retry report,
+    and for vq/vjepa when the report file was absent at adoption time.
+    """
     caveat = VQ_FALLBACK_CAVEAT if encoder_name == "vq_track" else ""
     payload = {
         "encoder_name": encoder_name,
@@ -234,6 +281,7 @@ def write_provenance(
         ),
         "config_version": config_version,
         "fallback_caveat": caveat,
+        "retry_report_path": retry_report_path,
     }
     out_path = out_root / encoder_name / "provenance.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,6 +321,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "Each pilot encoder gets a subdir named after pilot_name."
         ),
     )
+    parser.add_argument(
+        "--retry-report-root",
+        type=Path,
+        default=DEFAULT_RETRY_REPORT_ROOT,
+        help=(
+            "Directory containing vq_retry_report.json + "
+            "vjepa2_retry_report.json. Missing files are tolerated and "
+            "noted as null in provenance.json. Default: "
+            "<repo>/artifacts/pilot/retry_reports/."
+        ),
+    )
     return parser
 
 
@@ -281,6 +340,7 @@ def adopt(
     output_root: Path,
     cfg_manifest_sha256: str,
     cfg_version: str,
+    retry_report_root: Optional[Path] = None,
 ) -> dict[str, int]:
     """Run the adoption end-to-end. Returns per-encoder row counts."""
     sources = resolve_sources(artifact_root)
@@ -299,12 +359,18 @@ def adopt(
         out_root=output_root,
         out_filename="encoder_summary_with_ci.csv",
     )
+
+    retry_map: dict[str, Optional[str]] = {}
+    if retry_report_root is not None:
+        retry_map = copy_retry_reports(retry_report_root.resolve(), output_root)
+
     for encoder_name in sorted(counts):
         write_provenance(
             encoder_name=encoder_name,
             out_root=output_root,
             manifest_sha256=cfg_manifest_sha256,
             config_version=cfg_version,
+            retry_report_path=retry_map.get(encoder_name),
         )
     return counts
 
@@ -323,6 +389,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         output_root=output_root.resolve(),
         cfg_manifest_sha256=cfg.manifest_sha256,
         cfg_version=cfg.version,
+        retry_report_root=args.retry_report_root,
     )
 
     print("[adopt_pilot_artifacts] populated:")
