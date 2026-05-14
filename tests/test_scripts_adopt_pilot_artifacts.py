@@ -64,10 +64,29 @@ def _write_pilot_layout(root: Path) -> None:
         w.writerow(["vjepa2_rep1", "scene-0000", "urban", 0, 0.1, 0.07, 15])
 
 
+def _write_retry_reports(root: Path) -> None:
+    """Drop synthetic VQ + V-JEPA retry reports under ``root``."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "vq_retry_report.json").write_text(
+        '{"success": false, "attempts": [], "next_action": "fallback_to_dinov2"}\n'
+    )
+    (root / "vjepa2_retry_report.json").write_text(
+        '{"success": true, "selected_repo": "facebook/vjepa2-vitl-fpc64-256"}\n'
+    )
+
+
 @pytest.fixture
 def synthetic_pilot(tmp_path: Path) -> Path:
     root = tmp_path / "artifacts"
     _write_pilot_layout(root)
+    return root
+
+
+@pytest.fixture
+def synthetic_retry_root(tmp_path: Path) -> Path:
+    """Separate dir for retry reports; mirrors the on-disk pilot layout."""
+    root = tmp_path / "retry_reports"
+    _write_retry_reports(root)
     return root
 
 
@@ -182,6 +201,65 @@ def test_adopt_raises_when_artifacts_missing(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Retry-report copying
+# ---------------------------------------------------------------------------
+
+
+def test_adopt_copies_retry_reports_when_present(
+    synthetic_pilot, synthetic_retry_root, tmp_path
+):
+    """VQ + V-JEPA retry reports land in per-encoder dirs and are referenced."""
+    out_root = tmp_path / "outputs" / "probes"
+    apa.adopt(
+        artifact_root=synthetic_pilot,
+        output_root=out_root,
+        cfg_manifest_sha256="0123",
+        cfg_version="1.0.0",
+        retry_report_root=synthetic_retry_root,
+    )
+
+    assert (out_root / "vq_track" / "vq_retry_report.json").exists()
+    assert (out_root / "vjepa2_rep64" / "vjepa2_retry_report.json").exists()
+
+    vq_payload = json.loads((out_root / "vq_track" / "provenance.json").read_text())
+    vjepa_payload = json.loads(
+        (out_root / "vjepa2_rep64" / "provenance.json").read_text()
+    )
+    assert vq_payload["retry_report_path"] == "vq_retry_report.json"
+    assert vjepa_payload["retry_report_path"] == "vjepa2_retry_report.json"
+
+    # Non-VQ/V-JEPA encoders: retry_report_path is null.
+    for enc in ("vit_s16", "dino_vits14", "clip_b32"):
+        payload = json.loads((out_root / enc / "provenance.json").read_text())
+        assert payload["retry_report_path"] is None
+
+
+def test_adopt_handles_missing_retry_reports_gracefully(
+    synthetic_pilot, tmp_path
+):
+    """Adoption succeeds when retry reports are absent; provenance records null."""
+    out_root = tmp_path / "outputs" / "probes"
+    empty_root = tmp_path / "no_retry"
+    empty_root.mkdir()
+
+    apa.adopt(
+        artifact_root=synthetic_pilot,
+        output_root=out_root,
+        cfg_manifest_sha256="0123",
+        cfg_version="1.0.0",
+        retry_report_root=empty_root,
+    )
+
+    for enc in ("vq_track", "vjepa2_rep64"):
+        payload = json.loads((out_root / enc / "provenance.json").read_text())
+        assert payload["retry_report_path"] is None, (
+            f"{enc} should record null when retry report missing"
+        )
+        assert not (out_root / enc / "vq_retry_report.json").exists()
+        assert not (out_root / enc / "vjepa2_retry_report.json").exists()
+
+
+# ---------------------------------------------------------------------------
 # Integration test: real pilot directory if present.
 # ---------------------------------------------------------------------------
 
@@ -200,13 +278,14 @@ def _real_pilot_present() -> bool:
     reason=f"Pilot artifacts not present at {apa.DEFAULT_ARTIFACT_ROOT}",
 )
 def test_adopt_against_real_pilot(tmp_path):
-    """End-to-end adoption against the actual on-disk pilot artifacts."""
+    """End-to-end adoption against the in-repo pilot artifacts."""
     out_root = tmp_path / "outputs" / "probes"
     counts = apa.adopt(
         artifact_root=apa.DEFAULT_ARTIFACT_ROOT,
         output_root=out_root,
         cfg_manifest_sha256="(test)",
         cfg_version="1.0.0",
+        retry_report_root=apa.DEFAULT_RETRY_REPORT_ROOT,
     )
     expected_canon = {
         "vit_s16",
@@ -227,3 +306,14 @@ def test_adopt_against_real_pilot(tmp_path):
         (out_root / "vq_track" / "provenance.json").read_text()
     )
     assert "FR-08" in vq_payload["fallback_caveat"]
+
+    # Retry reports: in-repo pilot dir guarantees these exist, so they
+    # must have been copied + referenced.
+    assert (out_root / "vq_track" / "vq_retry_report.json").exists()
+    assert vq_payload["retry_report_path"] == "vq_retry_report.json"
+
+    vjepa_payload = json.loads(
+        (out_root / "vjepa2_rep64" / "provenance.json").read_text()
+    )
+    assert (out_root / "vjepa2_rep64" / "vjepa2_retry_report.json").exists()
+    assert vjepa_payload["retry_report_path"] == "vjepa2_retry_report.json"
