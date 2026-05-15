@@ -280,12 +280,8 @@ def test_provenance_schema_for_vits16(tmp_path, monkeypatch):
     assert payload["seed"] == 42
 
 
-def test_provenance_carries_vq_fallback_caveat(tmp_path):
-    """The VQ wrapper's ``fallback_caveat`` must end up in provenance.
-
-    Skips if construction fails (timm/transformers absent or no network
-    for the DINOv2 hub config).
-    """
+def test_provenance_carries_no_vq_fallback_caveat(tmp_path):
+    """With pretrained=False the vendored encoder is used, not the fallback."""
     from config import load_canonical
 
     cfg = load_canonical()
@@ -304,10 +300,7 @@ def test_provenance_carries_vq_fallback_caveat(tmp_path):
         seed=0,
     )
     payload = json.loads(out_path.read_text())
-    # The wrapper guarantees a non-empty caveat while the fallback is active.
-    assert payload["fallback_caveat"], (
-        "Expected non-empty fallback_caveat for VQVAEWrapper (always in fallback)"
-    )
+    assert payload["fallback_caveat"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +339,7 @@ def test_main_smoke_with_pretrained_false_synthetic_data(
     and are already covered by the construction tests.
 
     Skips cleanly when the wrapper can't construct (e.g. no network or
-    HF cache for V-JEPA's config, or no torch-hub cache for the DINOv2
-    fallback that VQ-VAE pulls in).
+    HF cache for V-JEPA's config).
     """
     try:
         tp.build_encoder(cli_name, pretrained=False)
@@ -399,13 +391,8 @@ def test_main_smoke_with_pretrained_false_synthetic_data(
         == tp.ENCODER_REGISTRY[cli_name].pretrained_weights_id
     )
 
-    # Encoder-specific provenance assertions.
-    if cli_name == "vqvae":
-        assert payload["fallback_caveat"], (
-            "vqvae provenance must carry the FR-08 fallback caveat"
-        )
-    else:
-        assert payload["fallback_caveat"] == ""
+    # No encoder uses the fallback when pretrained=False.
+    assert payload["fallback_caveat"] == ""
 
 
 def test_main_output_root_argument_is_honored(tmp_path, patched_dataset):
