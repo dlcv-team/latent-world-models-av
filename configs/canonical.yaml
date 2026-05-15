@@ -7,8 +7,8 @@
 # Owned by Member 1. Changes require joint sign-off in Slack and a PR that
 # bumps `version` and updates `docs/CANONICAL_ARTIFACTS.md` accordingly.
 
-version: "1.0.0"
-last_updated: "2026-05-02"
+version: "1.0.2"
+last_updated: "2026-05-14"
 
 dataset:
   name: nuscenes
@@ -153,12 +153,13 @@ encoders:
     needs_projection: true
     input_mode: single_frame
   vqvae:
-    framework: vector_quantize_pytorch
-    model_id: vqgan_imagenet_f16_1024
+    framework: vendored_vqgan
+    model_id: vqgan_imagenet_f16_16384
+    primary_checkpoint_url: "https://heibox.uni-heidelberg.de/d/a7530b09fed84f80a887/files/?p=%2Fckpts%2Flast.ckpt&dl=1"
     output_dim_native: 256
     needs_projection: true
     input_mode: single_frame
-    fallback_policy: "FR-08: on checkpoint load failure, copy dinov2_s14 embeddings; raise VQFallbackUsed; tag every figure caption with VQ→DINOv2 fallback notice"
+    fallback_policy: "FR-08: if the Heidelberg checkpoint fails to download or load, substitute DINOv2-S/14 embeddings and raise VQFallbackUsed."
   vjepa2:
     framework: huggingface
     model_id: facebook/vjepa2-vitl-fpc64-256
