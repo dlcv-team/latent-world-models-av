@@ -33,22 +33,38 @@ class NuScenesFrameDataset(Dataset):
         timestamp_us: int (timestamp of target/last frame)
     """
 
-    def __init__(self, dataroot: str, version: str = 'v1.0-mini', split: str = None, max_timestamp_delta_us: int = 50_000, mode: str = 'frame'):
+    def __init__(self, dataroot: str = None, version: str = None, split: str = None, max_timestamp_delta_us: int = 50_000, mode: str = 'frame', clip_frames: int = 16, return_tuple: bool = False):
         """
         Args:
-            dataroot: Path to nuScenes dataset
-            version: Dataset version (e.g., 'v1.0-mini', 'v1.0-trainval')
-            split: Optional split name (e.g., 'smoke_train', 'train', 'test'). If None, uses all scenes.
+            dataroot: Path to nuScenes dataset. If None, auto-detected from config.
+            version: Dataset version (e.g., 'v1.0-mini', 'v1.0-trainval'). If None, auto-detected from config.
+            split: Optional split name (e.g., 'p0_train', 'p0_val', 'smoke_train', etc.). If None, uses all scenes.
             max_timestamp_delta_us: Maximum allowed time delta between sample and CAN message (microseconds)
-            mode: Dataset mode - 'frame' for single frames or 'clip' for 16-frame sequences
+            mode: Dataset mode - 'frame' (or 'single_frame' for backward compat) for single frames, 'clip' for 16-frame sequences
+            clip_frames: Number of frames in clip mode (ignored, always 16 for backward compatibility)
+            return_tuple: If True, returns (frame, action, scene_token, timestamp) tuple. If False (default), returns dict for backward compatibility.
         """
+        # Auto-detect dataroot and version from config if not provided
+        if dataroot is None or version is None:
+            from config import load_canonical
+            cfg = load_canonical()
+            if dataroot is None:
+                dataroot = str(cfg.root / "data")
+            if version is None:
+                version = cfg.raw["dataset"]["version"]
+
+        # Backward compatibility: 'single_frame' → 'frame'
+        if mode == 'single_frame':
+            mode = 'frame'
+
         if mode not in ['frame', 'clip']:
-            raise ValueError(f"Invalid mode '{mode}'. Must be 'frame' or 'clip'.")
+            raise ValueError(f"Invalid mode '{mode}'. Must be 'frame', 'single_frame', or 'clip'.")
 
         self.dataroot = Path(dataroot)
         self.max_timestamp_delta_us = max_timestamp_delta_us
         self.mode = mode
         self.clip_length = 16
+        self.return_tuple = return_tuple
 
         # Initialize nuScenes
         self.nusc = NuScenes(version=version, dataroot=str(dataroot), verbose=False)
@@ -80,6 +96,13 @@ class NuScenesFrameDataset(Dataset):
         """Build index of valid samples with available CAN data."""
         valid_samples = []
 
+        # Initialize data quality tracking
+        total_keyframes = 0
+        dropped_blacklist = 0
+        dropped_can_alignment = 0
+        blacklisted_scene_ids = []
+        seen_blacklisted_scenes = set()
+
         for sample in self.nusc.sample:
             # Only use keyframes
             if sample['prev'] == '' or sample['next'] == '':
@@ -93,8 +116,14 @@ class NuScenesFrameDataset(Dataset):
             if self.allowed_scenes and scene_name not in self.allowed_scenes:
                 continue
 
+            total_keyframes += 1
+
             # Skip blacklisted scenes
             if scene_name in self.nusc_can.can_blacklist:
+                dropped_blacklist += 1
+                if scene_name not in seen_blacklisted_scenes:
+                    blacklisted_scene_ids.append(scene_name)
+                    seen_blacklisted_scenes.add(scene_name)
                 continue
 
             # Check if CAN data exists for this scene
@@ -117,6 +146,15 @@ class NuScenesFrameDataset(Dataset):
                 'scene_name': scene_name,
                 'timestamp': sample_data['timestamp'],
             })
+
+        # Store data quality stats for B6.5 reporting
+        self.data_quality_stats = {
+            'total_keyframes': total_keyframes,
+            'dropped_blacklist': dropped_blacklist,
+            'dropped_can_alignment': dropped_can_alignment,
+            'retained_samples': len(valid_samples),
+            'blacklisted_scene_ids': sorted(blacklisted_scene_ids),
+        }
 
         return valid_samples
 
@@ -247,17 +285,13 @@ class NuScenesFrameDataset(Dataset):
         """
         Get dataset item.
 
-        Returns (frame mode):
-            frame: PIL Image (224x224) with geometry transforms applied
-            action: numpy array [steering, accel] normalized to [-1, 1]
-            scene_token: str
-            timestamp_us: int
+        Returns (if return_tuple=True):
+            frame mode: (PIL.Image, numpy.ndarray, str, int)
+            clip mode: (torch.Tensor, numpy.ndarray, str, int)
 
-        Returns (clip mode):
-            clip: torch.Tensor (16, 3, 224, 224) with geometry transforms applied
-            action: numpy array [steering, accel] normalized to [-1, 1]
-            scene_token: str
-            timestamp_us: int (timestamp of target/last frame)
+        Returns (if return_tuple=False, default for backward compatibility):
+            dict with keys: {"image": torch.Tensor, "actions": torch.Tensor,
+                            "sample_token": str, "scene_name": str, "timestamp_us": int}
         """
         sample_info = self.samples[idx]
 
@@ -276,7 +310,18 @@ class NuScenesFrameDataset(Dataset):
             if action is None:
                 action = np.array([0.0, 0.0], dtype=np.float32)
 
-            return frame, action, sample_info['scene_token'], sample_info['timestamp']
+            if self.return_tuple:
+                return frame, action, sample_info['scene_token'], sample_info['timestamp']
+            else:
+                # Dict format for backward compatibility
+                to_tensor = transforms.ToTensor()
+                return {
+                    "image": to_tensor(frame),
+                    "actions": torch.tensor(action, dtype=torch.float32),
+                    "sample_token": sample_info['sample_token'],
+                    "scene_name": sample_info['scene_name'],
+                    "timestamp_us": sample_info['timestamp'],
+                }
 
         elif self.mode == 'clip':
             # Collect 16-frame clip
@@ -303,7 +348,17 @@ class NuScenesFrameDataset(Dataset):
             if action is None:
                 action = np.array([0.0, 0.0], dtype=np.float32)
 
-            return clip_tensor, action, sample_info['scene_token'], sample_info['timestamp']
+            if self.return_tuple:
+                return clip_tensor, action, sample_info['scene_token'], sample_info['timestamp']
+            else:
+                # Dict format for backward compatibility
+                return {
+                    "image": clip_tensor,
+                    "actions": torch.tensor(action, dtype=torch.float32),
+                    "sample_token": sample_info['sample_token'],
+                    "scene_name": sample_info['scene_name'],
+                    "timestamp_us": sample_info['timestamp'],
+                }
 
 
 # Encoder-specific normalization wrappers
