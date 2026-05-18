@@ -1,0 +1,80 @@
+{
+  "timestamp": "2026-05-18T00:11:57Z",
+  "pipeline": "scripts/embed_full.py",
+  "dataset": "nuscenes v1.0-trainval (full)",
+  "manifest": "configs/full_manifest.json",
+  "split": "630 train / 70 val / 150 test (per EDD: 90/10 official train + official val as test)",
+  "encoders": {
+    "vits16": {
+      "pilot_name": "vit_s16",
+      "native_dim": 384,
+      "mode": "single_frame"
+    },
+    "dinov2": {
+      "pilot_name": "dino_vits14",
+      "native_dim": 384,
+      "mode": "single_frame"
+    },
+    "clip": {
+      "pilot_name": "clip_b32",
+      "native_dim": 512,
+      "mode": "single_frame"
+    },
+    "vqvae": {
+      "pilot_name": "vq_track",
+      "native_dim": 256,
+      "mode": "single_frame"
+    },
+    "vjepa2": {
+      "pilot_name": "vjepa2_rep64",
+      "native_dim": 1024,
+      "mode": "clip"
+    }
+  },
+  "optimizations": [
+    "torch.inference_mode()",
+    "cudnn.benchmark=True",
+    "torch.compile (where supported)",
+    "channels_last memory format",
+    "container sharding for V-JEPA2"
+  ],
+  "hardware": {
+    "light_encoders": "T4 (16GB)",
+    "vjepa2": "A10G (24GB)",
+    "vjepa2_shards": 3
+  },
+  "torch_version": "2.5.1+cu124",
+  "wall_time_s": 9167.506844997406,
+  "per_encoder_results": [
+    {
+      "encoder": "vq_track",
+      "samples": 33552,
+      "time_s": 2923.270784854889,
+      "size_mb": 55.832572
+    },
+    {
+      "shard": 0,
+      "samples": 11184,
+      "time_s": 7075.8812828063965,
+      "size_mb": 45.810434
+    },
+    {
+      "shard": 1,
+      "samples": 11184,
+      "time_s": 6215.797684669495,
+      "size_mb": 45.810434
+    },
+    {
+      "shard": 2,
+      "samples": 11184,
+      "time_s": 6311.2367198467255,
+      "size_mb": 45.810434
+    },
+    {
+      "shard": 0,
+      "samples": 33552,
+      "time_s": 4703.756124258041,
+      "size_mb": 137.429762
+    }
+  ]
+}
