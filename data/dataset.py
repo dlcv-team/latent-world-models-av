@@ -80,6 +80,13 @@ class NuScenesFrameDataset(Dataset):
         """Build index of valid samples with available CAN data."""
         valid_samples = []
 
+        # Initialize data quality tracking
+        total_keyframes = 0
+        dropped_blacklist = 0
+        dropped_can_alignment = 0
+        blacklisted_scene_ids = []
+        seen_blacklisted_scenes = set()
+
         for sample in self.nusc.sample:
             # Only use keyframes
             if sample['prev'] == '' or sample['next'] == '':
@@ -93,8 +100,14 @@ class NuScenesFrameDataset(Dataset):
             if self.allowed_scenes and scene_name not in self.allowed_scenes:
                 continue
 
+            total_keyframes += 1
+
             # Skip blacklisted scenes
             if scene_name in self.nusc_can.can_blacklist:
+                dropped_blacklist += 1
+                if scene_name not in seen_blacklisted_scenes:
+                    blacklisted_scene_ids.append(scene_name)
+                    seen_blacklisted_scenes.add(scene_name)
                 continue
 
             # Check if CAN data exists for this scene
@@ -117,6 +130,15 @@ class NuScenesFrameDataset(Dataset):
                 'scene_name': scene_name,
                 'timestamp': sample_data['timestamp'],
             })
+
+        # Store data quality stats for B6.5 reporting
+        self.data_quality_stats = {
+            'total_keyframes': total_keyframes,
+            'dropped_blacklist': dropped_blacklist,
+            'dropped_can_alignment': dropped_can_alignment,
+            'retained_samples': len(valid_samples),
+            'blacklisted_scene_ids': sorted(blacklisted_scene_ids),
+        }
 
         return valid_samples
 
