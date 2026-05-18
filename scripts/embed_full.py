@@ -194,6 +194,8 @@ def setup_volume():
         print("[setup] HF cache already extracted")
 
     # Copy VQGAN checkpoint into HF cache dir (so embed_single_frame finds it)
+    # Expected SHA-256 of the Heidelberg f16-16384 checkpoint
+    VQGAN_EXPECTED_SHA = "845a68805098cb666420d5db93df53f3a3b6dd443e6dd85c05759c5b998cd663"
     vqgan_src = f"{RAW_DIR}/vqgan_imagenet_f16_16384.ckpt"
     vqgan_dst = f"{HF_CACHE}/vqgan_imagenet_f16_16384.ckpt"
     if os.path.isfile(vqgan_src) and not os.path.isfile(vqgan_dst):
@@ -204,6 +206,22 @@ def setup_volume():
         print("[setup] VQGAN checkpoint already in place")
     else:
         print("[setup] WARNING: VQGAN checkpoint not found on volume")
+
+    # Verify VQGAN checkpoint integrity
+    if os.path.isfile(vqgan_dst):
+        import hashlib as _hashlib
+        sha = _hashlib.sha256()
+        with open(vqgan_dst, "rb") as _f:
+            for chunk in iter(lambda: _f.read(1 << 20), b""):
+                sha.update(chunk)
+        actual_sha = sha.hexdigest()
+        if actual_sha == VQGAN_EXPECTED_SHA:
+            print(f"[setup] VQGAN checkpoint SHA-256 verified ✓")
+        else:
+            print(f"[setup] ERROR: VQGAN checkpoint SHA-256 mismatch!")
+            print(f"  Expected: {VQGAN_EXPECTED_SHA}")
+            print(f"  Got:      {actual_sha}")
+            raise RuntimeError("VQGAN checkpoint corrupted — aborting")
 
     vol.commit()
     print("[setup] Volume setup complete")
@@ -417,6 +435,25 @@ def embed_single_frame(encoder_name: str):
     from training.train_probe import build_encoder
     encoder = build_encoder(encoder_name, pretrained=True).to(device)
     encoder.eval()
+
+    # VQGAN reference encoding verification (catches checkpoint corruption)
+    if encoder_name == "vqvae":
+        _rng = torch.Generator().manual_seed(12345)
+        _ref_input = torch.rand(1, 3, 224, 224, generator=_rng).to(device)
+        with torch.inference_mode():
+            _ref_out = encoder._encode(_ref_input)
+        _ref_norm = torch.norm(_ref_out).item()
+        _ref_sum = _ref_out.sum().item()
+        # Reference values from local encoding (CPU, no compile)
+        # Allow tolerance for GPU/precision differences
+        print(f"[embed] VQGAN verification: norm={_ref_norm:.4f} (expect ~4.2190), sum={_ref_sum:.4f} (expect ~-0.2310)")
+        if abs(_ref_norm - 4.219048) > 0.5 or abs(_ref_sum - (-0.231009)) > 1.0:
+            raise RuntimeError(
+                f"VQGAN reference encoding mismatch! norm={_ref_norm:.4f}, sum={_ref_sum:.4f}. "
+                f"Expected norm~4.2190, sum~-0.2310. Checkpoint likely corrupted."
+            )
+        print("[embed] VQGAN checkpoint verified ✓")
+        del _rng, _ref_input, _ref_out
 
     # Apply channels_last for conv models
     try:
@@ -681,6 +718,14 @@ def merge_and_checksum(n_shards_rep64: int, n_shards_rep1: int = 1):
     for rep in [64, 1]:
         n_shards = rep_shards[rep]
         pilot_name = f"vjepa2_rep{rep}"
+
+        # Skip merge if merged file already exists and no shards present
+        merged_path = f"{OUT_DIR}/{pilot_name}.npz"
+        shard0_path = f"{OUT_DIR}/{pilot_name}_shard0.npz"
+        if os.path.exists(merged_path) and not os.path.exists(shard0_path):
+            print(f"[merge] {pilot_name}.npz already exists, skipping merge")
+            continue
+
         print(f"[merge] Merging {pilot_name} from {n_shards} shards ...")
 
         # Load and concatenate shards in order
