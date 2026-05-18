@@ -33,3 +33,7 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# Project documentation (local only)
+CLAUDE.md
+docs/prd/
