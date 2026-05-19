@@ -30,7 +30,8 @@ from evaluation.sidecars import write_data_quality_report, write_per_scenario_rm
 def test_data_quality_report_integration(tmp_path: Path) -> None:
     """Test data quality report generation with real dataset."""
     # Load a small split
-    dataset = NuScenesFrameDataset(split="p0_val")
+    cfg = load_canonical()
+    dataset = NuScenesFrameDataset(split="p0_val", mode="single_frame")
 
     # Write report
     output_path = tmp_path / "data_quality_report.json"
@@ -75,18 +76,22 @@ def test_data_quality_report_integration(tmp_path: Path) -> None:
 def test_per_scenario_rmse_integration(tmp_path: Path) -> None:
     """Test per-scenario RMSE CSV generation with simulated predictions."""
     # Load dataset
-    dataset = NuScenesFrameDataset(split="p0_val")
     cfg = load_canonical()
+    dataset = NuScenesFrameDataset(split="p0_val", mode="single_frame")
+
+    # Get scene tokens from samples, actions from dataset items
+    scene_tokens = [sample["scene_token"] for sample in dataset.samples]
+    actions = [dataset[i]["actions"] for i in range(len(dataset))]
 
     # Simulate predictions for one encoder
     # In real evaluation, this would come from running inference
     predictions_df = pd.DataFrame({
         "encoder": ["vit_s16"] * len(dataset),
-        "scene_token": [sample["scene_token"] for sample in dataset.samples],
+        "scene_token": scene_tokens,
         "steer_pred": [0.1] * len(dataset),  # Dummy predictions
         "accel_pred": [0.05] * len(dataset),
-        "steer_true": [sample["steer_norm"] for sample in dataset.samples],
-        "accel_true": [sample["accel_norm"] for sample in dataset.samples],
+        "steer_true": [float(action[0]) for action in actions],
+        "accel_true": [float(action[1]) for action in actions],
     })
 
     # Classify scenes
@@ -115,7 +120,7 @@ def test_per_scenario_rmse_integration(tmp_path: Path) -> None:
     assert set(output_df["scenario"].unique()).issubset(
         {"highway", "urban", "intersection", "other"}
     )
-    assert set(output_df["metric"].unique()) == {"steer_rmse_norm", "accel_rmse_norm"}
+    assert set(output_df["metric"].unique()) == {"steer_rmse_deg", "accel_rmse_mps2"}
     assert all(output_df["n_scenes"] > 0)
     assert all(output_df["ci_lo"] <= output_df["mean"])
     assert all(output_df["mean"] <= output_df["ci_hi"])
