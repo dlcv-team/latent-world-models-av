@@ -13,7 +13,7 @@ Usage:
 
 Outputs:
     outputs/data_quality_report.json
-    outputs/per_scenario_rmse.csv
+    outputs/analysis/per_scenario_rmse.csv
 """
 
 from __future__ import annotations
@@ -38,13 +38,15 @@ def main() -> None:
 
     # Step 1: Load dataset (tracks data quality stats during construction)
     print("Loading dataset...")
-    dataset = NuScenesFrameDataset(split="p0_val")
+    dataset = NuScenesFrameDataset(split="p0_val", mode="single_frame")
     print(f"✓ Loaded {len(dataset)} samples")
 
     # Step 2: Write data quality report
     print("\nGenerating data_quality_report.json...")
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
+    analysis_dir = output_dir / "analysis"
+    analysis_dir.mkdir(exist_ok=True)
 
     write_data_quality_report(
         dataset,
@@ -56,13 +58,17 @@ def main() -> None:
     # Step 3: Simulate predictions (in real evaluation, run inference here)
     print("\nSimulating encoder predictions...")
     # For demonstration, use ground truth as predictions
+    # Get scene tokens from samples, actions from dataset items
+    scene_tokens = [sample["scene_token"] for sample in dataset.samples]
+    actions_list = [dataset[i]["actions"] for i in range(len(dataset))]
+
     predictions_df = pd.DataFrame({
         "encoder": ["vit_s16"] * len(dataset),
-        "scene_token": [sample["scene_token"] for sample in dataset.samples],
-        "steer_pred": [sample["steer_norm"] for sample in dataset.samples],
-        "accel_pred": [sample["accel_norm"] for sample in dataset.samples],
-        "steer_true": [sample["steer_norm"] for sample in dataset.samples],
-        "accel_true": [sample["accel_norm"] for sample in dataset.samples],
+        "scene_token": scene_tokens,
+        "steer_pred": [float(action[0]) for action in actions_list],
+        "accel_pred": [float(action[1]) for action in actions_list],
+        "steer_true": [float(action[0]) for action in actions_list],
+        "accel_true": [float(action[1]) for action in actions_list],
     })
     print(f"✓ Generated {len(predictions_df)} predictions")
 
@@ -87,14 +93,14 @@ def main() -> None:
         results_df,
         predictions_df,
         scene_to_bucket,
-        output_dir / "per_scenario_rmse.csv",
+        analysis_dir / "per_scenario_rmse.csv",
     )
     print(f"✓ Wrote per_scenario_rmse.csv")
 
     print("\n" + "=" * 60)
     print("✓ B6.5 outputs generated successfully!")
     print(f"  - {output_dir / 'data_quality_report.json'}")
-    print(f"  - {output_dir / 'per_scenario_rmse.csv'}")
+    print(f"  - {analysis_dir / 'per_scenario_rmse.csv'}")
     print("=" * 60)
 
 

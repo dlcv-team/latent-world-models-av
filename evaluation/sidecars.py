@@ -13,6 +13,9 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from config import load_canonical
+from evaluation.metrics import denormalize_rmse_dataframe
+
 if TYPE_CHECKING:
     from data.dataset import NuScenesFrameDataset
     from config import CanonicalConfig
@@ -66,7 +69,6 @@ def write_data_quality_report(
     >>> write_data_quality_report(dataset, "outputs/data_quality_report.json")
     """
     if cfg is None:
-        from config import load_canonical
         cfg = load_canonical()
 
     # Validate dataset has quality stats
@@ -133,6 +135,7 @@ def write_per_scenario_rmse(
     predictions_df: pd.DataFrame,
     scene_to_bucket: dict[str, str],
     output_path: Path | str,
+    cfg: CanonicalConfig | None = None,
 ) -> None:
     """Write per-scenario RMSE with confidence intervals to CSV.
 
@@ -140,11 +143,17 @@ def write_per_scenario_rmse(
     of compute_per_scenario_rmse() with n_scenes column showing unique scene
     counts per (encoder × scenario) combination.
 
+    IMPORTANT: This function converts normalized RMSE values to denormalized
+    units for human-readable output. Input metrics (steer_rmse,
+    accel_rmse) are converted to physical units (degrees, m/s²) and
+    renamed (steer_rmse_deg, accel_rmse_mps2) in the output CSV.
+
     Parameters
     ----------
     results_df
         DataFrame from compute_per_scenario_rmse() with columns:
         encoder, scenario, metric, mean, ci_lo, ci_hi.
+        Metrics should be in normalized space (steer_rmse, accel_rmse).
     predictions_df
         Raw predictions DataFrame with columns:
         encoder, scene_token (or scene_name), steer_pred, accel_pred,
@@ -153,7 +162,10 @@ def write_per_scenario_rmse(
         Mapping from scene_token to scenario category (output of
         classify_scenes_by_scenario).
     output_path
-        Path to write CSV file (typically outputs/per_scenario_rmse.csv).
+        Path to write CSV file (typically outputs/analysis/per_scenario_rmse.csv).
+    cfg
+        Configuration object or dict with normalization factors. If None,
+        loads canonical config.
 
     Raises
     ------
@@ -167,20 +179,24 @@ def write_per_scenario_rmse(
     Output CSV has 7 columns:
     - encoder: Encoder name (vit_s16, dinov2_s14, clip_b32, vqvae, vjepa2)
     - scenario: Scenario bucket (highway, urban, intersection, other)
-    - metric: Either "steer_rmse_norm" or "accel_rmse_norm"
+    - metric: Either "steer_rmse_deg" or "accel_rmse_mps2" (denormalized)
     - n_scenes: Number of unique scenes in this (encoder, scenario) group
-    - mean: Mean RMSE (normalized space)
-    - ci_lo: Lower 95% confidence interval bound
-    - ci_hi: Upper 95% confidence interval bound
+    - mean: Mean RMSE in denormalized units (degrees or m/s²)
+    - ci_lo: Lower 95% confidence interval bound (denormalized)
+    - ci_hi: Upper 95% confidence interval bound (denormalized)
 
     Rows are sorted by (encoder, scenario, metric) for deterministic output.
+
+    Conversion factors from canonical config:
+    - Steering: normalized × eval_back_to_deg_factor → degrees
+    - Acceleration: normalized × divisor → m/s²
 
     Examples
     --------
     >>> results_df = compute_per_scenario_rmse(predictions_df, scene_to_bucket, cfg)
     >>> write_per_scenario_rmse(
     ...     results_df, predictions_df, scene_to_bucket,
-    ...     "outputs/per_scenario_rmse.csv"
+    ...     "outputs/analysis/per_scenario_rmse.csv"
     ... )
     """
     # Validate inputs
@@ -242,6 +258,9 @@ def write_per_scenario_rmse(
 
     # Fill missing n_scenes with 0 (shouldn't happen, but defensive)
     output_df["n_scenes"] = output_df["n_scenes"].fillna(0).astype(int)
+
+    # Convert normalized RMSE to denormalized units for human-readable CSV
+    output_df = denormalize_rmse_dataframe(output_df, cfg)
 
     # Reorder columns per PRD spec
     output_df = output_df[["encoder", "scenario", "metric", "n_scenes", "mean", "ci_lo", "ci_hi"]]
