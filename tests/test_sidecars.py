@@ -142,7 +142,7 @@ class TestWritePerScenarioRMSE:
         results_df = pd.DataFrame({
             "encoder": ["vit_s16", "vit_s16", "vit_s16", "vit_s16"],
             "scenario": ["highway", "highway", "urban", "urban"],
-            "metric": ["steer_rmse_norm", "accel_rmse_norm", "steer_rmse_norm", "accel_rmse_norm"],
+            "metric": ["steer_rmse_deg", "accel_rmse_mps2", "steer_rmse_deg", "accel_rmse_mps2"],
             "mean": [0.0831, 0.0523, 0.0912, 0.0634],
             "ci_lo": [0.0782, 0.0489, 0.0856, 0.0591],
             "ci_hi": [0.0881, 0.0558, 0.0968, 0.0677],
@@ -184,10 +184,10 @@ class TestWritePerScenarioRMSE:
         # Check sorting (encoder, scenario, metric)
         assert output_df["scenario"].tolist() == ["highway", "highway", "urban", "urban"]
         assert output_df["metric"].tolist() == [
-            "accel_rmse_norm",
-            "steer_rmse_norm",
-            "accel_rmse_norm",
-            "steer_rmse_norm",
+            "accel_rmse_mps2",
+            "steer_rmse_deg",
+            "accel_rmse_mps2",
+            "steer_rmse_deg",
         ]
 
     def test_write_per_scenario_rmse_n_scenes(self, tmp_path: Path) -> None:
@@ -195,7 +195,7 @@ class TestWritePerScenarioRMSE:
         results_df = pd.DataFrame({
             "encoder": ["enc1", "enc1", "enc2", "enc2"],
             "scenario": ["highway", "urban", "highway", "urban"],
-            "metric": ["steer_rmse_norm", "steer_rmse_norm", "steer_rmse_norm", "steer_rmse_norm"],
+            "metric": ["steer_rmse_deg", "steer_rmse_deg", "steer_rmse_deg", "steer_rmse_deg"],
             "mean": [0.1, 0.2, 0.15, 0.25],
             "ci_lo": [0.09, 0.18, 0.13, 0.23],
             "ci_hi": [0.11, 0.22, 0.17, 0.27],
@@ -256,7 +256,7 @@ class TestWritePerScenarioRMSE:
         results_df = pd.DataFrame({
             "encoder": ["vit_s16", "vit_s16", "dinov2_s14", "dinov2_s14"],
             "scenario": ["highway", "urban", "highway", "urban"],
-            "metric": ["steer_rmse_norm"] * 4,
+            "metric": ["steer_rmse_deg"] * 4,
             "mean": [0.1, 0.2, 0.15, 0.25],
             "ci_lo": [0.09, 0.18, 0.13, 0.23],
             "ci_hi": [0.11, 0.22, 0.17, 0.27],
@@ -327,7 +327,7 @@ class TestWritePerScenarioRMSE:
         results_df = pd.DataFrame({
             "encoder": ["vit_s16"],
             "scenario": ["highway"],
-            "metric": ["steer_rmse_norm"],
+            "metric": ["steer_rmse_deg"],
             "mean": [0.1],
             "ci_lo": [0.09],
             "ci_hi": [0.11],
@@ -349,7 +349,7 @@ class TestWritePerScenarioRMSE:
         results_df = pd.DataFrame({
             "encoder": ["vit_s16"],
             "scenario": ["highway"],
-            "metric": ["steer_rmse_norm"],
+            "metric": ["steer_rmse_deg"],
             "mean": [0.1],
             "ci_lo": [0.09],
             "ci_hi": [0.11],
@@ -368,7 +368,7 @@ class TestWritePerScenarioRMSE:
         results_df = pd.DataFrame({
             "encoder": ["vit_s16"],
             "scenario": ["highway"],
-            "metric": ["steer_rmse_norm"],
+            "metric": ["steer_rmse_deg"],
             "mean": [0.1],
             "ci_lo": [0.09],
             "ci_hi": [0.11],
@@ -397,7 +397,7 @@ class TestWritePerScenarioRMSE:
         results_df = pd.DataFrame({
             "encoder": ["vit_s16"],
             "scenario": ["highway"],
-            "metric": ["steer_rmse_norm"],
+            "metric": ["steer_rmse_deg"],
             "mean": [0.1],
             "ci_lo": [0.09],
             "ci_hi": [0.11],
