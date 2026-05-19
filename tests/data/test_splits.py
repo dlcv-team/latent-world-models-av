@@ -1,10 +1,22 @@
 """Tests for NuScenes dataset splits."""
 
 import pytest
+from pathlib import Path
 from nuscenes.nuscenes import NuScenes
-from nuscenes.can_bus.can_bus_api import NuScenesCanBus
-from data.splits import create_action_splits
-from data.dataset import NuScenesActionDataset
+from data.splits import (
+    generate_mini_splits,
+    get_split,
+    get_split_from_canonical,
+    verify_no_overlap,
+    count_samples_per_split,
+)
+from data.dataset import NuScenesFrameDataset
+
+
+pytestmark = pytest.mark.skipif(
+    not Path("data/raw/nuscenes/v1.0-mini").exists(),
+    reason="NuScenes v1.0-mini data not available",
+)
 
 
 @pytest.fixture
@@ -13,210 +25,190 @@ def nusc_mini():
     return NuScenes(version='v1.0-mini', dataroot='data/', verbose=False)
 
 
-@pytest.fixture
-def nusc_can_mini():
-    """NuScenesCanBus instance for testing."""
-    return NuScenesCanBus(dataroot='data/')
+def test_generate_mini_splits(nusc_mini):
+    """Test smoke split generation from v1.0-mini."""
+    splits = generate_mini_splits(nusc_mini, seed=42)
 
-
-@pytest.fixture
-def splits_mini(nusc_mini, nusc_can_mini):
-    """Mini splits for testing."""
-    return create_action_splits('v1.0-mini', nusc_mini, nusc_can_mini)
-
-
-def test_mini_splits_structure(splits_mini):
-    """Verify mini splits have correct structure and scene counts."""
-    assert 'smoke_train' in splits_mini
-    assert 'smoke_val' in splits_mini
-    assert 'smoke_test' in splits_mini
+    # Verify structure
+    assert 'smoke_train' in splits
+    assert 'smoke_val' in splits
+    assert 'smoke_test' in splits
 
     # Verify scene counts
-    assert splits_mini['smoke_train']['num_scenes'] == 8
-    assert splits_mini['smoke_val']['num_scenes'] == 1
-    assert splits_mini['smoke_test']['num_scenes'] == 1
+    assert len(splits['smoke_train']) == 8
+    assert len(splits['smoke_val']) == 1
+    assert len(splits['smoke_test']) == 1
 
-    # Verify each split has required fields
-    for split_name, split_info in splits_mini.items():
-        assert 'scenes' in split_info
-        assert 'num_scenes' in split_info
-        assert 'num_frames' in split_info
-        assert isinstance(split_info['scenes'], list)
-        assert isinstance(split_info['num_scenes'], int)
-        assert isinstance(split_info['num_frames'], int)
+    # Verify all are lists of strings
+    for split_name, scenes in splits.items():
+        assert isinstance(scenes, list)
+        assert all(isinstance(s, str) for s in scenes)
 
 
-def test_mini_splits_deterministic(nusc_mini, nusc_can_mini):
-    """Verify splits are deterministic across multiple calls."""
-    splits1 = create_action_splits('v1.0-mini', nusc_mini, nusc_can_mini)
-    splits2 = create_action_splits('v1.0-mini', nusc_mini, nusc_can_mini)
+def test_generate_mini_splits_deterministic(nusc_mini):
+    """Verify splits are deterministic with same seed."""
+    splits1 = generate_mini_splits(nusc_mini, seed=42)
+    splits2 = generate_mini_splits(nusc_mini, seed=42)
 
-    # Verify smoke_val and smoke_test are identical
-    assert splits1['smoke_val']['scenes'] == splits2['smoke_val']['scenes']
-    assert splits1['smoke_test']['scenes'] == splits2['smoke_test']['scenes']
-    assert splits1['smoke_train']['scenes'] == splits2['smoke_train']['scenes']
+    assert splits1['smoke_val'] == splits2['smoke_val']
+    assert splits1['smoke_test'] == splits2['smoke_test']
+    assert splits1['smoke_train'] == splits2['smoke_train']
 
 
-def test_mini_splits_no_overlap(splits_mini):
-    """Verify smoke_val and smoke_test don't share scenes."""
-    val_scenes = set(splits_mini['smoke_val']['scenes'])
-    test_scenes = set(splits_mini['smoke_test']['scenes'])
-    train_scenes = set(splits_mini['smoke_train']['scenes'])
+def test_generate_mini_splits_no_overlap(nusc_mini):
+    """Verify smoke splits have no scene overlap."""
+    splits = generate_mini_splits(nusc_mini, seed=42)
+    verify_no_overlap(splits)  # Should not raise
 
-    # No overlap between any splits
+    # Also verify manually
+    val_scenes = set(splits['smoke_val'])
+    test_scenes = set(splits['smoke_test'])
+    train_scenes = set(splits['smoke_train'])
+
     assert val_scenes.isdisjoint(test_scenes)
     assert val_scenes.isdisjoint(train_scenes)
     assert test_scenes.isdisjoint(train_scenes)
 
 
-def test_cross_split_uniqueness(splits_mini):
-    """Verify no scene appears in multiple splits."""
-    all_scenes = {}
+def test_verify_no_overlap_raises_on_duplicate():
+    """Test that verify_no_overlap raises on duplicate scenes."""
+    bad_splits = {
+        'train': ['scene-0001', 'scene-0002'],
+        'val': ['scene-0001', 'scene-0003'],  # scene-0001 duplicated
+    }
 
-    for split_name, split_info in splits_mini.items():
-        for scene_name in split_info['scenes']:
-            assert scene_name not in all_scenes, \
-                f"Scene {scene_name} in both {all_scenes.get(scene_name)} and {split_name}"
-            all_scenes[scene_name] = split_name
-
-
-def test_frame_counts_positive(splits_mini):
-    """Verify all frame counts are positive."""
-    for split_name, split_info in splits_mini.items():
-        assert split_info['num_frames'] > 0, \
-            f"Split {split_name} has {split_info['num_frames']} frames"
+    with pytest.raises(ValueError, match="Scene overlap detected"):
+        verify_no_overlap(bad_splits)
 
 
-def test_integration_with_dataset_mini(nusc_mini, nusc_can_mini):
-    """Test dataset.py integration with split parameter."""
-    # Create dataset for smoke_train split
-    train_ds = NuScenesActionDataset(
-        dataroot='data/',
-        version='v1.0-mini',
-        split='smoke_train'
-    )
+def test_count_samples_per_split(nusc_mini):
+    """Test sample counting per split."""
+    splits = generate_mini_splits(nusc_mini, seed=42)
+    counts = count_samples_per_split(nusc_mini, splits)
 
-    # Verify dataset length matches expected frame count
-    splits = create_action_splits('v1.0-mini', nusc_mini, nusc_can_mini)
-    assert len(train_ds) == splits['smoke_train']['num_frames']
-
-    # Verify all samples come from allowed scenes
-    allowed_scenes = set(splits['smoke_train']['scenes'])
-    for sample_info in train_ds.samples:
-        assert sample_info['scene_name'] in allowed_scenes
-
-
-def test_integration_with_dataset_all_splits(nusc_mini, nusc_can_mini):
-    """Test dataset creation for all mini splits."""
-    splits = create_action_splits('v1.0-mini', nusc_mini, nusc_can_mini)
-
+    # Verify structure
     for split_name in ['smoke_train', 'smoke_val', 'smoke_test']:
-        ds = NuScenesActionDataset(
-            dataroot='data/',
-            version='v1.0-mini',
-            split=split_name
-        )
-        assert len(ds) == splits[split_name]['num_frames']
+        assert split_name in counts
+        assert 'scenes' in counts[split_name]
+        assert 'samples' in counts[split_name]
+
+        # Verify counts match
+        assert counts[split_name]['scenes'] == len(splits[split_name])
+        assert counts[split_name]['samples'] > 0
+
+
+def test_get_split_smoke_train(nusc_mini):
+    """Test get_split for smoke_train."""
+    scenes = get_split('smoke_train', dataroot='data/', seed=42)
+
+    assert isinstance(scenes, list)
+    assert len(scenes) == 8
+    assert all(isinstance(s, str) for s in scenes)
+    assert all(s.startswith('scene-') for s in scenes)
+
+
+def test_get_split_smoke_val(nusc_mini):
+    """Test get_split for smoke_val."""
+    scenes = get_split('smoke_val', dataroot='data/', seed=42)
+
+    assert isinstance(scenes, list)
+    assert len(scenes) == 1
+
+
+def test_get_split_smoke_test(nusc_mini):
+    """Test get_split for smoke_test."""
+    scenes = get_split('smoke_test', dataroot='data/', seed=42)
+
+    assert isinstance(scenes, list)
+    assert len(scenes) == 1
+
+
+def test_get_split_deterministic():
+    """Test that get_split is deterministic."""
+    scenes1 = get_split('smoke_train', dataroot='data/', seed=42)
+    scenes2 = get_split('smoke_train', dataroot='data/', seed=42)
+
+    assert scenes1 == scenes2
+
+
+def test_integration_with_dataset_smoke_train():
+    """Test NuScenesFrameDataset integration with smoke_train split."""
+    ds = NuScenesFrameDataset(split='smoke_train', mode='single_frame')
+
+    # Verify dataset has samples
+    assert len(ds) > 0
+
+    # Verify all samples come from smoke_train scenes
+    smoke_train_scenes = set(get_split('smoke_train', dataroot='data/'))
+    for sample_info in ds.samples:
+        assert sample_info['scene_name'] in smoke_train_scenes
+
+
+def test_integration_with_dataset_all_smoke_splits():
+    """Test dataset creation for all smoke splits."""
+    for split_name in ['smoke_train', 'smoke_val', 'smoke_test']:
+        ds = NuScenesFrameDataset(split=split_name, mode='single_frame')
+        assert len(ds) > 0
 
 
 def test_invalid_split_raises_error():
     """Test that invalid split name raises ValueError."""
-    with pytest.raises(ValueError, match="Split 'invalid_split' not found"):
-        NuScenesActionDataset(
-            dataroot='data/',
-            version='v1.0-mini',
-            split='invalid_split'
-        )
+    with pytest.raises(KeyError):  # KeyError when split not found in manifest_split
+        NuScenesFrameDataset(split='invalid_split', mode='single_frame')
 
 
-def test_invalid_version_raises_error(nusc_mini, nusc_can_mini):
-    """Test that invalid version raises ValueError."""
-    with pytest.raises(ValueError, match="Unsupported version"):
-        create_action_splits('v1.0-invalid', nusc_mini, nusc_can_mini)
+def test_generate_mini_splits_wrong_version():
+    """Test that generate_mini_splits rejects non-mini versions."""
+    # Create a trainval instance (if available) or mock it
+    with pytest.raises(ValueError, match="Expected v1.0-mini"):
+        nusc_fake = type('obj', (object,), {'version': 'v1.0-trainval'})()
+        generate_mini_splits(nusc_fake)
 
 
-@pytest.mark.skipif(
-    not pytest.config.getoption("--trainval", default=False),
-    reason="Trainval tests require --trainval flag and full dataset"
-)
-class TestTrainvalSplits:
-    """Tests for trainval splits (requires full dataset)."""
+class TestCanonicalSplits:
+    """Tests for canonical manifest splits (requires canonical.yaml)."""
 
-    @pytest.fixture
-    def nusc_trainval(self):
-        """NuScenes trainval instance for testing."""
-        return NuScenes(
-            version='v1.0-trainval',
-            dataroot='data/v1.0-trainval_metadata/',
-            verbose=False
-        )
+    def test_get_split_from_canonical_p0_train(self):
+        """Test loading p0_train from canonical manifest."""
+        scenes = get_split_from_canonical('p0_train')
 
-    @pytest.fixture
-    def nusc_can_trainval(self):
-        """NuScenesCanBus instance for trainval."""
-        return NuScenesCanBus(dataroot='data/')
+        assert isinstance(scenes, list)
+        assert len(scenes) == 180
+        assert all(isinstance(s, str) for s in scenes)
 
-    @pytest.fixture
-    def splits_trainval(self, nusc_trainval, nusc_can_trainval):
-        """Trainval splits for testing."""
-        return create_action_splits('v1.0-trainval', nusc_trainval, nusc_can_trainval)
+    def test_get_split_from_canonical_p0_val(self):
+        """Test loading p0_val from canonical manifest."""
+        scenes = get_split_from_canonical('p0_val')
 
-    def test_trainval_splits_structure(self, splits_trainval):
-        """Verify trainval splits have correct structure."""
-        assert 'train' in splits_trainval
-        assert 'internal_val' in splits_trainval
-        assert 'test' in splits_trainval
+        assert isinstance(scenes, list)
+        assert len(scenes) == 20
 
-        # Verify approximate scene counts
-        assert 610 <= splits_trainval['train']['num_scenes'] <= 620  # ~616
-        assert 65 <= splits_trainval['internal_val']['num_scenes'] <= 75  # ~69
-        assert splits_trainval['test']['num_scenes'] == 150
+    def test_get_split_from_canonical_p0_test(self):
+        """Test loading p0_test from canonical manifest."""
+        scenes = get_split_from_canonical('p0_test')
 
-    def test_trainval_blacklist_removal(self, splits_trainval, nusc_can_trainval):
-        """Verify no blacklisted scenes in any split."""
-        blacklist = nusc_can_trainval.can_blacklist
+        assert isinstance(scenes, list)
+        assert len(scenes) == 40
 
-        for split_info in splits_trainval.values():
-            for scene_name in split_info['scenes']:
-                scene_num = int(scene_name.split('-')[1])
-                assert scene_num not in blacklist, \
-                    f"Blacklisted scene {scene_name} found in split"
+    def test_get_split_from_canonical_no_overlap(self):
+        """Verify canonical P0 splits have no overlap."""
+        splits = {
+            'p0_train': get_split_from_canonical('p0_train'),
+            'p0_val': get_split_from_canonical('p0_val'),
+            'p0_test': get_split_from_canonical('p0_test'),
+        }
 
-    def test_trainval_split_ratio(self, splits_trainval):
-        """Verify ~90/10 split ratio for train/internal_val."""
-        train_scenes = splits_trainval['train']['num_scenes']
-        val_scenes = splits_trainval['internal_val']['num_scenes']
-        total = train_scenes + val_scenes
+        verify_no_overlap(splits)
 
-        train_ratio = train_scenes / total
-        assert 0.88 <= train_ratio <= 0.92, \
-            f"Train ratio {train_ratio:.2f} not close to 0.90"
+    def test_integration_with_dataset_p0_train(self):
+        """Test dataset integration with canonical p0_train."""
+        ds = NuScenesFrameDataset(split='p0_train', mode='single_frame')
 
-    def test_trainval_cross_split_uniqueness(self, splits_trainval):
-        """Verify no scene in multiple splits."""
-        all_scenes = {}
+        assert len(ds) > 0
 
-        for split_name, split_info in splits_trainval.items():
-            for scene_name in split_info['scenes']:
-                assert scene_name not in all_scenes, \
-                    f"Scene {scene_name} in both {all_scenes.get(scene_name)} and {split_name}"
-                all_scenes[scene_name] = split_name
-
-    def test_trainval_deterministic(self, nusc_trainval, nusc_can_trainval):
-        """Verify trainval splits are deterministic."""
-        splits1 = create_action_splits('v1.0-trainval', nusc_trainval, nusc_can_trainval)
-        splits2 = create_action_splits('v1.0-trainval', nusc_trainval, nusc_can_trainval)
-
-        assert splits1['train']['scenes'] == splits2['train']['scenes']
-        assert splits1['internal_val']['scenes'] == splits2['internal_val']['scenes']
-        assert splits1['test']['scenes'] == splits2['test']['scenes']
+        # Verify all samples from p0_train scenes
+        p0_train_scenes = set(get_split_from_canonical('p0_train'))
+        for sample_info in ds.samples:
+            assert sample_info['scene_name'] in p0_train_scenes
 
 
-def pytest_addoption(parser):
-    """Add custom pytest options."""
-    parser.addoption(
-        "--trainval",
-        action="store_true",
-        default=False,
-        help="Run trainval tests (requires full dataset)"
-    )
