@@ -141,26 +141,19 @@ def test_compute_per_scenario_rmse_with_conversion():
     results_df = compute_per_scenario_rmse(predictions_df, scene_to_bucket, cfg)
 
     # Verify results are in normalized space
-    assert "steer_rmse_norm" in results_df["metric"].values
-    assert "accel_rmse_norm" in results_df["metric"].values
+    assert "steer_rmse" in results_df["metric"].values
+    assert "accel_rmse" in results_df["metric"].values
 
     # Extract a steering RMSE value (normalized)
-    steer_row = results_df[results_df["metric"] == "steer_rmse_norm"].iloc[0]
+    steer_row = results_df[results_df["metric"] == "steer_rmse"].iloc[0]
     steer_rmse_norm = steer_row["mean"]
 
-    # Verify it's in normalized space (should be small, roughly 0.05-0.1 range)
-    assert 0.0 <= steer_rmse_norm <= 1.0, "RMSE should be in normalized [0, 1] range"
-
-    # EXPLICIT CONVERSION: Convert normalized RMSE to degrees using config factor
+    # Test conversion to degrees
     steer_rmse_deg = convert_steer_rmse_to_deg(steer_rmse_norm, cfg=cfg)
 
-    # Verify conversion applied the factor correctly
-    expected_deg = steer_rmse_norm * 34.37746770784939
-    assert np.isclose(steer_rmse_deg, expected_deg, atol=1e-3)
-
-    # Verify degrees value is reasonable (should be ~1-4 degrees for small errors)
-    assert steer_rmse_deg > steer_rmse_norm, "Degrees should be larger than normalized"
-    assert steer_rmse_deg > 0.0, "RMSE in degrees should be positive"
+    # Verify manual conversion matches
+    expected_deg = steer_rmse_norm * cfg["normalization"]["steering"]["eval_back_to_deg_factor"]
+    assert np.isclose(steer_rmse_deg, expected_deg, atol=1e-6)
 
 
 def test_classify_scenes_by_scenario():

@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Generate per_scenario_rmse.csv from probe results (B6.5).
+
+Reads outputs/probes/*/per_scene_rmse.csv (columns: steer_rmse, accel_rmse
+with normalized values in [-1, 1] space), classifies scenes by scenario
+(highway/urban/intersection/other), and computes per-scenario RMSE with bootstrap
+confidence intervals. Converts to physical units (degrees, m/s²) when writing output CSV.
+
+Writes to outputs/analysis/per_scenario_rmse.csv to match analysis.paired_tests output location.
+
+Usage:
+    python scripts/generate_per_scenario_from_probes.py
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+from nuscenes.nuscenes import NuScenes
+
+from config import load_canonical
+from evaluation.metrics import bootstrap_mean_ci, classify_scenes_by_scenario, denormalize_rmse_dataframe
+
+
+def main():
+    print("Generating per_scenario_rmse.csv from probe results...")
+
+    # Load config
+    cfg = load_canonical()
+
+    # Load NuScenes for scene classification
+    nuscenes_root = cfg.root / "data"
+    version = cfg.raw["dataset"]["version"]
+    print(f"\nLoading NuScenes {version}...")
+    nusc = NuScenes(version=version, dataroot=str(nuscenes_root), verbose=False)
+
+    # Load probe results
+    probe_root = Path("outputs/probes")
+    encoders = sorted([d.name for d in probe_root.iterdir() if d.is_dir()])
+    print(f"Found {len(encoders)} encoders: {encoders}")
+
+    # Collect all predictions
+    all_predictions = []
+
+    for encoder in encoders:
+        csv_path = probe_root / encoder / "per_scene_rmse.csv"
+        if not csv_path.exists():
+            print(f"Warning: {csv_path} not found, skipping")
+            continue
+
+        df = pd.read_csv(csv_path)
+        print(f"  {encoder}: {len(df)} scenes")
+
+        # Convert to predictions format (values are normalized)
+        for _, row in df.iterrows():
+            # CSV values are normalized in [-1, 1] space
+            all_predictions.append({
+                "encoder": encoder,
+                "scene_name": row["scene_name"],
+                "steer_rmse": row["steer_rmse"],
+                "accel_rmse": row["accel_rmse"],
+            })
+
+    predictions_df = pd.DataFrame(all_predictions)
+    print(f"\nTotal prediction rows: {len(predictions_df)}")
+
+    # Classify scenes by scenario
+    print("\nClassifying scenes by scenario...")
+    unique_scene_names = predictions_df["scene_name"].unique().tolist()
+
+    # Convert scene names to tokens
+    scene_name_to_token = {}
+    for scene in nusc.scene:
+        scene_name_to_token[scene["name"]] = scene["token"]
+
+    scene_tokens = [scene_name_to_token[name] for name in unique_scene_names if name in scene_name_to_token]
+    print(f"Mapped {len(scene_tokens)} scene names to tokens")
+
+    token_to_bucket = classify_scenes_by_scenario(nusc, scene_tokens)
+
+    # Convert back to scene_name → bucket mapping
+    token_to_name = {v: k for k, v in scene_name_to_token.items()}
+    scene_to_bucket = {token_to_name[token]: bucket for token, bucket in token_to_bucket.items()}
+
+    scenario_counts = {}
+    for bucket in scene_to_bucket.values():
+        scenario_counts[bucket] = scenario_counts.get(bucket, 0) + 1
+    print(f"Scenario distribution: {scenario_counts}")
+
+    # Compute per-scenario RMSE with bootstrap CIs
+    # Note: Values are normalized in [-1, 1] space; will convert to physical
+    # units (degrees, m/s²) before writing output CSV
+    print("\nComputing per-scenario aggregates with bootstrap CIs...")
+
+    results = []
+    for encoder in encoders:
+        encoder_df = predictions_df[predictions_df["encoder"] == encoder]
+
+        # Aggregate RMSE values by scenario (values in normalized space)
+        for metric_name, col_name in [("steer_rmse", "steer_rmse"),
+                                        ("accel_rmse", "accel_rmse")]:
+            # Group by scenario
+            for scenario in set(scene_to_bucket.values()):
+                # Get scenes in this scenario
+                scenario_scenes = [name for name, bucket in scene_to_bucket.items() if bucket == scenario]
+                scenario_df = encoder_df[encoder_df["scene_name"].isin(scenario_scenes)]
+
+                if len(scenario_df) == 0:
+                    continue
+
+                rmse_values = scenario_df[col_name].values
+                n_scenes = len(rmse_values)
+
+                mean, ci_lo, ci_hi = bootstrap_mean_ci(
+                    rmse_values,
+                    n_resamples=1000,
+                    seed=42,
+                    confidence_level=0.95
+                )
+
+                results.append({
+                    "encoder": encoder,
+                    "scenario": scenario,
+                    "metric": metric_name,
+                    "n_scenes": n_scenes,
+                    "mean": mean,
+                    "ci_lo": ci_lo,
+                    "ci_hi": ci_hi,
+                })
+
+    results_df = pd.DataFrame(results)
+    results_df = results_df.sort_values(["encoder", "scenario", "metric"]).reset_index(drop=True)
+
+    print("\nConverting to physical units for output CSV...")
+    results_df = denormalize_rmse_dataframe(results_df, cfg)
+
+    print(f"Computed {len(results_df)} rows:")
+    print(f"  Encoders: {sorted(results_df['encoder'].unique())}")
+    print(f"  Scenarios: {sorted(results_df['scenario'].unique())}")
+    print(f"  Metrics: {sorted(results_df['metric'].unique())}")
+
+    # Write output
+    output_path = Path("outputs/analysis/per_scenario_rmse.csv")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    results_df.to_csv(output_path, index=False)
+
+    print(f"\n✓ Wrote {output_path}")
+    print(f"  Total rows: {len(results_df)}")
+
+    # Show sample
+    print("\nSample (first 10 rows):")
+    print(results_df.head(10).to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
