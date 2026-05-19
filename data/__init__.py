@@ -8,10 +8,12 @@ from data.splits import (
     verify_no_overlap,
 )
 from data.embeddings import load_all_embeddings, load_embeddings, load_encoder_embedding
+from data.temporal import TemporalEmbeddingDataset
 from data.transforms import load_and_preprocess_image, validate_tensor_range
 
 __all__ = [
     "NuScenesFrameDataset",
+    "TemporalEmbeddingDataset",
     "load_and_preprocess_image",
     "load_all_embeddings",
     "load_embeddings",
