@@ -37,3 +37,4 @@ htmlcov/
 # Project documentation (local only)
 CLAUDE.md
 docs/prd/
+.claude/worktrees/

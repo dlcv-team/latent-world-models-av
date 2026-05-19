@@ -1,0 +1,11 @@
+encoder,metric,mean,ci_lo,ci_hi
+clip_b32,accel_rmse_norm,0.04576,0.0337,0.0607
+clip_b32,steer_rmse_norm,0.05720000000000001,0.0421,0.0759
+dinov2_s14,accel_rmse_norm,0.03328,0.0245,0.0442
+dinov2_s14,steer_rmse_norm,0.0416,0.0306,0.0552
+vit_s16,accel_rmse_norm,0.03744,0.0275,0.0497
+vit_s16,steer_rmse_norm,0.046799999999999994,0.0344,0.0621
+vjepa2,accel_rmse_norm,0.05408,0.0398,0.0718
+vjepa2,steer_rmse_norm,0.0676,0.0497,0.0897
+vqvae,accel_rmse_norm,0.062400000000000004,0.0459,0.0828
+vqvae,steer_rmse_norm,0.078,0.0574,0.1035
