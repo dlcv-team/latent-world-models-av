@@ -5,7 +5,13 @@ Re-exports :class:`ActionProbe`, :func:`train_probe`,
 """
 
 from models.fourier_embed import FourierActionEmbedding
-from models.latent_pred import LatentPredictor
+from models.latent_pred import LatentPredictor, train_latent_predictor
 from models.probe import ActionProbe, train_probe
 
-__all__ = ["ActionProbe", "FourierActionEmbedding", "LatentPredictor", "train_probe"]
+__all__ = [
+    "ActionProbe",
+    "FourierActionEmbedding",
+    "LatentPredictor",
+    "train_latent_predictor",
+    "train_probe",
+]
