@@ -1,6 +1,7 @@
 {
   "version": "0.2.0",
   "source": "Modal rerun (2026-05-16) on full 9641 frames (1606 test), all 5 encoders + V-JEPA2 rep1 ablation. Replaces GCP pilot which used only 3500 subsampled frames (586 test).",
+  "superseded_by": "baselines.json (root) contains full-dataset numbers (850 scenes, 33552 frames, 6 encoders). This file is retained for P0 milestone contract tests.",
   "subset": {
     "seed": 42,
     "counts": {

@@ -1,7 +1,14 @@
-"""Train linear probes on full-dataset embeddings via Modal.
+"""Train MLP probes on full-dataset embeddings via Modal.
 
 Reads pre-computed embeddings from the Modal volume, trains ActionProbe
 with canonical params (batch 256, 50 epochs, no early stopping, seeds [0,1,2]).
+
+The probe architecture (Linear -> GELU -> Dropout -> Linear) and hyper-
+parameters are duplicated here rather than imported from models/probe.py
+because Modal remote functions run in a minimal container image that does
+not have the project's config or encoder dependencies.  The local
+entrypoint validates these values against configs/canonical.yaml at
+invocation time so any drift is caught before jobs are dispatched.
 
 Usage:
   modal run scripts/train_probes_full.py
@@ -24,7 +31,10 @@ VOL_PATH = "/vol"
 EMBED_DIR = f"{VOL_PATH}/embeddings"
 PROBE_DIR = f"{VOL_PATH}/probes"
 
-# Canonical probe training params (from configs/canonical.yaml)
+# Canonical probe training params — MUST mirror configs/canonical.yaml::probe.
+# These are duplicated (not imported) because Modal remote functions run in a
+# stripped container without the project's config module.  The local entrypoint
+# validates this dict against the YAML at invocation time; see _validate_canonical().
 CANONICAL = {
     "batch_size": 256,
     "epochs": 50,
@@ -265,9 +275,43 @@ def train_probe_for_encoder(encoder_name: str, seed: int):
     }
 
 
+def _validate_canonical():
+    """Assert CANONICAL dict matches configs/canonical.yaml::probe.
+
+    Runs locally (not on Modal) so we can import the project's config module.
+    Raises AssertionError on any mismatch so drift is caught before jobs launch.
+    """
+    # Add project root to path so config module is importable
+    project_root = str(Path(__file__).resolve().parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from config import load_canonical  # noqa: WPS433 (late import, local-only)
+
+    cfg = load_canonical()
+    probe = cfg.probe()
+
+    checks = {
+        "batch_size": int(probe["batch_size"]),
+        "epochs": int(probe["epochs"]),
+        "learning_rate": float(probe["learning_rate"]),
+        "weight_decay": float(probe["weight_decay"]),
+        "hidden_dim": int(probe["hidden_dim"]),
+        "dropout": float(probe["dropout"]),
+        "output_dim": int(probe["output_dim"]),
+    }
+    for key, expected in checks.items():
+        actual = CANONICAL[key]
+        assert actual == expected, (
+            f"CANONICAL[{key!r}] = {actual!r} but canonical.yaml says {expected!r}. "
+            f"Update CANONICAL dict in {__file__} to match."
+        )
+    print("[validate] CANONICAL dict matches configs/canonical.yaml ✓")
+
+
 @app.local_entrypoint()
 def main():
     """Train probes for all encoders × seeds in parallel."""
+    _validate_canonical()
     t_start = time.time()
     print("=" * 60)
     print("Full-Dataset Probe Training (Canonical Params)")
