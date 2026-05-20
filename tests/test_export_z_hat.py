@@ -90,19 +90,20 @@ def _train_and_get_models(
 
 
 def test_export_shapes():
-    """Output tensors have correct shapes (N, 4, 384)."""
+    """Output tensors have correct shapes (N, 4, 384) and (N, 384)."""
     torch.manual_seed(42)
     predictor, fourier_embed, adapter = _train_and_get_models("conditioned")
     test_ds = _make_synthetic_dataset(seed=99, split="test")
     test_loader = DataLoader(test_ds, batch_size=8, shuffle=False)
 
-    z_hat, z_real = _run_inference(
+    z_hat, z_real, z_t = _run_inference(
         predictor, fourier_embed, adapter, test_loader, "conditioned"
     )
 
     n_test = len(test_ds)
     assert z_hat.shape == (n_test, _HORIZON, _EMBED_DIM)
     assert z_real.shape == (n_test, _HORIZON, _EMBED_DIM)
+    assert z_t.shape == (n_test, _EMBED_DIM)
 
 
 def test_z_real_matches_adapter_projected_embeddings():
@@ -135,7 +136,7 @@ def test_z_real_matches_adapter_projected_embeddings():
     test_ds = _make_synthetic_dataset(seed=77, split="test", embed_dim=native_dim)
     test_loader = DataLoader(test_ds, batch_size=len(test_ds), shuffle=False)
 
-    _, z_real = _run_inference(
+    _, z_real, _ = _run_inference(
         predictor, fourier_embed, adapter, test_loader, "conditioned"
     )
 
@@ -159,8 +160,8 @@ def test_conditioned_and_unconditioned_differ():
     test_ds = _make_synthetic_dataset(seed=99, split="test")
     test_loader = DataLoader(test_ds, batch_size=len(test_ds), shuffle=False)
 
-    z_hat_c, _ = _run_inference(pred_c, fe_c, ad_c, test_loader, "conditioned")
-    z_hat_u, _ = _run_inference(pred_u, fe_u, ad_u, test_loader, "unconditioned")
+    z_hat_c, _, _ = _run_inference(pred_c, fe_c, ad_c, test_loader, "conditioned")
+    z_hat_u, _, _ = _run_inference(pred_u, fe_u, ad_u, test_loader, "unconditioned")
 
     assert not torch.allclose(z_hat_c, z_hat_u, atol=1e-6)
 
@@ -172,9 +173,10 @@ def test_all_outputs_finite():
     test_ds = _make_synthetic_dataset(seed=99, split="test")
     test_loader = DataLoader(test_ds, batch_size=8, shuffle=False)
 
-    z_hat, z_real = _run_inference(
+    z_hat, z_real, z_t = _run_inference(
         predictor, fourier_embed, adapter, test_loader, "conditioned"
     )
 
     assert torch.isfinite(z_hat).all(), "z_hat contains NaN or Inf"
     assert torch.isfinite(z_real).all(), "z_real contains NaN or Inf"
+    assert torch.isfinite(z_t).all(), "z_t contains NaN or Inf"

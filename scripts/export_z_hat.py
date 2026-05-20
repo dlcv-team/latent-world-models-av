@@ -7,11 +7,28 @@ Member 3 loads these via ``data.z_hat.load_z_hat`` / ``load_z_real``
 in C4 (``evaluation/latent_eval.py``) to compute per-horizon CosSim and
 DeltaCosSim.
 
+Each variant is trained with its own adapter projection (when
+native_dim != target_dim), so the conditioned and unconditional models
+operate in **different 384-d subspaces**. We therefore export a separate
+``z_real_<variant>.pt`` for each so that CosSim is always computed in
+the correct subspace.  Additionally, a ``z_t.pt`` tensor is saved to
+support a copy-baseline CosSim(z_t, z_real_{t+k}).
+
 Output files
 ------------
-- ``z_hat_conditioned.pt``   — conditioned predictor output
-- ``z_hat_unconditioned.pt`` — unconditional predictor output
-- ``z_real.pt``              — real future encoder embeddings (adapter-projected)
+- ``z_hat_conditioned.pt``    — conditioned predictor output
+- ``z_hat_unconditioned.pt``  — unconditional predictor output
+- ``z_real_conditioned.pt``   — adapter-projected real future latents (conditioned adapter)
+- ``z_real_unconditioned.pt`` — adapter-projected real future latents (unconditional adapter)
+- ``z_t_conditioned.pt``      — adapter-projected current latents (for copy baseline)
+
+Action timing note
+------------------
+``action_t`` is the nearest CAN bus reading to frame t's timestamp
+(typically within 5 ms at 100 Hz CAN rate), i.e. approximately the
+"start of interval" action for the ``z_t -> z_{t+1}`` transition at
+2 Hz keyframe rate.  See ``configs/canonical.yaml::dataset::can_bus``
+for alignment policy details.
 
 Usage
 -----
@@ -90,18 +107,22 @@ def _run_inference(
     adapter: nn.Module,
     loader: DataLoader,
     variant: str,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Run inference on the full test set.
 
     Returns
     -------
     z_hat
-        ``(N, horizon, z_dim)`` — predicted future latents.
+        ``(N, horizon, z_dim)`` -- predicted future latents.
     z_real
-        ``(N, horizon, z_dim)`` — adapter-projected real future latents.
+        ``(N, horizon, z_dim)`` -- adapter-projected real future latents.
+    z_t_all
+        ``(N, z_dim)`` -- adapter-projected current-frame latents (for
+        copy-baseline evaluation).
     """
     z_hat_parts: list[torch.Tensor] = []
     z_real_parts: list[torch.Tensor] = []
+    z_t_parts: list[torch.Tensor] = []
 
     for batch in loader:
         z_t_native = batch["z_t"]
@@ -124,29 +145,49 @@ def _run_inference(
 
         z_hat_parts.append(z_hat)
         z_real_parts.append(z_future)
+        z_t_parts.append(z_t)
 
-    return torch.cat(z_hat_parts, dim=0), torch.cat(z_real_parts, dim=0)
+    return (
+        torch.cat(z_hat_parts, dim=0),
+        torch.cat(z_real_parts, dim=0),
+        torch.cat(z_t_parts, dim=0),
+    )
 
 
 def _print_delta_cossim(
     z_hat_cond: torch.Tensor,
     z_hat_uncond: torch.Tensor,
-    z_real: torch.Tensor,
+    z_real_cond: torch.Tensor,
+    z_real_uncond: torch.Tensor,
+    z_t: torch.Tensor,
 ) -> None:
-    """Print per-horizon CosSim and DeltaCosSim as a quick sanity check."""
-    horizon = z_real.shape[1]
+    """Print per-horizon CosSim, DeltaCosSim, and copy baseline.
+
+    Each variant is evaluated against its own adapter-projected z_real
+    so CosSim is computed in the correct subspace.  The "copy baseline"
+    row shows CosSim(z_t, z_real_{t+k}) -- the score a trivial identity
+    predictor would achieve -- to contextualize the predictor's value.
+    """
+    horizon = z_real_cond.shape[1]
     print("\n  Sanity-check DeltaCosSim (authoritative computation is C4):")
+    print(f"  {'k':>3}  {'CosSim_cond':>12}  {'CosSim_uncond':>14}  "
+          f"{'Delta':>8}  {'CopyBaseline':>13}")
     for k in range(1, horizon + 1):
         cond = F.cosine_similarity(
-            z_hat_cond[:, k - 1], z_real[:, k - 1], dim=-1
+            z_hat_cond[:, k - 1], z_real_cond[:, k - 1], dim=-1
         ).mean()
         uncond = F.cosine_similarity(
-            z_hat_uncond[:, k - 1], z_real[:, k - 1], dim=-1
+            z_hat_uncond[:, k - 1], z_real_uncond[:, k - 1], dim=-1
+        ).mean()
+        # Copy baseline: CosSim(z_t, z_real_{t+k}) using conditioned
+        # adapter's z_real (both z_t and z_real come from the same adapter)
+        copy = F.cosine_similarity(
+            z_t, z_real_cond[:, k - 1], dim=-1
         ).mean()
         delta = cond - uncond
         print(
-            f"    k={k}: CosSim_cond={cond:.6f}  "
-            f"CosSim_uncond={uncond:.6f}  Delta={delta:.6f}"
+            f"  k={k}:  {cond:>12.6f}  {uncond:>14.6f}  "
+            f"{delta:>8.6f}  {copy:>13.6f}"
         )
     print()
 
@@ -245,7 +286,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"[export_z_hat] Test set: {len(test_ds)} sequences")
 
-    z_real_ref = None
+    # Each variant has its own adapter, so z_real differs per variant.
+    z_hats: dict[str, torch.Tensor] = {}
+    z_reals: dict[str, torch.Tensor] = {}
+    z_t_cond: torch.Tensor | None = None
 
     for variant in ("conditioned", "unconditioned"):
         ckpt_path = (
@@ -262,39 +306,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[export_z_hat] Loading {variant} checkpoint from {ckpt_path}")
         predictor, fourier_embed, adapter = _load_checkpoint(ckpt_path, target_dim)
 
-        z_hat, z_real = _run_inference(
+        z_hat, z_real, z_t = _run_inference(
             predictor, fourier_embed, adapter, test_loader, variant
         )
         print(f"[export_z_hat] {variant}: z_hat={z_hat.shape}  z_real={z_real.shape}")
 
-        # Save z_hat
-        out_path = args.output_dir / f"z_hat_{variant}.pt"
-        torch.save(z_hat, out_path)
-        print(f"[export_z_hat] Saved {out_path}")
+        # Save z_hat and per-variant z_real
+        torch.save(z_hat, args.output_dir / f"z_hat_{variant}.pt")
+        torch.save(z_real, args.output_dir / f"z_real_{variant}.pt")
+        print(f"[export_z_hat] Saved z_hat_{variant}.pt, z_real_{variant}.pt")
 
-        # Keep z_real from first variant (they should be identical since both
-        # use the same adapter architecture; we verify and use conditioned's)
-        if z_real_ref is None:
-            z_real_ref = z_real
-        else:
-            # Sanity: z_real should match across variants when using the
-            # same adapter. If adapters diverge (different training), they
-            # may differ — we still use conditioned's z_real.
-            pass
+        z_hats[variant] = z_hat
+        z_reals[variant] = z_real
 
-    assert z_real_ref is not None
-    z_real_path = args.output_dir / "z_real.pt"
-    torch.save(z_real_ref, z_real_path)
-    print(f"[export_z_hat] Saved {z_real_path}")
+        # Keep z_t from the conditioned pass for the copy baseline
+        if variant == "conditioned":
+            z_t_cond = z_t
+            torch.save(z_t, args.output_dir / "z_t_conditioned.pt")
+            print(f"[export_z_hat] Saved z_t_conditioned.pt")
 
-    # Load both z_hat for DeltaCosSim sanity check
-    z_hat_cond = torch.load(
-        args.output_dir / "z_hat_conditioned.pt", map_location="cpu", weights_only=True
+    assert z_t_cond is not None
+    _print_delta_cossim(
+        z_hats["conditioned"],
+        z_hats["unconditioned"],
+        z_reals["conditioned"],
+        z_reals["unconditioned"],
+        z_t_cond,
     )
-    z_hat_uncond = torch.load(
-        args.output_dir / "z_hat_unconditioned.pt", map_location="cpu", weights_only=True
-    )
-    _print_delta_cossim(z_hat_cond, z_hat_uncond, z_real_ref)
 
     # Upload to HuggingFace if requested
     if args.upload_hf:
