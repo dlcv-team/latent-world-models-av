@@ -10,6 +10,7 @@ from data.splits import (
 from data.embeddings import load_all_embeddings, load_embeddings, load_encoder_embedding
 from data.temporal import TemporalEmbeddingDataset
 from data.transforms import load_and_preprocess_image, validate_tensor_range
+from data.z_hat import load_z_hat, load_z_real
 
 __all__ = [
     "NuScenesFrameDataset",
@@ -18,6 +19,8 @@ __all__ = [
     "load_all_embeddings",
     "load_embeddings",
     "load_encoder_embedding",
+    "load_z_hat",
+    "load_z_real",
     "validate_tensor_range",
     "get_split_from_canonical",
     "generate_mini_splits",
