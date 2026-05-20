@@ -4,9 +4,14 @@ Member 3's C4 evaluation code can load tensors without knowing whether
 they come from local disk or HuggingFace::
 
     from data.z_hat import load_z_hat, load_z_real
-    z_hat_cond  = load_z_hat("conditioned")     # (N_test, 4, 384)
+    z_hat_cond   = load_z_hat("conditioned")              # (N_test, 4, 384)
     z_hat_uncond = load_z_hat("unconditioned")
-    z_real       = load_z_real()                 # (N_test, 4, 384)
+    z_real_cond  = load_z_real(variant="conditioned")      # (N_test, 4, 384)
+    z_real_uncond = load_z_real(variant="unconditioned")
+
+Each variant has its own adapter projection, so ``z_real`` must match
+the variant being evaluated.  ``load_z_real`` requires an explicit
+``variant`` argument to enforce this.
 
 Download cascade (same pattern as ``data/embeddings.py``):
   1. Local ``outputs/z_hat/``
@@ -91,12 +96,20 @@ def load_z_hat(
 
 
 def load_z_real(
+    variant: str = "conditioned",
     directory: Optional[Path] = None,
 ) -> torch.Tensor:
     """Load real future latents (ground truth) from the frozen encoder.
 
+    Each variant (conditioned / unconditional) was trained with its own
+    adapter projection, so the z_real subspace differs per variant.
+    Always pass the matching variant to get correct CosSim results.
+
     Parameters
     ----------
+    variant
+        ``"conditioned"`` or ``"unconditioned"``.  Must match the
+        variant whose ``z_hat`` you are evaluating against.
     directory
         Override local directory. Defaults to ``outputs/z_hat/``.
 
@@ -105,7 +118,12 @@ def load_z_real(
     torch.Tensor
         ``(N_test, horizon, z_dim)`` real encoder embeddings.
     """
-    filename = "z_real.pt"
+    if variant not in _VALID_VARIANTS:
+        raise ValueError(
+            f"variant must be one of {_VALID_VARIANTS}, got {variant!r}"
+        )
+
+    filename = f"z_real_{variant}.pt"
     d = Path(directory) if directory else _DEFAULT_DIR
     local_path = d / filename
 

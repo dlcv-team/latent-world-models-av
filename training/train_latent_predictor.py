@@ -237,6 +237,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         "epochs": epochs,
         "loss": lp_cfg["loss"],
         "seed": seed,
+        "action_alignment": (
+            "action_t is the nearest CAN bus sample to frame t's timestamp "
+            "(typically <5 ms offset at 100 Hz CAN rate); approximately "
+            "start-of-interval for the 0.5 s keyframe transition at 2 Hz"
+        ),
         "git_sha": _git_sha(),
         "torch_version": torch.__version__,
         "source": "training/train_latent_predictor.py",

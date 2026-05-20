@@ -40,10 +40,23 @@ def test_load_from_local_dir(tmp_path):
 
 
 def test_load_z_real_from_local(tmp_path):
-    """Loads z_real from an explicit local directory."""
-    expected = _save_synthetic_tensor(tmp_path, "z_real.pt", shape=(10, 4, 384))
-    loaded = load_z_real(directory=tmp_path)
+    """Loads per-variant z_real from an explicit local directory."""
+    expected = _save_synthetic_tensor(tmp_path, "z_real_conditioned.pt", shape=(10, 4, 384))
+    loaded = load_z_real(variant="conditioned", directory=tmp_path)
     assert torch.equal(loaded, expected)
+
+
+def test_load_z_real_unconditioned(tmp_path):
+    """Loads unconditioned z_real from an explicit local directory."""
+    expected = _save_synthetic_tensor(tmp_path, "z_real_unconditioned.pt", shape=(10, 4, 384))
+    loaded = load_z_real(variant="unconditioned", directory=tmp_path)
+    assert torch.equal(loaded, expected)
+
+
+def test_z_real_invalid_variant_raises():
+    """load_z_real('invalid') raises ValueError."""
+    with pytest.raises(ValueError, match="variant must be one of"):
+        load_z_real(variant="invalid")
 
 
 def test_invalid_variant_raises():
