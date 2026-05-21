@@ -7,13 +7,15 @@ from data.splits import (
     get_split_from_canonical,
     verify_no_overlap,
 )
-from data.embeddings import load_embeddings
+from data.embeddings import load_all_embeddings, load_embeddings, load_encoder_embedding
 from data.transforms import load_and_preprocess_image, validate_tensor_range
 
 __all__ = [
     "NuScenesFrameDataset",
     "load_and_preprocess_image",
+    "load_all_embeddings",
     "load_embeddings",
+    "load_encoder_embedding",
     "validate_tensor_range",
     "get_split_from_canonical",
     "generate_mini_splits",
