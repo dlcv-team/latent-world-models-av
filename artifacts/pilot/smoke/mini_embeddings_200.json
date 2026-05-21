@@ -1,0 +1,15 @@
+{
+  "num_frames": 200,
+  "vit_shape": [
+    200,
+    384
+  ],
+  "clip_shape": [
+    200,
+    512
+  ],
+  "dino_shape": [
+    200,
+    384
+  ]
+}

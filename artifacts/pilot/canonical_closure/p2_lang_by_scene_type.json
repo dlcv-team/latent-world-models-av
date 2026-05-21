@@ -1,0 +1,46 @@
+{
+  "method": "proxy_bucketed_from_scene_rmse_plus_global_p2_delta",
+  "global": {
+    "num_sequences_test": 170,
+    "horizon_cossim_lang_conditioned": [
+      0.06986387819051743,
+      0.06797714531421661,
+      0.06853368878364563,
+      0.0696987733244896
+    ],
+    "horizon_cossim_action_only": [
+      0.06913136690855026,
+      0.0684792622923851,
+      0.06818952411413193,
+      0.0696980431675911
+    ],
+    "delta_cossim_lang": [
+      0.0007325112819671631,
+      -0.0005021169781684875,
+      0.0003441646695137024,
+      7.301568984985352e-07
+    ]
+  },
+  "by_scene_type": [
+    {
+      "bucket": "intersection",
+      "num_scenes": 10,
+      "steer_rmse_mean": 0.05339142884844043
+    },
+    {
+      "bucket": "night",
+      "num_scenes": 4,
+      "steer_rmse_mean": 0.13092848645475952
+    },
+    {
+      "bucket": "rain",
+      "num_scenes": 9,
+      "steer_rmse_mean": 0.07833038581783965
+    },
+    {
+      "bucket": "urban",
+      "num_scenes": 17,
+      "steer_rmse_mean": 0.10847772924627967
+    }
+  ]
+}
