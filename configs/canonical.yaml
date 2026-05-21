@@ -7,13 +7,23 @@
 # Owned by Member 1. Changes require joint sign-off in Slack and a PR that
 # bumps `version` and updates `docs/CANONICAL_ARTIFACTS.md` accordingly.
 
-version: "1.0.0"
-last_updated: "2026-05-02"
+version: "1.0.2"
+last_updated: "2026-05-14"
 
 dataset:
   name: nuscenes
   version: v1.0-trainval
   policy: "trainval mirror subset (180 train / 20 val / 40 test scenes for P0; +80 scenes for P1/P2)"
+
+  # Full-dataset expansion (all 850 v1.0-trainval scenes). Uses the same
+  # canonical hyperparameters as P0 but trains on the complete dataset with
+  # a 75/10/15 scene-level split.  Results live in baselines.json (root).
+  full_dataset:
+    n_scenes: 850
+    n_samples: 33552
+    split_ratio: "75/10/15 (train/val/test by scene)"
+    seeds: [0, 1, 2]
+    baselines_path: baselines.json
 
   # The split manifest lives in the repo so contract checks are hermetic.
   # sha256 is verified by scripts/check_canonical_contract.py and by
@@ -153,12 +163,13 @@ encoders:
     needs_projection: true
     input_mode: single_frame
   vqvae:
-    framework: vector_quantize_pytorch
-    model_id: vqgan_imagenet_f16_1024
+    framework: vendored_vqgan
+    model_id: vqgan_imagenet_f16_16384
+    primary_checkpoint_url: "https://heibox.uni-heidelberg.de/d/a7530b09fed84f80a887/files/?p=%2Fckpts%2Flast.ckpt&dl=1"
     output_dim_native: 256
     needs_projection: true
     input_mode: single_frame
-    fallback_policy: "FR-08: on checkpoint load failure, copy dinov2_s14 embeddings; raise VQFallbackUsed; tag every figure caption with VQ→DINOv2 fallback notice"
+    fallback_policy: "FR-08: if the Heidelberg checkpoint fails to download or load, substitute DINOv2-S/14 embeddings and raise VQFallbackUsed."
   vjepa2:
     framework: huggingface
     model_id: facebook/vjepa2-vitl-fpc64-256

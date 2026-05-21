@@ -1,6 +1,7 @@
 {
-  "version": "0.1.0",
-  "source": "M1 pilot run on the canonical trainval-mirror subset (180/20/40, seed 42). Seed values from the pilot are pinned here so that future module-level tests can compare their outputs against a stable reference.",
+  "version": "0.2.0",
+  "source": "Modal rerun (2026-05-16) on full 9641 frames (1606 test), all 5 encoders + V-JEPA2 rep1 ablation. Replaces GCP pilot which used only 3500 subsampled frames (586 test).",
+  "superseded_by": "baselines.json (root) contains full-dataset numbers (850 scenes, 33552 frames, 6 encoders). This file is retained for P0 milestone contract tests.",
   "subset": {
     "seed": 42,
     "counts": {
@@ -14,8 +15,7 @@
   "validation": {
     "csv_sha256_at_pilot": "ff70d20ffb4dd152ed06661fe63dd00942d4ed35b87d39f53728a3b22c292a94",
     "csv_sha256_current": "18ba46c35d57ab799a32cdebf711dacfd566ff3f5002589f861701a9e8442a66",
-    "status": "pending_revalidation",
-    "note": "CSV regenerated in m1/nuscenes-frame-clip-actions (byte-level diff, scientific content equivalent). Envelopes not yet validated against new CSV. TODO: on next probe run, confirm sample encoder lands within pinned envelope. If not, bump tolerance with justification."
+    "note": "Full 9641-frame rerun on Modal H100s (2026-05-16). All encoders processed identically with no subsampling."
   },
   "tolerance": {
     "rmse_abs_atol": 1.0e-3,
@@ -24,32 +24,32 @@
   "expected_best_encoder": "vjepa2",
   "encoders": {
     "vit_s16": {
-      "steer_rmse_scene_mean": { "expected": 0.105, "ci_95": [0.080, 0.130] }
+      "steer_rmse_scene_mean": { "expected": 0.102, "ci_95": [0.0767, 0.1297] }
     },
     "dinov2_s14": {
-      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.075, 0.120] }
+      "steer_rmse_scene_mean": { "expected": 0.091, "ci_95": [0.0666, 0.1188] }
     },
     "clip_b32": {
-      "steer_rmse_scene_mean": { "expected": 0.108, "ci_95": [0.083, 0.133] }
+      "steer_rmse_scene_mean": { "expected": 0.101, "ci_95": [0.0748, 0.1280] }
     },
     "vqvae": {
-      "steer_rmse_scene_mean": { "expected": 0.097, "ci_95": [0.075, 0.120] },
-      "note": "vqvae values mirror dinov2_s14 when the FR-08 fallback is active; treat as DINOv2 result, not independent VQ-VAE evidence."
+      "steer_rmse_scene_mean": { "expected": 0.095, "ci_95": [0.0677, 0.1242] },
+      "note": "Real VQGAN encoder (Heidelberg f16-16384 checkpoint, global avg pool). No longer a DINOv2 fallback."
     },
     "vjepa2": {
-      "steer_rmse_scene_mean": { "expected": 0.090, "ci_95": [0.061, 0.120] }
+      "steer_rmse_scene_mean": { "expected": 0.081, "ci_95": [0.0573, 0.1085] }
     }
   },
   "paired_tests": [
     {
       "encoder_a": "clip_b32",
       "encoder_b": "vjepa2",
-      "p_bonferroni": { "expected": 0.0051 }
+      "p_bonferroni": { "expected": 0.0278 }
     },
     {
       "encoder_a": "vit_s16",
       "encoder_b": "vjepa2",
-      "p_bonferroni": { "expected": 0.0078 }
+      "p_bonferroni": { "expected": 0.0288 }
     }
   ],
   "p1": {
@@ -61,7 +61,8 @@
     }
   },
   "notes": [
-    "Numbers pinned from a single pilot run. Module-level tests should use the tolerance block above when comparing fresh outputs.",
-    "If module outputs drift beyond tolerance, investigate before updating these values; do not silently widen the envelope."
+    "Numbers pinned from Modal rerun (2026-05-16) on full 9641 frames. All 5 encoders on consistent pipeline.",
+    "If module outputs drift beyond tolerance, investigate before updating these values; do not silently widen the envelope.",
+    "num_scene_test_observations = 1606 (was 586 in GCP pilot)."
   ]
 }
