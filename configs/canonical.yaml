@@ -15,6 +15,16 @@ dataset:
   version: v1.0-trainval
   policy: "trainval mirror subset (180 train / 20 val / 40 test scenes for P0; +80 scenes for P1/P2)"
 
+  # Full-dataset expansion (all 850 v1.0-trainval scenes). Uses the same
+  # canonical hyperparameters as P0 but trains on the complete dataset with
+  # a 75/10/15 scene-level split.  Results live in baselines.json (root).
+  full_dataset:
+    n_scenes: 850
+    n_samples: 33552
+    split_ratio: "75/10/15 (train/val/test by scene)"
+    seeds: [0, 1, 2]
+    baselines_path: baselines.json
+
   # The split manifest lives in the repo so contract checks are hermetic.
   # sha256 is verified by scripts/check_canonical_contract.py and by
   # tests/test_canonical_contract.py.
