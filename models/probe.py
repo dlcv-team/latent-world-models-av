@@ -21,13 +21,13 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, Tuple, Union
+from typing import Iterable, Optional, Union
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 
 from config import CanonicalConfig, load_canonical
+from models._train_utils import _BatchLike, _epoch_loss
 
 # Default architectural constants. Mirror configs/canonical.yaml::probe so
 # that callers can construct an ActionProbe without importing the config
@@ -114,90 +114,6 @@ class ActionProbe(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-_BatchLike = Union[
-    Mapping[str, torch.Tensor],
-    Tuple[torch.Tensor, torch.Tensor],
-]
-
-
-def _extract_image_actions(
-    batch: _BatchLike,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Pull ``(image, actions)`` from either dict-style or tuple-style batches.
-
-    Dict-style is what ``data.dataset.NuScenesFrameDataset`` emits
-    (``{"image": ..., "actions": ..., "sample_token": ..., ...}``);
-    tuple-style is what synthetic test loaders typically yield. Supporting
-    both keeps the training loop decoupled from the dataset's exact return
-    schema.
-    """
-    if isinstance(batch, Mapping):
-        return batch["image"], batch["actions"]
-    if isinstance(batch, (tuple, list)) and len(batch) >= 2:
-        return batch[0], batch[1]
-    raise TypeError(
-        f"Unsupported batch type: {type(batch).__name__}. "
-        "Expected a Mapping with 'image' and 'actions' keys, or a "
-        "(image, actions) tuple."
-    )
-
-
-def _epoch_loss(
-    encoder: nn.Module,
-    probe: ActionProbe,
-    loader: Iterable[_BatchLike],
-    optimizer: Optional[torch.optim.Optimizer],
-    loss_fn: nn.Module,
-    device: Optional[torch.device],
-    train: bool,
-) -> float:
-    """Run one pass over ``loader``; step the optimizer if ``train`` is True.
-
-    Returns the sample-weighted mean loss for the epoch. ``optimizer`` may
-    be ``None`` for eval passes.
-    """
-    if train:
-        probe.train()
-    else:
-        probe.eval()
-
-    # Encoder is always frozen + always in eval mode (the wrapper's
-    # ``train()`` override forces backbone.eval() — see encoders/base.py).
-    # Calling .eval() here is just defensive.
-    encoder.eval()
-
-    total_loss_sum = 0.0
-    total_n = 0
-
-    grad_ctx: Any = torch.enable_grad() if train else torch.no_grad()
-    with grad_ctx:
-        for batch in loader:
-            image, action = _extract_image_actions(batch)
-            if device is not None:
-                image = image.to(device)
-                action = action.to(device)
-
-            embedding = encoder(image)
-            prediction = probe(embedding)
-            loss = loss_fn(prediction, action)
-
-            if train:
-                assert optimizer is not None
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
-
-            batch_size = action.shape[0]
-            total_loss_sum += float(loss.detach().item()) * batch_size
-            total_n += batch_size
-
-    if total_n == 0:
-        raise RuntimeError(
-            "loader yielded zero samples; cannot compute mean epoch loss."
-        )
-    return total_loss_sum / total_n
-
-
 def train_probe(
     encoder: nn.Module,
     probe: ActionProbe,
@@ -273,7 +189,7 @@ def train_probe(
     for _epoch in range(epochs):
         train_loss = _epoch_loss(
             encoder=encoder,
-            probe=probe,
+            head=probe,
             loader=train_loader,
             optimizer=optimizer,
             loss_fn=loss_fn,
@@ -285,7 +201,7 @@ def train_probe(
         if val_loader is not None:
             val_loss = _epoch_loss(
                 encoder=encoder,
-                probe=probe,
+                head=probe,
                 loader=val_loader,
                 optimizer=None,
                 loss_fn=loss_fn,

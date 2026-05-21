@@ -1,0 +1,2 @@
+encoder,alpha,test_steer_rmse_mean,test_accel_rmse_mean,num_scene_test_observations
+bc_best_vjepa2_rep64_ridge,0.0001,0.4062381386756897,0.32789549231529236,40
