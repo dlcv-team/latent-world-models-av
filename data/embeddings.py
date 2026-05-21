@@ -104,7 +104,7 @@ def load_all_embeddings(
     }
 
 
-# Legacy API — kept for backward compatibility with pilot code
+# Legacy API -- kept for backward compatibility with pilot code
 _PILOT_SPLIT_FILES = [
     "camfront_keyframes_core.npz",
     "camfront_keyframes_vjepa2.npz",
