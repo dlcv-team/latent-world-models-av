@@ -66,9 +66,7 @@ class EncoderSpec:
     pilot_name: str  # name used in pilot artifacts + canonical output paths
     pretrained_weights_id: str  # upstream weights identifier (timm tag,
     #                            # torch.hub name, HF repo, or open_clip
-    #                            # pretrained tag). For VQ-VAE this is the
-    #                            # DINOv2 fallback id since no working VQ
-    #                            # checkpoint loads.
+    #                            # pretrained tag)
 
 
 ENCODER_REGISTRY: dict[str, EncoderSpec] = {
@@ -86,7 +84,7 @@ ENCODER_REGISTRY: dict[str, EncoderSpec] = {
     ),
     "vqvae": EncoderSpec(
         "encoders.vqvae", "VQVAEWrapper", "single_frame", "vq_track",
-        "dinov2_vits14",  # FR-08 fallback; no working VQ checkpoint
+        "vqgan-imagenet-f16-16384",
     ),
     "vjepa2": EncoderSpec(
         "encoders.vjepa2", "VJEPA2Wrapper", "clip", "vjepa2_rep64",
