@@ -36,7 +36,11 @@
         "0": 0.1304286658220471,
         "1": 0.1331980662350143,
         "2": 0.1339009923581578
-      }
+      },
+      "test_steer_rmse_scene_mean": 0.1174629860634163,
+      "test_steer_rmse_scene_std": 0.12672874324317276,
+      "test_accel_rmse_scene_mean": 0.06743615124305873,
+      "test_accel_rmse_scene_std": 0.025061390176119375
     },
     "dino_vits14": {
       "test_rmse_mean": 0.11915328642205843,
@@ -52,7 +56,11 @@
         "0": 0.1218764329483694,
         "1": 0.11707322986698465,
         "2": 0.1185101964508212
-      }
+      },
+      "test_steer_rmse_scene_mean": 0.10419111783666289,
+      "test_steer_rmse_scene_std": 0.10746897084775817,
+      "test_accel_rmse_scene_mean": 0.07196844392652703,
+      "test_accel_rmse_scene_std": 0.02446587196315507
     },
     "vit_s16": {
       "test_rmse_mean": 0.1312359286920565,
@@ -68,7 +76,11 @@
         "0": 0.12955417501512353,
         "1": 0.1319616989480541,
         "2": 0.1321919121129918
-      }
+      },
+      "test_steer_rmse_scene_mean": 0.1206800409387994,
+      "test_steer_rmse_scene_std": 0.11797628323514849,
+      "test_accel_rmse_scene_mean": 0.07111947730978095,
+      "test_accel_rmse_scene_std": 0.027052119908295893
     },
     "vjepa2_rep1": {
       "test_rmse_mean": 0.1174830145575735,
@@ -84,7 +96,11 @@
         "0": 0.1207573818123341,
         "1": 0.11444725324261322,
         "2": 0.11724440861777319
-      }
+      },
+      "test_steer_rmse_scene_mean": 0.09742825365056484,
+      "test_steer_rmse_scene_std": 0.11817702958833741,
+      "test_accel_rmse_scene_mean": 0.05884822522901387,
+      "test_accel_rmse_scene_std": 0.025665308878385435
     },
     "vjepa2_rep64": {
       "test_rmse_mean": 0.07736966657017852,
@@ -100,7 +116,11 @@
         "0": 0.07630861065105,
         "1": 0.07848866578717344,
         "2": 0.07731172327231213
-      }
+      },
+      "test_steer_rmse_scene_mean": 0.05792361575188647,
+      "test_steer_rmse_scene_std": 0.07141817569424454,
+      "test_accel_rmse_scene_mean": 0.05450995525260107,
+      "test_accel_rmse_scene_std": 0.023245360043316683
     },
     "vq_track": {
       "test_rmse_mean": 0.13489976314990573,
@@ -116,7 +136,11 @@
         "0": 0.13393293427559128,
         "1": 0.13566200715014756,
         "2": 0.13510434802397842
-      }
+      },
+      "test_steer_rmse_scene_mean": 0.12602716667516656,
+      "test_steer_rmse_scene_std": 0.1251508052277454,
+      "test_accel_rmse_scene_mean": 0.06266271322212096,
+      "test_accel_rmse_scene_std": 0.02845581944379599
     }
   }
 }
