@@ -7,9 +7,21 @@ Linear(256,2)`) but differ in training regime — the probe trains for a
 fixed 50 epochs while the BC baseline early-stops on validation MSE
 with patience 10. See ``configs/canonical.yaml`` (``probe`` and
 ``bc_baseline`` blocks) for the source of truth.
+
+:func:`precompute_embeddings` is the recommended fast path for the BC
+sweep: run the frozen encoder once, then train the head on cached
+``(embedding, action)`` tensors. See :mod:`models._train_utils` for the
+contract.
 """
 
+from models._train_utils import precompute_embeddings
 from models.bc_baseline import BCBaseline, train_bc
 from models.probe import ActionProbe, train_probe
 
-__all__ = ["ActionProbe", "BCBaseline", "train_bc", "train_probe"]
+__all__ = [
+    "ActionProbe",
+    "BCBaseline",
+    "precompute_embeddings",
+    "train_bc",
+    "train_probe",
+]
