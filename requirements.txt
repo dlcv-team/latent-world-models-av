@@ -2,6 +2,7 @@ torch>=2.0
 timm
 open_clip_torch
 transformers>=4.50
+huggingface_hub
 nuscenes-devkit
 pytorch-grad-cam
 wandb
