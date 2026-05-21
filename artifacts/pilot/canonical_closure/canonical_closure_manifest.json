@@ -1,0 +1,10 @@
+{
+  "generated": [
+    "probe_rmse_summary_5enc.csv",
+    "paired_tests_5enc_bonferroni.csv",
+    "encoder_summary_with_ci_5enc.csv",
+    "perturbation_rmse_5enc.csv",
+    "bc_baseline_row.csv",
+    "p2_lang_by_scene_type.json"
+  ]
+}

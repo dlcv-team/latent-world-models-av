@@ -1,0 +1,19 @@
+{
+  "method": "huggingface_transformers_vjepa2",
+  "success": true,
+  "attempts": [
+    {
+      "repo": "facebook/vjepa2-vitl-fpc64-256",
+      "load_ok": true,
+      "forward_ok": true,
+      "error": ""
+    }
+  ],
+  "next_action": "",
+  "selected_repo": "facebook/vjepa2-vitl-fpc64-256",
+  "selected_shape": [
+    1,
+    8192,
+    1024
+  ]
+}
