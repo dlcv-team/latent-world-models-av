@@ -1,0 +1,31 @@
+{
+  "success": false,
+  "attempts": [
+    {
+      "name": "vqgan_imagenet_f16_1024",
+      "url": "https://heibox.uni-heidelberg.de/d/8088892a516d4e3baf92/?download=1",
+      "path": "cache/vq/vqgan_imagenet_f16_1024.bin",
+      "download_ok": true,
+      "inspect": {
+        "path": "cache/vq/vqgan_imagenet_f16_1024.bin",
+        "size_bytes": 7082,
+        "torch_load_ok": false,
+        "error": "invalid load key, '\\x0a'."
+      }
+    },
+    {
+      "name": "vqgan_imagenet_f16_16384",
+      "url": "https://heibox.uni-heidelberg.de/d/a7530b09fed84f80a887/?download=1",
+      "path": "cache/vq/vqgan_imagenet_f16_16384.bin",
+      "download_ok": true,
+      "inspect": {
+        "path": "cache/vq/vqgan_imagenet_f16_16384.bin",
+        "size_bytes": 7087,
+        "torch_load_ok": false,
+        "error": "invalid load key, '\\x0a'."
+      }
+    }
+  ],
+  "decision_complete": true,
+  "next_action": "No reproducible VQ checkpoint load succeeded. Use explicit fallback baseline policy in report (documented blocked state)."
+}
