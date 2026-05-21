@@ -1,0 +1,30 @@
+{
+  "device": "cuda",
+  "models": {
+    "vit_small_patch16_224": {
+      "shape": [
+        1,
+        384
+      ],
+      "forward_seconds": 0.2340989112854004,
+      "peak_mem_bytes": 101385728
+    },
+    "clip_vit_b32_openai": {
+      "shape": [
+        1,
+        512
+      ],
+      "forward_seconds": 0.016274690628051758,
+      "peak_mem_bytes": 717263360
+    },
+    "dinov2_vits14": {
+      "shape": [
+        1,
+        384
+      ],
+      "forward_seconds": 0.017192840576171875,
+      "peak_mem_bytes": 804158976
+    }
+  },
+  "errors": []
+}

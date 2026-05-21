@@ -1,0 +1,8 @@
+{
+  "generated": [
+    "encoder_rmse_bars",
+    "scenario_heatmap_steer",
+    "perturbation_delta_steer",
+    "throughput_vram_summary"
+  ]
+}
