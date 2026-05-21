@@ -11,6 +11,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from config import load_canonical
+from models import precompute_embeddings
 from models.bc_baseline import (
     DEFAULT_DROPOUT,
     DEFAULT_HIDDEN_DIM,
@@ -355,6 +356,36 @@ def test_train_bc_default_patience_comes_from_canonical():
     assert default["stopped_early"] == explicit["stopped_early"]
 
 
+def test_train_bc_uses_supplied_cfg_for_patience_default(cfg):
+    """Passing ``cfg=`` must avoid triggering an implicit ``load_canonical()``.
+
+    Regression test for the hidden I/O concern raised in PR review:
+    callers that already have the config in hand should be able to hand
+    it in instead of forcing ``train_bc`` to re-read disk.
+    """
+    canonical_patience = int(cfg.bc()["early_stopping_patience"])
+
+    def _run(**kwargs):
+        torch.manual_seed(0)
+        bc = BCBaseline(input_dim=384)
+        train_loader, val_loader = _make_loaders()
+        return train_bc(
+            encoder=_IdentityEncoder().eval(),
+            bc_model=bc,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            optimizer=_adam(bc),
+            epochs=15,
+            **kwargs,
+        )
+
+    via_cfg = _run(cfg=cfg)
+    via_explicit = _run(patience=canonical_patience)
+    assert via_cfg["train_loss"] == via_explicit["train_loss"]
+    assert via_cfg["val_loss"] == via_explicit["val_loss"]
+    assert via_cfg["stopped_early"] == via_explicit["stopped_early"]
+
+
 def test_train_bc_canonical_hyperparams_locked(cfg):
     """Spec contract: lr=1e-3, patience=10, epochs=50, MSE, Adam, wd=0."""
     bc_cfg = cfg.bc()
@@ -425,6 +456,179 @@ def test_train_bc_rejects_zero_patience():
             epochs=5,
             patience=0,
         )
+
+
+# ---------------------------------------------------------------------------
+# Pre-computed-embedding training path
+# ---------------------------------------------------------------------------
+
+
+class _CountingEncoder(nn.Module):
+    """Identity encoder that tracks how many images it has been asked to embed.
+
+    Used to verify that ``precompute_embeddings`` runs the encoder exactly
+    once per sample regardless of how many BC epochs follow.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.forward_calls = 0
+        self.images_seen = 0
+
+    def trainable_parameters(self) -> Iterator[nn.Parameter]:
+        return iter(())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        self.forward_calls += 1
+        self.images_seen += x.shape[0]
+        return x
+
+
+def test_precompute_embeddings_runs_encoder_once_per_sample():
+    """Sanity check: ``precompute_embeddings`` is a single sweep over the loader."""
+    encoder = _CountingEncoder().eval()
+    train_loader, _ = _make_loaders(
+        n_train=64, n_val=16, input_dim=384, batch_size=16
+    )
+
+    cached = precompute_embeddings(encoder, train_loader)
+
+    assert encoder.images_seen == 64
+    assert encoder.forward_calls == 64 // 16  # one call per batch
+    assert cached.tensors[0].shape == (64, 384)
+    assert cached.tensors[1].shape == (64, 2)
+
+
+def test_precompute_embeddings_supports_dict_batches():
+    """The dict-style schema from ``NuScenesFrameDataset`` must work."""
+    encoder = _IdentityEncoder().eval()
+    loader, _ = _make_loaders(n_train=32, n_val=8, batch_size=8, return_dict=True)
+
+    cached = precompute_embeddings(encoder, loader)
+
+    assert cached.tensors[0].shape == (32, 384)
+    assert cached.tensors[1].shape == (32, 2)
+
+
+def _make_deterministic_loaders(
+    n_train: int = 64,
+    n_val: int = 16,
+    batch_size: int = 16,
+) -> tuple[DataLoader, DataLoader]:
+    """Like ``_make_loaders`` but with ``shuffle=False`` so two passes over the
+    same dataset produce the same batch sequence.
+
+    Required for the cached-vs-live equivalence test: an order-randomized
+    train loader would put the same samples in different gradient updates
+    on the two paths and the trajectories would naturally diverge.
+    """
+    g = torch.Generator().manual_seed(17)
+    true_w = torch.randn(384, 2, generator=g) * 0.1
+    true_b = torch.randn(2, generator=g) * 0.05
+    train_ds = _LinearLabelDataset(
+        n=n_train,
+        input_dim=384,
+        true_w=true_w,
+        true_b=true_b,
+        sample_seed=0,
+    )
+    val_ds = _LinearLabelDataset(
+        n=n_val,
+        input_dim=384,
+        true_w=true_w,
+        true_b=true_b,
+        sample_seed=42,
+    )
+    return (
+        DataLoader(train_ds, batch_size=batch_size, shuffle=False),
+        DataLoader(val_ds, batch_size=batch_size, shuffle=False),
+    )
+
+
+def test_train_bc_on_precomputed_embeddings_matches_live_encoder():
+    """Caching embeddings up front must yield the same training trajectory.
+
+    This is the fast path called out in the PR review: pre-compute once,
+    train the head on cached tensors. Setting ``dropout=0`` lets us drop
+    the only stochastic op inside the head and demand byte-identical loss
+    curves — exactly what callers should observe if they swap a live
+    encoder for a cached :class:`~torch.utils.data.TensorDataset` built
+    from :func:`precompute_embeddings`. (A non-zero dropout would still
+    converge equivalently in expectation, but the per-step trajectories
+    would diverge because :class:`~torch.utils.data.DataLoader` consumes
+    one RNG value per ``__iter__`` call for worker seeding and the cached
+    path issues two extra iter calls during pre-computation.)
+    """
+    cfg = load_canonical()
+    train_loader, val_loader = _make_deterministic_loaders()
+
+    def _run_live():
+        torch.manual_seed(0)
+        bc = BCBaseline(input_dim=384, dropout=0.0)
+        return train_bc(
+            encoder=_IdentityEncoder().eval(),
+            bc_model=bc,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            optimizer=_adam(bc),
+            epochs=5,
+            patience=10,
+            cfg=cfg,
+        )
+
+    def _run_cached():
+        torch.manual_seed(0)
+        bc = BCBaseline(input_dim=384, dropout=0.0)
+        encoder = _IdentityEncoder().eval()
+        cached_train = precompute_embeddings(encoder, train_loader)
+        cached_val = precompute_embeddings(encoder, val_loader)
+        cached_train_loader = DataLoader(
+            cached_train, batch_size=16, shuffle=False
+        )
+        cached_val_loader = DataLoader(cached_val, batch_size=16, shuffle=False)
+        return train_bc(
+            encoder=nn.Identity(),
+            bc_model=bc,
+            train_loader=cached_train_loader,
+            val_loader=cached_val_loader,
+            optimizer=_adam(bc),
+            epochs=5,
+            patience=10,
+            cfg=cfg,
+        )
+
+    live = _run_live()
+    cached = _run_cached()
+    for k in ("train_loss", "val_loss"):
+        for live_v, cached_v in zip(live[k], cached[k]):
+            assert cached_v == pytest.approx(live_v, rel=1e-6, abs=1e-8)
+
+
+def test_train_bc_on_precomputed_embeddings_only_runs_encoder_once():
+    """End-to-end: caching must amortize the encoder forward over all epochs."""
+    encoder = _CountingEncoder().eval()
+    train_loader, val_loader = _make_loaders(
+        n_train=32, n_val=8, batch_size=8
+    )
+
+    cached_train = precompute_embeddings(encoder, train_loader)
+    cached_val = precompute_embeddings(encoder, val_loader)
+    images_seen_after_cache = encoder.images_seen
+    assert images_seen_after_cache == 32 + 8
+
+    bc = BCBaseline(input_dim=384)
+    train_bc(
+        encoder=nn.Identity(),  # head trains on cached tensors only
+        bc_model=bc,
+        train_loader=DataLoader(cached_train, batch_size=8),
+        val_loader=DataLoader(cached_val, batch_size=8),
+        optimizer=_adam(bc),
+        epochs=20,
+        patience=5,
+    )
+
+    # The encoder must NOT be called again during training.
+    assert encoder.images_seen == images_seen_after_cache
 
 
 # ---------------------------------------------------------------------------

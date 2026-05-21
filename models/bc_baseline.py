@@ -21,12 +21,13 @@ from __future__ import annotations
 import csv
 import math
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, Tuple, Union
+from typing import Iterable, Optional, Union
 
 import torch
 from torch import nn
 
 from config import CanonicalConfig, load_canonical
+from models._train_utils import _BatchLike, _epoch_loss
 
 # Mirror canonical.yaml so tests can spin up a head without loading config.
 # from_canonical is the real path.
@@ -114,88 +115,6 @@ class BCBaseline(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-_BatchLike = Union[
-    Mapping[str, torch.Tensor],
-    Tuple[torch.Tensor, torch.Tensor],
-]
-
-
-def _extract_image_actions(
-    batch: _BatchLike,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Pull ``(image, actions)`` from either dict-style or tuple-style batches.
-
-    Dict-style is what ``data.dataset.NuScenesFrameDataset`` emits
-    (``{"image": ..., "actions": ..., ...}``); tuple-style is what
-    synthetic test loaders typically yield. Logic is intentionally
-    duplicated from :mod:`models.probe`; a third training loop will be
-    enough motivation to lift it into a shared helper.
-    """
-    if isinstance(batch, Mapping):
-        return batch["image"], batch["actions"]
-    if isinstance(batch, (tuple, list)) and len(batch) >= 2:
-        return batch[0], batch[1]
-    raise TypeError(
-        f"Unsupported batch type: {type(batch).__name__}. "
-        "Expected a Mapping with 'image' and 'actions' keys, or a "
-        "(image, actions) tuple."
-    )
-
-
-def _epoch_loss(
-    encoder: nn.Module,
-    bc_model: BCBaseline,
-    loader: Iterable[_BatchLike],
-    optimizer: Optional[torch.optim.Optimizer],
-    loss_fn: nn.Module,
-    device: Optional[torch.device],
-    train: bool,
-) -> float:
-    """Run one pass over ``loader``; step the optimizer if ``train`` is True.
-
-    Returns the sample-weighted mean loss for the epoch. ``optimizer`` may
-    be ``None`` for eval passes.
-    """
-    if train:
-        bc_model.train()
-    else:
-        bc_model.eval()
-
-    # Real wrappers already pin their backbone to eval (encoders/base.py);
-    # this only matters for synthetic stubs in tests.
-    encoder.eval()
-
-    total_loss_sum = 0.0
-    total_n = 0
-    grad_ctx: Any = torch.enable_grad() if train else torch.no_grad()
-    with grad_ctx:
-        for batch in loader:
-            image, action = _extract_image_actions(batch)
-            if device is not None:
-                image = image.to(device)
-                action = action.to(device)
-
-            embedding = encoder(image)
-            prediction = bc_model(embedding)
-            loss = loss_fn(prediction, action)
-
-            if train:
-                assert optimizer is not None
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
-
-            batch_size = action.shape[0]
-            total_loss_sum += float(loss.detach().item()) * batch_size
-            total_n += batch_size
-
-    if total_n == 0:
-        raise RuntimeError(
-            "loader yielded zero samples; cannot compute mean epoch loss."
-        )
-    return total_loss_sum / total_n
-
-
 def train_bc(
     encoder: nn.Module,
     bc_model: BCBaseline,
@@ -205,6 +124,7 @@ def train_bc(
     epochs: int,
     *,
     patience: Optional[int] = None,
+    cfg: Optional[CanonicalConfig] = None,
     device: Optional[torch.device] = None,
     log_csv_path: Optional[Union[Path, str]] = None,
 ) -> dict:
@@ -217,6 +137,16 @@ def train_bc(
         ``nn.Module`` that maps an input batch to a 2-D embedding tensor
         and whose backbone is already frozen). Gradients flow only into
         the encoder's adapter (when present) and into the BC head.
+
+        For the full nuScenes-subset BC sweep (6 encoders × 3 seeds), the
+        cheaper pattern is to pre-compute embeddings once with
+        :func:`models.precompute_embeddings`, build a
+        :class:`torch.utils.data.DataLoader` over the resulting
+        :class:`torch.utils.data.TensorDataset`, and pass an
+        :class:`torch.nn.Identity` here. Each early-stopping epoch then
+        costs ~MLP-forward time instead of an encoder forward — typically
+        2-3 orders of magnitude faster. See
+        :mod:`models._train_utils` for the adapter caveat.
     bc_model
         The :class:`BCBaseline` head to train.
     train_loader, val_loader
@@ -224,6 +154,12 @@ def train_bc(
         dicts (the :class:`data.dataset.NuScenesFrameDataset` schema) or
         ``(image, actions)`` tuples. ``val_loader`` is required because
         the early-stopping signal comes from it.
+
+        Batch size is the caller's responsibility — the canonical value
+        is ``cfg.bc()["batch_size"]`` (256), which should be used when
+        constructing the DataLoader. ``train_bc`` does not enforce it
+        because the same loop is reused for unit tests with small synthetic
+        batches.
     optimizer
         Constructed by the caller. The canonical pattern is ::
 
@@ -240,7 +176,15 @@ def train_bc(
     patience
         Number of consecutive epochs without val-MSE improvement before
         training stops. If ``None``, the canonical default
-        (``cfg.bc()["early_stopping_patience"]``, 10) is used.
+        (``cfg.bc()["early_stopping_patience"]``, 10) is read either from
+        the ``cfg`` argument (when provided) or from the on-disk canonical
+        config via :func:`config.load_canonical`. Pass ``patience``
+        explicitly to keep the call hermetic.
+    cfg
+        Optional pre-loaded :class:`CanonicalConfig`. Only consulted when
+        ``patience`` is ``None``; provided so callers that already have
+        the config in hand (e.g. test fixtures, evaluation pipelines)
+        don't trigger an implicit disk read.
     device
         If provided, batches are moved to ``device`` before each forward
         pass. Encoder + bc_model are NOT moved here — caller should
@@ -267,12 +211,7 @@ def train_bc(
     if epochs < 1:
         raise ValueError(f"epochs must be >= 1, got {epochs}")
 
-    if patience is None:
-        patience = int(load_canonical().bc()["early_stopping_patience"])
-    else:
-        patience = int(patience)
-    if patience < 1:
-        raise ValueError(f"patience must be >= 1, got {patience}")
+    patience = _resolve_patience(patience, cfg)
 
     loss_fn = nn.MSELoss()
 
@@ -287,7 +226,7 @@ def train_bc(
     for epoch in range(epochs):
         train_loss = _epoch_loss(
             encoder=encoder,
-            bc_model=bc_model,
+            head=bc_model,
             loader=train_loader,
             optimizer=optimizer,
             loss_fn=loss_fn,
@@ -296,7 +235,7 @@ def train_bc(
         )
         val_loss = _epoch_loss(
             encoder=encoder,
-            bc_model=bc_model,
+            head=bc_model,
             loader=val_loader,
             optimizer=None,
             loss_fn=loss_fn,
@@ -336,6 +275,25 @@ def train_bc(
         "best_val_loss": float(best_val_loss),
         "stopped_early": stopped_early,
     }
+
+
+def _resolve_patience(
+    patience: Optional[int], cfg: Optional[CanonicalConfig]
+) -> int:
+    """Resolve early-stopping patience from the explicit arg or the canonical config.
+
+    Centralizing this keeps :func:`train_bc` readable and makes the
+    fallback-to-disk path explicit in one place.
+    """
+    if patience is None:
+        if cfg is None:
+            cfg = load_canonical()
+        patience = int(cfg.bc()["early_stopping_patience"])
+    else:
+        patience = int(patience)
+    if patience < 1:
+        raise ValueError(f"patience must be >= 1, got {patience}")
+    return patience
 
 
 def _write_log_csv(
