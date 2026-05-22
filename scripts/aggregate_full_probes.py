@@ -62,12 +62,12 @@ SUMMARY_HEADER = [
     "encoder",
     "cv_folds",
     "seeds",
-    "test_steer_rmse_mean",
-    "test_steer_rmse_std",
-    "test_accel_rmse_mean",
-    "test_accel_rmse_std",
-    "val_steer_rmse_mean",
-    "val_accel_rmse_mean",
+    "test_steer_rmse_scene_mean",
+    "test_steer_rmse_scene_std",
+    "test_accel_rmse_scene_mean",
+    "test_accel_rmse_scene_std",
+    "val_steer_rmse_scene_mean",
+    "val_accel_rmse_scene_mean",
     "num_scene_test_observations",
 ]
 
@@ -226,10 +226,10 @@ def process_encoder(
     accel_arr = np.array(accel_means)
 
     summary = {
-        "test_steer_rmse_mean": float(steer_arr.mean()),
-        "test_steer_rmse_std": float(steer_arr.std(ddof=1)),
-        "test_accel_rmse_mean": float(accel_arr.mean()),
-        "test_accel_rmse_std": float(accel_arr.std(ddof=1)),
+        "test_steer_rmse_scene_mean": float(steer_arr.mean()),
+        "test_steer_rmse_scene_std": float(steer_arr.std(ddof=1)),
+        "test_accel_rmse_scene_mean": float(accel_arr.mean()),
+        "test_accel_rmse_scene_std": float(accel_arr.std(ddof=1)),
         "num_scenes": len(rows),
     }
 
@@ -242,10 +242,10 @@ def process_encoder(
             encoder_name,
             1,
             len(seeds),
-            f"{summary['test_steer_rmse_mean']}",
-            f"{summary['test_steer_rmse_std']}",
-            f"{summary['test_accel_rmse_mean']}",
-            f"{summary['test_accel_rmse_std']}",
+            f"{summary['test_steer_rmse_scene_mean']}",
+            f"{summary['test_steer_rmse_scene_std']}",
+            f"{summary['test_accel_rmse_scene_mean']}",
+            f"{summary['test_accel_rmse_scene_std']}",
             "",
             "",
             summary["num_scenes"],
@@ -253,8 +253,8 @@ def process_encoder(
 
     print(
         f"  {encoder_name}: {len(rows)} scenes, "
-        f"steer={summary['test_steer_rmse_mean']:.6f}+/-{summary['test_steer_rmse_std']:.6f}, "
-        f"accel={summary['test_accel_rmse_mean']:.6f}+/-{summary['test_accel_rmse_std']:.6f}"
+        f"steer={summary['test_steer_rmse_scene_mean']:.6f}+/-{summary['test_steer_rmse_scene_std']:.6f}, "
+        f"accel={summary['test_accel_rmse_scene_mean']:.6f}+/-{summary['test_accel_rmse_scene_std']:.6f}"
     )
 
     return summary
@@ -274,10 +274,10 @@ def update_baselines_json(
             continue
 
         enc = baselines["encoders"][encoder_name]
-        enc["test_steer_rmse_mean"] = summary["test_steer_rmse_mean"]
-        enc["test_steer_rmse_std"] = summary["test_steer_rmse_std"]
-        enc["test_accel_rmse_mean"] = summary["test_accel_rmse_mean"]
-        enc["test_accel_rmse_std"] = summary["test_accel_rmse_std"]
+        enc["test_steer_rmse_scene_mean"] = summary["test_steer_rmse_scene_mean"]
+        enc["test_steer_rmse_scene_std"] = summary["test_steer_rmse_scene_std"]
+        enc["test_accel_rmse_scene_mean"] = summary["test_accel_rmse_scene_mean"]
+        enc["test_accel_rmse_scene_std"] = summary["test_accel_rmse_scene_std"]
 
     with baselines_path.open("w") as fh:
         json.dump(baselines, fh, indent=2)
