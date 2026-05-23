@@ -1,0 +1,2 @@
+encoder,lr,wd,batch,epochs_run,early_stop_epoch,seed,steer_rmse,accel_rmse,n_test_scenes
+vjepa2_rep64,0.001,0.0,256,47,37,0,0.092904,0.059676,150
