@@ -1,0 +1,16 @@
+{
+  "encoder_name": "vjepa2_rep64",
+  "seed": 0,
+  "git_sha": "d849353",
+  "native_dim": 1024,
+  "target_dim": 384,
+  "needs_adapter": true,
+  "lr": 0.001,
+  "weight_decay": 0.0,
+  "batch_size": 256,
+  "epochs_max": 50,
+  "epochs_run": 47,
+  "early_stopping_patience": 10,
+  "stopped_early": true,
+  "best_epoch": 37
+}
