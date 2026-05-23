@@ -45,6 +45,9 @@ from models.latent_pred import LatentPredictor, train_latent_predictor
 # Native embedding dimensions per encoder. Matches
 # configs/canonical.yaml::encoders::*::output_dim_native and
 # scripts/train_probes_full.py::NATIVE_DIMS.
+# "rep64" / "rep1" refer to V-JEPA2 checkpoint variants, NOT input frame counts.
+# rep64 = facebook/vjepa2-vitl-fpc64-256 (pre-trained on 64-frame clips).
+# Our canonical input is 16 frames (canonical.yaml::dataset::vjepa2::clip_frames).
 NATIVE_DIMS: dict[str, int] = {
     "vit_s16": 384,
     "dino_vits14": 384,
