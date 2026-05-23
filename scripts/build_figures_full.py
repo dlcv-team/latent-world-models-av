@@ -28,6 +28,17 @@ DEFAULT_OUT_DIR = PROJECT_ROOT / "artifacts" / "full" / "figures"
 DPI = 300
 
 
+# Display names for encoders (sorted by steer RMSE in the chart)
+ENCODER_DISPLAY = {
+    "vjepa2_rep64": "V-JEPA2\n(fpc64)",
+    "vjepa2_rep1": "V-JEPA2\n(fpc1)",
+    "dino_vits14": "DINOv2\nViT-S/14",
+    "clip_b32": "CLIP\nViT-B/32",
+    "vit_s16": "ViT-S/16\n(supervised)",
+    "vq_track": "VQ-VAE\nTracker",
+}
+
+
 def save_png_pdf(fig: plt.Figure, out_dir: Path, stem: str) -> None:
     fig.tight_layout()
     fig.savefig(out_dir / f"{stem}.png", dpi=DPI, bbox_inches="tight")
