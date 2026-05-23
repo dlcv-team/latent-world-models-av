@@ -27,8 +27,8 @@ DPI = 300
 
 # Display names for encoders (sorted by steer RMSE in the chart)
 ENCODER_DISPLAY = {
-    "vjepa2_rep64": "V-JEPA2\n(64-frame)",
-    "vjepa2_rep1": "V-JEPA2\n(1-frame)",
+    "vjepa2_rep64": "V-JEPA2\n(fpc64)",
+    "vjepa2_rep1": "V-JEPA2\n(fpc1)",
     "dino_vits14": "DINOv2\nViT-S/14",
     "clip_b32": "CLIP\nViT-B/32",
     "vit_s16": "ViT-S/16\n(supervised)",

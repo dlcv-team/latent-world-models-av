@@ -24,6 +24,10 @@ _PILOT_DIR = _PROJECT_ROOT / "artifacts" / "pilot" / "embeddings"
 
 _HF_REPO = "surlac/lwm-av-embeddings"
 
+# "rep64" / "rep1" refer to V-JEPA2 checkpoint variants, NOT input frame counts.
+# rep64 = facebook/vjepa2-vitl-fpc64-256 (fpc64 = pre-trained on 64-frame clips).
+# rep1  = facebook/vjepa2-vitl-fpc1-256  (fpc1  = pre-trained on 1-frame clips).
+# Our canonical input is 16 frames (canonical.yaml::dataset::vjepa2::clip_frames).
 ENCODER_NAMES = [
     "vit_s16",
     "dino_vits14",
