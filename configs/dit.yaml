@@ -19,6 +19,8 @@ training:
   epochs: 100
   lr: 1.0e-4
   batch_size: 256
-  ema_decay: 0.9999
+  ema_decay: 0.999
   gradient_clip: 1.0
   seed: 0
+  normalize_latents: true
+  adapter_frozen: true

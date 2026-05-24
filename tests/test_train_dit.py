@@ -146,7 +146,7 @@ class TestConfigValidation:
         # Verify key values appear in the source
         assert '"n_blocks": 4' in content
         assert '"n_train_steps": 1000' in content
-        assert '"ema_decay": 0.9999' in content
+        assert '"ema_decay": 0.999' in content
         assert '"n_frequencies": 64' in content
 
 
