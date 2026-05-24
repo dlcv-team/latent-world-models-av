@@ -1,5 +1,6 @@
 """Evaluation harness for encoder benchmarking."""
 
+from evaluation.attribution_grid import AttributionGridGenerator
 from evaluation.metrics import (
     classify_scenes_by_scenario,
     compute_per_scenario_rmse,
@@ -8,6 +9,7 @@ from evaluation.metrics import (
 )
 
 __all__ = [
+    "AttributionGridGenerator",
     "classify_scenes_by_scenario",
     "compute_per_scenario_rmse",
     "compute_rmse",

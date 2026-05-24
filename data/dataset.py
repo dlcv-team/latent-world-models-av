@@ -325,6 +325,7 @@ class NuScenesFrameDataset(Dataset):
                 (clip_frames, 3, 224, 224) if mode="clip"
             actions : torch.Tensor, shape (2,)
             sample_token : str
+            scene_token : str
             scene_name : str
             timestamp_us : int
         """
@@ -347,6 +348,7 @@ class NuScenesFrameDataset(Dataset):
             "image": image,
             "actions": actions,
             "sample_token": record["sample_token"],
+            "scene_token": record["scene_token"],
             "scene_name": record["scene_name"],
             "timestamp_us": record["timestamp_us"],
         }
