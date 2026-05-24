@@ -1,0 +1,85 @@
+DA5 Rollout Diagnostic Log
+==========================
+Date: 2026-05-23
+Script: scripts/rollout_dit.py
+Encoder: vjepa2_rep64, seed 0, both variants
+Weights: main (NOT EMA -- see EMA issue below)
+
+Run 1: EMA weights (BROKEN)
+----------------------------
+[diag] z_real (adapted) L2 norm: 1.28
+[diag] z_real per-element std: 0.0653
+[diag] t= 10: noise_MSE=0.9481  recon_CosSim=0.9352  recon_MSE=0.00  pred_x0_norm=1.36
+[diag] t=100: noise_MSE=0.7982  recon_CosSim=0.4017  recon_MSE=0.02  pred_x0_norm=3.24
+[diag] t=500: noise_MSE=0.8179  recon_CosSim=0.0638  recon_MSE=0.84  pred_x0_norm=17.96
+[diag] t=900: noise_MSE=0.8207  recon_CosSim=0.0180  recon_MSE=33.24  pred_x0_norm=112.92
+[diag] t=980: noise_MSE=0.8492  recon_CosSim=0.0092  recon_MSE=873.58  pred_x0_norm=578.78
+[diag] DDIM gen: CosSim=0.0015  z_hat_norm=573.33  z_real_norm=1.28
+
+DDIM full eval (EMA weights, conditioned):
+  k=1: CosSim=0.0039  MSE=856.29  CopyBL=0.9517
+  k=2: CosSim=0.0037  MSE=858.14  CopyBL=0.9251
+  k=3: CosSim=0.0053  MSE=856.91  CopyBL=0.9034
+  k=4: CosSim=0.0029  MSE=856.86  CopyBL=0.8881
+
+DDIM full eval (EMA weights, unconditioned):
+  k=1: CosSim=0.0038  MSE=860.78  CopyBL=0.9532
+  k=2: CosSim=0.0048  MSE=860.41  CopyBL=0.9269
+  k=3: CosSim=0.0044  MSE=859.98  CopyBL=0.9045
+  k=4: CosSim=0.0032  MSE=856.38  CopyBL=0.8885
+
+
+Run 2: Main weights (MUCH BETTER)
+-----------------------------------
+Conditioned variant:
+[diag] z_real (adapted) L2 norm: 1.28
+[diag] z_real per-element std: 0.0653
+[diag] t= 10: noise_MSE=0.3816  recon_CosSim=0.9713  recon_MSE=0.00  pred_x0_norm=1.24
+[diag] t=100: noise_MSE=0.0332  recon_CosSim=0.8839  recon_MSE=0.00  pred_x0_norm=1.20
+[diag] t=500: noise_MSE=0.0083  recon_CosSim=0.4983  recon_MSE=0.01  pred_x0_norm=1.99
+[diag] t=900: noise_MSE=0.0070  recon_CosSim=0.0757  recon_MSE=0.28  pred_x0_norm=9.96
+[diag] t=980: noise_MSE=0.0068  recon_CosSim=0.0215  recon_MSE=7.00  pred_x0_norm=49.51
+[diag] DDIM gen: CosSim=-0.0533  z_hat_norm=43.58  z_real_norm=1.28
+
+Unconditioned variant:
+[diag] z_real (adapted) L2 norm: 1.32
+[diag] z_real per-element std: 0.0673
+[diag] t= 10: noise_MSE=0.3775  recon_CosSim=0.9733  recon_MSE=0.00  pred_x0_norm=1.29
+[diag] t=100: noise_MSE=0.0314  recon_CosSim=0.8982  recon_MSE=0.00  pred_x0_norm=1.26
+[diag] t=500: noise_MSE=0.0072  recon_CosSim=0.5377  recon_MSE=0.01  pred_x0_norm=1.90
+[diag] t=900: noise_MSE=0.0074  recon_CosSim=0.1012  recon_MSE=0.30  pred_x0_norm=10.34
+[diag] t=980: noise_MSE=0.0069  recon_CosSim=0.0288  recon_MSE=7.14  pred_x0_norm=50.50
+[diag] DDIM gen: CosSim=-0.0252  z_hat_norm=37.23  z_real_norm=1.32
+
+
+Analysis
+--------
+
+Issue 1: EMA weights are broken
+  - EMA decay=0.9999 with only ~7800 training steps
+  - Effective EMA window is ~10K steps, so initial (random) weights
+    still contribute ~46% to the EMA average
+  - noise_MSE with EMA: 0.80-0.95 (barely better than zero-prediction baseline of 1.0)
+  - noise_MSE with main: 0.007-0.033 (50-100x better)
+  - Fix: use lower decay (0.999) or add EMA warmup, or just use main weights
+
+Issue 2: Data scale mismatch (affects both EMA and main)
+  - Adapted embeddings: per-element std = 0.065, L2 norm = 1.28 (384-d)
+  - Diffusion noise: per-element std = 1.0
+  - At t=100 (alpha_bar=0.975): SNR per element = 0.065*0.987 / (1.0*0.158) = 0.41
+  - At t=500 (alpha_bar=0.50):  SNR per element = 0.065*0.707 / (1.0*0.707) = 0.065
+  - Model can reconstruct at t=100 (CosSim=0.88) but not at t=500+ (CosSim=0.50)
+  - DDIM starts from t=980 (pure noise) where SNR << 0.01, so generation fails
+  - Fix: normalize adapted embeddings to unit variance before diffusion training
+
+Key insight: the adapter nn.Linear(1024, 384, bias=False) was trained jointly with
+the DiT, but nothing enforced that its output would have reasonable variance for
+the cosine diffusion schedule. The cosine schedule assumes data ~ N(0, ~1).
+
+Copy baseline for reference:
+  k=1: 0.953  k=2: 0.927  k=3: 0.904  k=4: 0.889
+  (consecutive V-JEPA2 keyframes share ~62% input overlap at 2Hz, so very similar)
+
+Raw embedding stats:
+  vjepa2_rep64 (1024-d): mean=0.021, std=1.678, L2_norm=53.68
+  After adapter (384-d): L2_norm=1.28, per-element std=0.065

@@ -67,9 +67,11 @@ TRAINING_CANONICAL = {
     "epochs": 100,
     "lr": 1e-4,
     "batch_size": 256,
-    "ema_decay": 0.9999,
+    "ema_decay": 0.999,
     "gradient_clip": 1.0,
     "seed": 0,
+    "normalize_latents": True,
+    "adapter_frozen": True,
 }
 
 FOURIER_CANONICAL = {
@@ -356,8 +358,30 @@ def train_dit(encoder_name: str, seed: int, variant: str):
 
     if needs_adapter:
         adapter = nn.Linear(native_dim, target_dim, bias=False).to(device)
+        nn.init.orthogonal_(adapter.weight)
+        # Freeze adapter so normalization stats remain valid
+        for p in adapter.parameters():
+            p.requires_grad_(False)
     else:
         adapter = nn.Identity().to(device)
+
+    # Compute normalization stats from ALL training tokens after frozen adapter
+    with torch.no_grad():
+        z_t_proj = adapter(z_t_train.to(device))                       # (N, 384)
+        B_tr, H_tr, _ = zf_train.shape
+        zf_proj = adapter(
+            zf_train.reshape(-1, zf_train.shape[-1]).to(device)
+        )                                                               # (N*H, 384)
+        all_proj = torch.cat([z_t_proj, zf_proj], dim=0)
+        z_mean = all_proj.mean(dim=0)                                   # (384,)
+        z_std = all_proj.std(dim=0).clamp(min=1e-6)                     # (384,)
+        del z_t_proj, zf_proj, all_proj
+
+    print(
+        f"[dit] Normalization: per-elem std mean={z_std.mean():.4f}, "
+        f"range=[{z_std.min():.4f}, {z_std.max():.4f}], "
+        f"per-elem mean norm={z_mean.norm():.4f}"
+    )
 
     fourier_embed = FourierActionEmbedding(
         action_dim=2,
@@ -380,12 +404,18 @@ def train_dit(encoder_name: str, seed: int, variant: str):
         n_steps=DIFFUSION_CANONICAL["n_train_steps"]
     ).to(device)
 
-    ema = EMAWeights(dit, decay=TRAINING_CANONICAL["ema_decay"])
+    # EMA tracks DiT + Fourier (adapter is frozen)
+    class _TrainableGroup(nn.Module):
+        def __init__(self, dit, fourier):
+            super().__init__()
+            self.dit = dit
+            self.fourier = fourier
 
-    # Optimizer over DiT + Fourier + adapter params
+    trainable_group = _TrainableGroup(dit, fourier_embed)
+    ema = EMAWeights(trainable_group, decay=TRAINING_CANONICAL["ema_decay"])
+
+    # Optimizer over DiT + Fourier only (adapter frozen)
     params = list(dit.parameters()) + list(fourier_embed.parameters())
-    if needs_adapter:
-        params += list(adapter.parameters())
     optimizer = torch.optim.Adam(params, lr=TRAINING_CANONICAL["lr"])
     criterion = nn.MSELoss()
 
@@ -415,8 +445,6 @@ def train_dit(encoder_name: str, seed: int, variant: str):
         # --- Train ---
         dit.train()
         fourier_embed.train()
-        if needs_adapter and hasattr(adapter, "train"):
-            adapter.train()
 
         train_loss_sum = 0.0
         train_n = 0
@@ -426,11 +454,13 @@ def train_dit(encoder_name: str, seed: int, variant: str):
             act_batch = act_batch.to(device)
             zf_batch = zf_batch.to(device)
 
-            # Adapt embeddings
-            z_t_adapted = adapter(z_t_batch)                    # (B, 384)
-            # z_future: (B, horizon, native_dim) -> (B, horizon, 384)
+            # Adapt + normalize embeddings
             B, H, _ = zf_batch.shape
-            zf_adapted = adapter(zf_batch.reshape(B * H, -1)).reshape(B, H, target_dim)
+            z_t_adapted = (adapter(z_t_batch) - z_mean) / z_std
+            zf_adapted = (
+                adapter(zf_batch.reshape(B * H, -1)).reshape(B, H, target_dim)
+                - z_mean
+            ) / z_std
 
             # Action embedding
             a_embed = fourier_embed(act_batch)                  # (B, 384)
@@ -454,7 +484,7 @@ def train_dit(encoder_name: str, seed: int, variant: str):
             )
 
             optimizer.step()
-            ema.update(dit)
+            ema.update(trainable_group)
 
             train_loss_sum += loss.item() * B
             train_n += B
@@ -462,8 +492,6 @@ def train_dit(encoder_name: str, seed: int, variant: str):
         # --- Validate ---
         dit.eval()
         fourier_embed.eval()
-        if needs_adapter and hasattr(adapter, "eval"):
-            adapter.eval()
 
         val_loss_sum = 0.0
         val_n = 0
@@ -474,9 +502,12 @@ def train_dit(encoder_name: str, seed: int, variant: str):
                 act_batch = act_batch.to(device)
                 zf_batch = zf_batch.to(device)
 
-                z_t_adapted = adapter(z_t_batch)
                 B, H, _ = zf_batch.shape
-                zf_adapted = adapter(zf_batch.reshape(B * H, -1)).reshape(B, H, target_dim)
+                z_t_adapted = (adapter(z_t_batch) - z_mean) / z_std
+                zf_adapted = (
+                    adapter(zf_batch.reshape(B * H, -1)).reshape(B, H, target_dim)
+                    - z_mean
+                ) / z_std
 
                 a_embed = fourier_embed(act_batch)
                 if variant == "unconditioned":
@@ -516,7 +547,7 @@ def train_dit(encoder_name: str, seed: int, variant: str):
     out_dir = f"{DIT_DIR}/{encoder_name}/{variant}/seed_{seed}"
     os.makedirs(out_dir, exist_ok=True)
 
-    # Checkpoint: DiT + EMA + Fourier + adapter
+    # Checkpoint: DiT + EMA + Fourier + adapter + normalization
     checkpoint = {
         "dit_state_dict": dit.state_dict(),
         "ema_state_dict": ema.state_dict(),
@@ -528,6 +559,11 @@ def train_dit(encoder_name: str, seed: int, variant: str):
         "epochs": TRAINING_CANONICAL["epochs"],
         "final_train_loss": history["train_loss"][-1],
         "final_val_loss": history["val_loss"][-1],
+        "z_mean": z_mean.cpu(),
+        "z_std": z_std.cpu(),
+        "normalize_latents": True,
+        "adapter_frozen": True,
+        "adapter_init": "orthogonal",
     }
     torch.save(checkpoint, f"{out_dir}/checkpoint.pt")
 
@@ -607,7 +643,8 @@ def _validate_dit_config():
 
     # Validate training
     train_cfg = raw["training"]
-    for key in ["epochs", "lr", "batch_size", "ema_decay", "gradient_clip"]:
+    for key in ["epochs", "lr", "batch_size", "ema_decay", "gradient_clip",
+                "normalize_latents", "adapter_frozen"]:
         expected = train_cfg[key]
         actual = TRAINING_CANONICAL[key]
         if isinstance(expected, float):
