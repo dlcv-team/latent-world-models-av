@@ -29,6 +29,7 @@ import torch
 from torch import nn
 from nuscenes.nuscenes import NuScenes
 
+from analysis.paired_tests import bootstrap_mean_ci
 from config import load_canonical
 from evaluation.metrics import compute_rmse
 from models.probe import ActionProbe
@@ -371,3 +372,71 @@ def compute_frame_drmse(
     accel_drmse = accel_rmse_masked - accel_rmse_unmasked
 
     return steering_drmse, accel_drmse
+
+
+def compute_drmse_with_ci(
+    drmse_values: list[float],
+    cfg: Optional[dict] = None,
+) -> tuple[float, float, float]:
+    """Compute mean DRMSE and bootstrap confidence interval.
+
+    Parameters
+    ----------
+    drmse_values
+        List of per-frame DRMSE values (RMSE_masked - RMSE_unmasked)
+    cfg
+        Canonical config dict with bootstrap settings. If None, loads from
+        configs/canonical.yaml.
+
+    Returns
+    -------
+    tuple[float, float, float]
+        (mean_drmse, ci_lo, ci_hi) using bootstrap resampling
+
+    Raises
+    ------
+    ValueError
+        If drmse_values is empty
+
+    Examples
+    --------
+    >>> drmse_values = [0.01, 0.02, 0.015, 0.018]  # doctest: +SKIP
+    >>> mean, ci_lo, ci_hi = compute_drmse_with_ci(drmse_values)  # doctest: +SKIP
+    >>> print(f"DRMSE: {mean:.4f} [{ci_lo:.4f}, {ci_hi:.4f}]")  # doctest: +SKIP
+    """
+    if len(drmse_values) == 0:
+        raise ValueError("Cannot compute CI on empty DRMSE list")
+
+    # Load bootstrap settings from canonical config
+    if cfg is None:
+        cfg = load_canonical()
+
+    if hasattr(cfg, "raw"):
+        # Config object from load_canonical()
+        bootstrap_cfg = cfg.raw["evaluation"]["bootstrap"]
+    else:
+        # Plain dict (for testing)
+        bootstrap_cfg = cfg["evaluation"]["bootstrap"]
+
+    n_resamples = bootstrap_cfg["n_resamples"]
+    seed = bootstrap_cfg["seed"]
+    confidence_level = bootstrap_cfg["confidence_level"]
+
+    # Convert to numpy array
+    drmse_array = np.array(drmse_values, dtype=float)
+
+    # Handle edge case: all values identical (std=0)
+    if np.std(drmse_array) == 0:
+        mean_val = float(drmse_array[0])
+        logger.warning(
+            f"All DRMSE values identical ({mean_val:.6f}). "
+            f"Setting CIs to mean value."
+        )
+        return mean_val, mean_val, mean_val
+
+    # Bootstrap the mean
+    mean_drmse, ci_lo, ci_hi = bootstrap_mean_ci(
+        drmse_array, n_resamples, seed, confidence_level
+    )
+
+    return mean_drmse, ci_lo, ci_hi
