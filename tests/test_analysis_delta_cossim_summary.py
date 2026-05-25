@@ -139,9 +139,7 @@ def test_load_cossim_csv_inconsistent_delta_raises(tmp_path):
 
 
 def test_summarize_all_positive_deltas():
-    df = _cossim_df(
-        [(1, 0.8, 0.2), (2, 0.7, 0.3), (3, 0.6, 0.4), (4, 0.5, 0.45)]
-    )
+    df = _cossim_df([(1, 0.8, 0.2), (2, 0.7, 0.3), (3, 0.6, 0.4), (4, 0.5, 0.45)])
     out = dcs.summarize_delta_cossim(df)
 
     assert out["delta_positive_at_any_horizon"] is True
@@ -154,9 +152,7 @@ def test_summarize_all_positive_deltas():
 
 
 def test_summarize_all_negative_deltas():
-    df = _cossim_df(
-        [(1, 0.5, 0.6), (2, 0.5, 0.6), (3, 0.5, 0.6), (4, 0.5, 0.6)]
-    )
+    df = _cossim_df([(1, 0.5, 0.6), (2, 0.5, 0.6), (3, 0.5, 0.6), (4, 0.5, 0.6)])
     out = dcs.summarize_delta_cossim(df)
 
     assert out["delta_positive_at_any_horizon"] is False
@@ -173,9 +169,7 @@ def test_summarize_all_negative_deltas():
 
 
 def test_summarize_mixed_deltas_picks_best_and_worst():
-    df = _cossim_df(
-        [(1, 0.6, 0.5), (2, 0.4, 0.5), (3, 0.55, 0.5), (4, 0.30, 0.5)]
-    )
+    df = _cossim_df([(1, 0.6, 0.5), (2, 0.4, 0.5), (3, 0.55, 0.5), (4, 0.30, 0.5)])
     out = dcs.summarize_delta_cossim(df)
 
     assert out["delta_positive_at_any_horizon"] is True
@@ -202,9 +196,7 @@ def test_summarize_spec_question_strict_greater_than_zero():
     against a future drift to ``>= 0``.
     """
     # All zero -> False.
-    out_zero = dcs.summarize_delta_cossim(
-        _cossim_df([(1, 0.5, 0.5), (2, 0.5, 0.5)])
-    )
+    out_zero = dcs.summarize_delta_cossim(_cossim_df([(1, 0.5, 0.5), (2, 0.5, 0.5)]))
     assert out_zero["delta_positive_at_any_horizon"] is False
 
     # One strictly positive -> True.
@@ -215,9 +207,7 @@ def test_summarize_spec_question_strict_greater_than_zero():
     assert out_one_positive["delta_positive_horizons"] == [1]
 
     # One tiny epsilon-positive (above any practical float noise) -> True.
-    out_eps = dcs.summarize_delta_cossim(
-        _cossim_df([(1, 0.5 + 1e-9, 0.5)])
-    )
+    out_eps = dcs.summarize_delta_cossim(_cossim_df([(1, 0.5 + 1e-9, 0.5)]))
     assert out_eps["delta_positive_at_any_horizon"] is True
 
 
@@ -408,6 +398,49 @@ def test_render_markdown_quotes_monotonicity_finding():
     assert "not** monotonically" in md_not_monotonic
 
 
+def test_render_markdown_paragraph_3_mixed_delta_does_not_say_non_positive_everywhere():
+    """Blocking review item: when some horizons are positive but mean is
+    negative, paragraph 3 must NOT claim 'non-positive at every horizon'."""
+    df = _cossim_df(
+        [(1, 0.51, 0.50), (2, 0.30, 0.50), (3, 0.30, 0.50), (4, 0.30, 0.50)]
+    )
+    analysis = dcs.summarize_delta_cossim(df)
+    assert analysis["delta_positive_at_any_horizon"] is True
+    assert analysis["interpretation"]["action_conditioning_helps"] is False
+
+    md = dcs.render_summary_markdown(analysis, None, None)
+    body = md.split("\n\n", 1)[1]
+    paragraphs = [p for p in body.strip().split("\n\n") if p.strip()]
+    paragraph_3 = paragraphs[2]
+    assert "non-positive at every horizon" not in paragraph_3
+    assert "minority of horizons" in paragraph_3
+    assert "does **not**" in paragraph_3
+
+
+def test_render_markdown_title_uses_double_dash_not_em_dash():
+    analysis = dcs.summarize_delta_cossim(_negative_df())
+    md = dcs.render_summary_markdown(analysis, None, None)
+    title = md.split("\n")[0]
+    assert "—" not in title
+    assert "--" in title
+
+
+def test_load_cossim_csv_non_integer_k_raises(tmp_path):
+    """k=1.5 must not silently truncate to k=1."""
+    df = pd.DataFrame(
+        {
+            "k": [1.0, 1.5],
+            "cossim_conditioned": [0.5, 0.4],
+            "cossim_unconditioned": [0.4, 0.3],
+            "delta_cossim": [0.1, 0.1],
+        }
+    )
+    p = tmp_path / "float_k.csv"
+    df.to_csv(p, index=False)
+    with pytest.raises(ValueError, match="non-integer"):
+        dcs.load_cossim_csv(p)
+
+
 # ---------------------------------------------------------------------------
 # End-to-end CLI
 # ---------------------------------------------------------------------------
@@ -449,10 +482,14 @@ def test_cli_main_writes_json_and_markdown(tmp_path, capsys):
 
     rc = dcs.main(
         [
-            "--cossim-csv", str(csv_path),
-            "--cossim-json", str(json_path),
-            "--baselines-json", str(baselines_path),
-            "--output-root", str(output_root),
+            "--cossim-csv",
+            str(csv_path),
+            "--cossim-json",
+            str(json_path),
+            "--baselines-json",
+            str(baselines_path),
+            "--output-root",
+            str(output_root),
         ]
     )
     assert rc == 0
@@ -486,19 +523,21 @@ def test_cli_main_works_without_baselines_json(tmp_path):
 
     rc = dcs.main(
         [
-            "--cossim-csv", str(csv_path),
-            "--cossim-json", str(json_path),
-            "--baselines-json", str(baselines_path),
-            "--output-root", str(output_root),
+            "--cossim-csv",
+            str(csv_path),
+            "--cossim-json",
+            str(json_path),
+            "--baselines-json",
+            str(baselines_path),
+            "--output-root",
+            str(output_root),
         ]
     )
     assert rc == 0
 
     md = (output_root / "delta_cossim_summary.md").read_text()
     assert "not available" in md
-    payload = json.loads(
-        (output_root / "delta_cossim_summary.json").read_text()
-    )
+    payload = json.loads((output_root / "delta_cossim_summary.json").read_text())
     assert payload["bc_baseline"] is None
 
 
@@ -508,17 +547,20 @@ def test_cli_main_works_without_cossim_json(tmp_path):
 
     rc = dcs.main(
         [
-            "--cossim-csv", str(csv_path),
-            "--cossim-json", str(json_path),
-            "--baselines-json", str(baselines_path),
-            "--output-root", str(output_root),
-            "--encoder", "vjepa2_rep64",
+            "--cossim-csv",
+            str(csv_path),
+            "--cossim-json",
+            str(json_path),
+            "--baselines-json",
+            str(baselines_path),
+            "--output-root",
+            str(output_root),
+            "--encoder",
+            "vjepa2_rep64",
         ]
     )
     assert rc == 0
-    payload = json.loads(
-        (output_root / "delta_cossim_summary.json").read_text()
-    )
+    payload = json.loads((output_root / "delta_cossim_summary.json").read_text())
     assert payload["cossim_metadata"] is None
     assert payload["encoder"] == "vjepa2_rep64"
 
@@ -571,8 +613,8 @@ def test_smoke_vendored_artifact_parses_summarizes_and_renders():
     assert "**Comparison to BC baseline.**" in rendered
 
     if md_path.exists():
-        committed = md_path.read_text()
-        assert committed == rendered, (
+        committed = md_path.read_text().strip()
+        assert committed == rendered.strip(), (
             f"vendored {md_path.name} is stale -- regenerate with:\n"
             f"  python -m analysis.delta_cossim_summary && "
             f"cp outputs/analysis/delta_cossim_summary.md "

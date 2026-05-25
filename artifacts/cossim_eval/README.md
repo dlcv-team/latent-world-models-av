@@ -30,7 +30,8 @@ predictor run these numbers came from.
 ## How these get refreshed
 
 When M1 re-exports `z_*.pt` (e.g., after retraining the latent
-predictor), regenerate this directory with:
+predictor), regenerate this directory with (requires C4 / PR #20 to be
+merged):
 
 ```bash
 python -m evaluation.latent_eval \
@@ -54,7 +55,10 @@ M2's figures will re-derive automatically.
 
 ## Current run provenance
 
+**These are P1/C4-era predictor results, not the DA7 fair comparison.**
 The committed numbers come from a single seed-0 run against the V-JEPA2
-(`vjepa2_rep64`) latent predictor on the 5419-sequence test split. See
-the `metadata` block in `cossim_results.json` for the full provenance
+(`vjepa2_rep64`) latent predictor on the 5419-sequence test split, using
+the legacy P1 MLP training pipeline. DA7 has since produced a full fair
+comparison across 6 encoders x 3 seeds -- those results live elsewhere.
+See the `metadata` block in `cossim_results.json` for the full provenance
 block (timestamp, sample count, source paths).
