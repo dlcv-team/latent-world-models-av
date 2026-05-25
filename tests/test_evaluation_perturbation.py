@@ -9,9 +9,11 @@ from torch import nn
 
 from evaluation.perturbation import (
     apply_perturbation,
+    compute_drmse_with_ci,
     compute_frame_drmse,
     evaluate_frame,
     load_encoder_and_probe,
+    run_perturbation_analysis,
     select_validation_frames,
 )
 from models.probe import ActionProbe
@@ -124,11 +126,11 @@ class TestApplyPerturbation:
         assert image.sum() == original_sum  # Original unchanged
         assert perturbed.sum() < original_sum  # Perturbed has zeros
 
-    def test_mask_lead_vehicle_returns_none(self):
-        """Lead vehicle mask should return None (not yet implemented)."""
+    def test_mask_lead_vehicle_requires_nusc_and_token(self):
+        """Lead vehicle mask should require nusc and sample_token."""
         image = torch.ones(3, 224, 224)
-        result = apply_perturbation(image, "mask_lead_vehicle")
-        assert result is None
+        with pytest.raises(ValueError, match="requires nusc and sample_token"):
+            apply_perturbation(image, "mask_lead_vehicle")
 
     def test_unknown_perturbation_raises_error(self):
         """Unknown perturbation type should raise ValueError."""
@@ -431,3 +433,231 @@ class TestComputeFrameDRMSE:
         assert len(result) == 2
         assert isinstance(result[0], float)
         assert isinstance(result[1], float)
+
+
+class TestComputeDRMSEWithCI:
+    """Tests for bootstrap CI computation."""
+
+    def test_compute_ci_returns_three_values(self):
+        """Should return (mean, ci_lo, ci_hi)."""
+        drmse_values = [0.01, 0.02, 0.015, 0.018, 0.012]
+        mean, ci_lo, ci_hi = compute_drmse_with_ci(drmse_values)
+
+        assert isinstance(mean, float)
+        assert isinstance(ci_lo, float)
+        assert isinstance(ci_hi, float)
+
+    def test_ci_lo_less_than_mean_less_than_ci_hi(self):
+        """CI should bracket the mean."""
+        drmse_values = [0.01, 0.02, 0.015, 0.018, 0.012, 0.014, 0.016]
+        mean, ci_lo, ci_hi = compute_drmse_with_ci(drmse_values)
+
+        assert ci_lo <= mean <= ci_hi
+
+    def test_empty_list_raises_error(self):
+        """Should raise ValueError on empty list."""
+        with pytest.raises(ValueError, match="Cannot compute CI on empty"):
+            compute_drmse_with_ci([])
+
+    def test_identical_values_returns_mean_for_all(self):
+        """Should handle std=0 case by returning mean for all."""
+        drmse_values = [0.05] * 10
+        mean, ci_lo, ci_hi = compute_drmse_with_ci(drmse_values)
+
+        assert mean == 0.05
+        assert ci_lo == 0.05
+        assert ci_hi == 0.05
+
+    def test_uses_canonical_bootstrap_config(self):
+        """Should use bootstrap settings from canonical config."""
+        import numpy as np
+
+        drmse_values = list(np.random.randn(50) * 0.01 + 0.02)
+
+        # Should not raise and should use canonical config
+        mean, ci_lo, ci_hi = compute_drmse_with_ci(drmse_values)
+
+        # Verify reasonable CI width (should be non-zero for random data)
+        assert ci_hi > ci_lo
+
+
+class TestRunPerturbationAnalysis:
+    """Tests for run_perturbation_analysis parameter handling."""
+
+    def test_invalid_encoder_names_raises(self):
+        """Should raise ValueError for invalid encoder names."""
+        with pytest.raises(ValueError, match="Invalid encoder names"):
+            run_perturbation_analysis(
+                n_frames=5,
+                encoder_names=["invalid_encoder", "another_bad_one"],
+            )
+
+    def test_mixed_valid_invalid_encoder_names_raises(self):
+        """Should raise ValueError if any encoder name is invalid."""
+        with pytest.raises(ValueError, match="Invalid encoder names"):
+            run_perturbation_analysis(
+                n_frames=5,
+                encoder_names=["vits16", "invalid_encoder"],
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+class TestPerturbationAnalysisIntegration:
+    """Integration tests for full perturbation analysis pipeline.
+
+    These tests run the full analysis with a small subset of data to verify:
+    - End-to-end functionality
+    - CSV output format
+    - All perturbation types
+
+    Requires:
+    - At least one trained probe checkpoint (e.g., vits16)
+    - nuScenes v1.0-mini dataset at $NUSCENES_DATAROOT
+    """
+
+    @pytest.fixture
+    def smoke_output_dir(self, tmp_path):
+        """Temporary output directory for smoke tests."""
+        return tmp_path / "smoke_output"
+
+    def test_smoke_analysis_single_encoder(self, smoke_output_dir):
+        """Smoke test: 5 frames, vits16 encoder, all 3 perturbations.
+
+        This is a minimal integration test to verify the full pipeline works.
+        Uses smoke_val split (v1.0-mini) with only 5 frames.
+        """
+        pytest.importorskip("nuscenes")
+
+        import os
+        from pathlib import Path
+        from evaluation.perturbation import run_perturbation_analysis
+
+        # Check if vits16 checkpoint exists
+        vits16_checkpoint = Path("outputs/probes/vit_s16/checkpoint.pt")
+        if not vits16_checkpoint.exists():
+            pytest.skip(
+                "vits16 checkpoint not found. Train probe first with: "
+                "python -m training.train_probe --encoder vits16"
+            )
+
+        # Check if nuScenes mini dataset is available
+        nuscenes_root = os.getenv("NUSCENES_DATAROOT", "data/nuscenes")
+        if not Path(nuscenes_root).exists():
+            pytest.skip(f"NuScenes dataset not found at {nuscenes_root}")
+
+        # Check if v1.0-mini exists
+        mini_path = Path(nuscenes_root) / "v1.0-mini"
+        if not mini_path.exists():
+            pytest.skip(f"NuScenes v1.0-mini not found at {mini_path}")
+
+        # Run analysis on smoke_val split with only vits16 encoder
+        csv_path = run_perturbation_analysis(
+            n_frames=5,
+            seed=42,
+            output_dir=smoke_output_dir,
+            device=torch.device("cpu"),
+            encoder_names=["vits16"],
+            split="smoke_val",
+        )
+
+        # Verify CSV exists
+        assert csv_path.exists()
+
+        # Load and verify CSV format
+        import pandas as pd
+
+        df = pd.read_csv(csv_path)
+
+        # Should have up to 3 rows (one per perturbation, some might be skipped)
+        assert len(df) >= 1
+        assert len(df) <= 3
+
+        # Verify columns
+        expected_columns = [
+            "encoder",
+            "perturbation",
+            "steering_drmse",
+            "steering_ci_lo",
+            "steering_ci_hi",
+            "accel_drmse",
+            "accel_ci_lo",
+            "accel_ci_hi",
+        ]
+        assert list(df.columns) == expected_columns
+
+        # Verify encoder is vit_s16 (pilot_name)
+        assert (df["encoder"] == "vit_s16").all()
+
+        # Verify perturbations are valid
+        valid_perturbations = {
+            "mask_left_lane",
+            "mask_right_lane",
+            "mask_lead_vehicle",
+        }
+        assert set(df["perturbation"]).issubset(valid_perturbations)
+
+        # Verify numeric columns are non-null and finite
+        for col in [
+            "steering_drmse",
+            "steering_ci_lo",
+            "steering_ci_hi",
+            "accel_drmse",
+            "accel_ci_lo",
+            "accel_ci_hi",
+        ]:
+            assert df[col].notna().all()
+            assert (df[col] != float("inf")).all()
+            assert (df[col] != float("-inf")).all()
+
+        # Verify CI ordering: ci_lo <= mean <= ci_hi
+        assert (df["steering_ci_lo"] <= df["steering_drmse"]).all()
+        assert (df["steering_drmse"] <= df["steering_ci_hi"]).all()
+        assert (df["accel_ci_lo"] <= df["accel_drmse"]).all()
+        assert (df["accel_drmse"] <= df["accel_ci_hi"]).all()
+
+    def test_csv_format_matches_spec(self, smoke_output_dir):
+        """Verify CSV format matches specification from plan.
+
+        Expected format:
+        - 8 columns: encoder, perturbation, steering_drmse, steering_ci_lo,
+          steering_ci_hi, accel_drmse, accel_ci_lo, accel_ci_hi
+        - All numeric columns should be floats
+        - No missing values
+        """
+        # This test verifies the CSV format without actually running analysis
+        # (assuming smoke test already ran)
+        csv_path = smoke_output_dir / "perturbation_sensitivity.csv"
+
+        if not csv_path.exists():
+            pytest.skip("Smoke test CSV not found. Run smoke test first.")
+
+        import pandas as pd
+
+        df = pd.read_csv(csv_path)
+
+        # Verify exact column names and order
+        expected_columns = [
+            "encoder",
+            "perturbation",
+            "steering_drmse",
+            "steering_ci_lo",
+            "steering_ci_hi",
+            "accel_drmse",
+            "accel_ci_lo",
+            "accel_ci_hi",
+        ]
+        assert list(df.columns) == expected_columns
+
+        # Verify data types
+        assert df["encoder"].dtype == object  # string
+        assert df["perturbation"].dtype == object  # string
+        for col in [
+            "steering_drmse",
+            "steering_ci_lo",
+            "steering_ci_hi",
+            "accel_drmse",
+            "accel_ci_lo",
+            "accel_ci_hi",
+        ]:
+            assert df[col].dtype in [float, "float64"]
