@@ -14,6 +14,15 @@ Output:
     outputs/analysis/perturbation_sensitivity.csv with columns:
     encoder, perturbation, steering_drmse, steering_ci_lo, steering_ci_hi,
     accel_drmse, accel_ci_lo, accel_ci_hi
+
+IMPORTANT - Checkpoint Compatibility:
+    This module requires probe checkpoints with adapter_state_dict (added in
+    commit 42f9632). Prior checkpoints have a bug: they trained the adapter
+    but didn't save its weights, causing random adapter initialization on load.
+
+    If using old checkpoints: Re-train all probes with the current train_probe.py.
+    The code will warn if adapter_state_dict is missing but will proceed with
+    random adapters, producing incorrect DRMSE values.
 """
 
 from __future__ import annotations
@@ -29,13 +38,19 @@ import torch
 from torch import nn
 from nuscenes.nuscenes import NuScenes
 
-from analysis.paired_tests import bootstrap_mean_ci
 from config import load_canonical
-from evaluation.metrics import compute_rmse
+from evaluation.metrics import bootstrap_mean_ci, compute_rmse
 from models.probe import ActionProbe
 from training.train_probe import ENCODER_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+# Image dimensions and perturbation regions
+# (Ranges specified in PRD B10: mask_left_lane columns 0-74, mask_right_lane columns 150-224)
+IMAGE_WIDTH = 224
+IMAGE_HEIGHT = 224
+LEFT_LANE_MASK_END = 75      # Rightmost column index (exclusive) for left lane mask
+RIGHT_LANE_MASK_START = 150  # Leftmost column index (inclusive) for right lane mask
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +123,7 @@ def load_encoder_and_probe(
     module = importlib.import_module(spec.module_path)
     encoder_cls = getattr(module, spec.class_name)
 
+    # Use same initialization pattern as train_probe.py
     if encoder_name == "clip":
         encoder = encoder_cls(pretrained="openai")
     else:
@@ -115,11 +131,14 @@ def load_encoder_and_probe(
 
     encoder = encoder.to(device).eval()
 
+    # Encoders that require trained adapters (non-Identity projection layers)
+    REQUIRES_ADAPTER = {"clip", "vqvae", "vjepa2"}
+
     # Extract adapter from encoder
     # The adapter is encoder.adapter, but we need to handle it separately
     # for loading trained weights if they exist in checkpoint
     if ckpt.get("adapter_state_dict") is not None:
-        # Adapter weights were saved (from train_probes_full.py or patched train_probe.py)
+        # Adapter weights were saved
         native_dim = list(ckpt["adapter_state_dict"].values())[0].shape[1]
         adapter = nn.Linear(native_dim, 384, bias=False)
         adapter.load_state_dict(ckpt["adapter_state_dict"])
@@ -128,14 +147,17 @@ def load_encoder_and_probe(
             f"Loaded trained adapter for {encoder_name} ({native_dim}→384)"
         )
     else:
-        # No adapter weights in checkpoint - use encoder's built-in adapter
-        # This happens with current training/train_probe.py
-        adapter = encoder.adapter
-        if not isinstance(adapter, nn.Identity):
-            logger.warning(
-                f"No adapter_state_dict in checkpoint for {encoder_name}. "
-                f"Using randomly initialized adapter. This may reduce accuracy."
+        # No adapter weights in checkpoint
+        if encoder_name in REQUIRES_ADAPTER:
+            # FATAL: Adapter is required but missing
+            raise RuntimeError(
+                f"Checkpoint for {encoder_name} missing 'adapter_state_dict'. "
+                f"This encoder requires a trained adapter projection. "
+                f"Retrain probe with: python -m training.train_probe --encoder {encoder_name}"
             )
+        else:
+            # OK: This encoder uses Identity adapter (ViT-S/16, DINOv2)
+            adapter = encoder.adapter
 
     # Build and load probe
     cfg = load_canonical()
@@ -196,6 +218,146 @@ def select_validation_frames(
 # ---------------------------------------------------------------------------
 
 
+def get_lead_vehicle_bbox_2d(
+    nusc: NuScenes,
+    sample_token: str,
+    image_width: int = 224,
+    image_height: int = 224,
+) -> Optional[tuple[int, int, int, int]]:
+    """Get 2D bounding box of the closest vehicle in front of ego.
+
+    Parameters
+    ----------
+    nusc
+        NuScenes instance
+    sample_token
+        Sample token identifying the frame
+    image_width
+        Target image width (for clipping bbox coords)
+    image_height
+        Target image height (for clipping bbox coords)
+
+    Returns
+    -------
+    tuple[int, int, int, int] or None
+        2D bbox as (x1, y1, x2, y2) clipped to [0, image_width/height].
+        Returns None if no vehicle found in front.
+
+    Examples
+    --------
+    >>> nusc = NuScenes(version='v1.0-mini', dataroot='/data/nuscenes')  # doctest: +SKIP
+    >>> bbox = get_lead_vehicle_bbox_2d(nusc, sample_token="abc123...")  # doctest: +SKIP
+    >>> if bbox:  # doctest: +SKIP
+    ...     x1, y1, x2, y2 = bbox  # doctest: +SKIP
+    """
+    from nuscenes.utils.geometry_utils import view_points
+
+    # Get sample and CAM_FRONT data
+    sample = nusc.get("sample", sample_token)
+    cam_token = sample["data"]["CAM_FRONT"]
+    cam_data = nusc.get("sample_data", cam_token)
+
+    # Get camera calibration
+    calib_token = cam_data["calibrated_sensor_token"]
+    calib = nusc.get("calibrated_sensor", calib_token)
+    camera_intrinsic = np.array(calib["camera_intrinsic"])
+
+    # Get ego pose
+    ego_pose_token = cam_data["ego_pose_token"]
+    ego_pose = nusc.get("ego_pose", ego_pose_token)
+
+    # Find vehicles in front
+    vehicles_in_front = []
+
+    for ann_token in sample["anns"]:
+        ann = nusc.get("sample_annotation", ann_token)
+
+        # Filter to vehicles
+        if "vehicle" not in ann["category_name"]:
+            continue
+
+        # Get 3D center in global frame
+        center_global = np.array(ann["translation"])
+
+        # Transform to ego frame
+        ego_translation = np.array(ego_pose["translation"])
+        ego_rotation = np.array(ego_pose["rotation"])  # quaternion
+
+        # Inverse transform: global → ego
+        from pyquaternion import Quaternion
+
+        q_ego = Quaternion(ego_rotation)
+        center_ego = q_ego.inverse.rotate(center_global - ego_translation)
+
+        # Check if in front (positive x in ego frame)
+        if center_ego[0] <= 0:
+            continue
+
+        # Compute distance
+        distance = np.linalg.norm(center_ego)
+
+        vehicles_in_front.append(
+            {"ann_token": ann_token, "distance": distance, "center_ego": center_ego}
+        )
+
+    if len(vehicles_in_front) == 0:
+        return None
+
+    # Find closest vehicle
+    closest = min(vehicles_in_front, key=lambda v: v["distance"])
+    ann = nusc.get("sample_annotation", closest["ann_token"])
+
+    # Get 3D bounding box corners in global frame
+    from nuscenes.utils.data_classes import Box
+
+    box = Box(
+        center=ann["translation"],
+        size=ann["size"],
+        orientation=Quaternion(ann["rotation"]),
+    )
+
+    # Transform box to camera frame
+    # First to ego frame
+    q_ego = Quaternion(ego_pose["rotation"])
+    box.translate(-np.array(ego_pose["translation"]))
+    box.rotate(q_ego.inverse)
+
+    # Then to camera frame
+    q_cam = Quaternion(calib["rotation"])
+    box.translate(-np.array(calib["translation"]))
+    box.rotate(q_cam.inverse)
+
+    # Get 8 corners of 3D box
+    corners_3d = box.corners()  # (3, 8)
+
+    # Project to 2D
+    corners_2d = view_points(
+        corners_3d, camera_intrinsic, normalize=True
+    )  # (3, 8)
+
+    # Extract x, y coordinates (first 2 rows)
+    x_coords = corners_2d[0, :]
+    y_coords = corners_2d[1, :]
+
+    # Compute 2D bounding box
+    x1 = int(np.floor(x_coords.min()))
+    y1 = int(np.floor(y_coords.min()))
+    x2 = int(np.ceil(x_coords.max()))
+    y2 = int(np.ceil(y_coords.max()))
+
+    # Clip to image bounds
+    x1 = max(0, min(x1, image_width))
+    y1 = max(0, min(y1, image_height))
+    x2 = max(0, min(x2, image_width))
+    y2 = max(0, min(y2, image_height))
+
+    # Check if bbox is valid (non-zero area)
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    return (x1, y1, x2, y2)
+
+
 def apply_perturbation(
     image: torch.Tensor,
     perturbation_type: str,
@@ -235,20 +397,41 @@ def apply_perturbation(
     perturbed = image.clone()
 
     if perturbation_type == "mask_left_lane":
-        # Zero out columns 0-74 (leftmost ~33%)
-        perturbed[..., 0:75] = 0
+        # Zero out columns 0-74 per PRD B10
+        perturbed[..., :LEFT_LANE_MASK_END] = 0
 
     elif perturbation_type == "mask_right_lane":
-        # Zero out columns 150-224 (rightmost ~33%)
-        perturbed[..., 150:224] = 0
+        # Zero out columns 150-224 per PRD B10
+        perturbed[..., RIGHT_LANE_MASK_START:IMAGE_WIDTH] = 0
 
     elif perturbation_type == "mask_lead_vehicle":
-        # TODO: Implement in commit 6
-        # For now, return None to indicate "skip this frame"
-        logger.warning(
-            "mask_lead_vehicle not yet implemented, skipping frame"
-        )
-        return None
+        if nusc is None or sample_token is None:
+            raise ValueError(
+                "mask_lead_vehicle requires nusc and sample_token arguments"
+            )
+
+        # Get 2D bounding box of closest vehicle
+        bbox = get_lead_vehicle_bbox_2d(nusc, sample_token)
+
+        if bbox is None:
+            # No lead vehicle found
+            return None
+
+        # Zero out bounding box region
+        x1, y1, x2, y2 = bbox
+
+        # Handle both single-frame and clip tensors
+        if image.ndim == 3:
+            # Single frame: (3, 224, 224)
+            perturbed[:, y1:y2, x1:x2] = 0
+        elif image.ndim == 4:
+            # Clip: (16, 3, 224, 224)
+            perturbed[:, :, y1:y2, x1:x2] = 0
+        else:
+            raise ValueError(
+                f"Unexpected image shape: {image.shape}. "
+                f"Expected (3, 224, 224) or (16, 3, 224, 224)"
+            )
 
     else:
         raise ValueError(
@@ -440,3 +623,319 @@ def compute_drmse_with_ci(
     )
 
     return mean_drmse, ci_lo, ci_hi
+
+
+# ---------------------------------------------------------------------------
+# Main perturbation analysis orchestration
+# ---------------------------------------------------------------------------
+
+
+def run_perturbation_analysis(
+    n_frames: int = 50,
+    seed: int = 42,
+    output_dir: Path = Path("outputs/analysis"),
+    device: Optional[torch.device] = None,
+) -> Path:
+    """Run perturbation sensitivity analysis across all encoders and perturbations.
+
+    Parameters
+    ----------
+    n_frames
+        Number of random validation frames to evaluate
+    seed
+        Random seed for frame selection and bootstrap CIs
+    output_dir
+        Directory for output CSV (will be created if doesn't exist)
+    device
+        Torch device (defaults to cuda if available, else cpu)
+
+    Returns
+    -------
+    Path
+        Path to saved CSV file
+
+    Examples
+    --------
+    >>> csv_path = run_perturbation_analysis(n_frames=50, seed=42)  # doctest: +SKIP
+    >>> import pandas as pd  # doctest: +SKIP
+    >>> df = pd.read_csv(csv_path)  # doctest: +SKIP
+    >>> df.shape  # doctest: +SKIP
+    (15, 8)  # 5 encoders × 3 perturbations
+    """
+    import pandas as pd
+    from data.dataset import NuScenesFrameDataset
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    logger.info(
+        f"Starting perturbation analysis: {n_frames} frames, seed={seed}, device={device}"
+    )
+
+    # Load canonical config
+    cfg = load_canonical()
+
+    # Initialize nuScenes API for lead vehicle masking
+    import os
+
+    nuscenes_dataroot = Path(os.getenv("NUSCENES_DATAROOT", "data/nuscenes"))
+    dataset_version = cfg.raw["dataset"]["version"]
+
+    # Validate version directory exists before initializing NuScenes API
+    version_dir = nuscenes_dataroot / dataset_version
+    if not version_dir.exists():
+        raise FileNotFoundError(
+            f"NuScenes version '{dataset_version}' not found at {nuscenes_dataroot}. "
+            f"Expected directory: {version_dir}\n"
+            f"Download from https://nuscenes.org or set NUSCENES_DATAROOT environment variable."
+        )
+
+    logger.info(f"Initializing NuScenes API: {dataset_version} @ {nuscenes_dataroot}")
+    nusc = NuScenes(version=dataset_version, dataroot=str(nuscenes_dataroot), verbose=False)
+
+    # Results accumulator
+    results = []
+
+    # Encoder names to evaluate (from ENCODER_REGISTRY)
+    encoder_names = sorted(ENCODER_REGISTRY.keys())
+
+    # Perturbation types
+    perturbations = ["mask_left_lane", "mask_right_lane", "mask_lead_vehicle"]
+
+    for encoder_name in encoder_names:
+        logger.info(f"Evaluating encoder: {encoder_name}")
+
+        # Load encoder and probe
+        spec = ENCODER_REGISTRY[encoder_name]
+        checkpoint_dir = Path("outputs/probes") / spec.pilot_name
+
+        try:
+            encoder, adapter, probe = load_encoder_and_probe(
+                encoder_name, checkpoint_dir, device
+            )
+        except FileNotFoundError as e:
+            logger.error(
+                f"Skipping {encoder_name}: checkpoint not found. "
+                f"Train probe first with: python -m training.train_probe --encoder {encoder_name}"
+            )
+            continue
+
+        # Load dataset (handle V-JEPA2 multi-frame vs single-frame)
+        if encoder_name == "vjepa2":
+            dataset = NuScenesFrameDataset(
+                split="p0_val", mode="clip", clip_frames=16
+            )
+        else:
+            dataset = NuScenesFrameDataset(split="p0_val", mode="single_frame")
+
+        # Select random validation frames
+        frame_indices = select_validation_frames(len(dataset), n_frames, seed)
+        logger.info(
+            f"Selected {len(frame_indices)} frames from {len(dataset)} total"
+        )
+
+        # Evaluate each perturbation type
+        for perturbation_type in perturbations:
+            logger.info(f"  Perturbation: {perturbation_type}")
+
+            # Accumulate per-frame DRMSE values
+            steering_drmse_list = []
+            accel_drmse_list = []
+
+            skipped_frames = 0
+
+            # Progress bar for frame processing
+            for idx in tqdm(
+                frame_indices,
+                desc=f"{spec.pilot_name}/{perturbation_type}",
+                leave=False
+            ):
+                # Load frame
+                sample = dataset[idx]
+                image = sample["image"]
+                actions = sample["actions"]
+                sample_token = sample["sample_token"]
+
+                # Apply perturbation
+                image_masked = apply_perturbation(
+                    image, perturbation_type, nusc=nusc, sample_token=sample_token
+                )
+
+                # Skip frame if perturbation returns None (no lead vehicle)
+                if image_masked is None:
+                    skipped_frames += 1
+                    continue
+
+                # Compute DRMSE for this frame
+                steering_drmse, accel_drmse = compute_frame_drmse(
+                    encoder, adapter, probe, image, image_masked, actions, device
+                )
+
+                steering_drmse_list.append(steering_drmse)
+                accel_drmse_list.append(accel_drmse)
+
+            # Log skipped frames
+            if skipped_frames > 0:
+                logger.warning(
+                    f"  Skipped {skipped_frames}/{n_frames} frames "
+                    f"(perturbation returned None)"
+                )
+
+            # Compute mean and CIs via bootstrap
+            if len(steering_drmse_list) == 0:
+                logger.error(
+                    f"  No valid frames for {encoder_name} + {perturbation_type}. Skipping."
+                )
+                continue
+
+            steer_mean, steer_ci_lo, steer_ci_hi = compute_drmse_with_ci(
+                steering_drmse_list, cfg
+            )
+            accel_mean, accel_ci_lo, accel_ci_hi = compute_drmse_with_ci(
+                accel_drmse_list, cfg
+            )
+
+            logger.info(
+                f"    Steering DRMSE: {steer_mean:.4f} [{steer_ci_lo:.4f}, {steer_ci_hi:.4f}]"
+            )
+            logger.info(
+                f"    Accel DRMSE:    {accel_mean:.4f} [{accel_ci_lo:.4f}, {accel_ci_hi:.4f}]"
+            )
+
+            # Append to results
+            results.append(
+                {
+                    "encoder": spec.pilot_name,  # Use pilot_name for CSV (e.g., "vit_s16")
+                    "perturbation": perturbation_type,
+                    "steering_drmse": steer_mean,
+                    "steering_ci_lo": steer_ci_lo,
+                    "steering_ci_hi": steer_ci_hi,
+                    "accel_drmse": accel_mean,
+                    "accel_ci_lo": accel_ci_lo,
+                    "accel_ci_hi": accel_ci_hi,
+                }
+            )
+
+        # Free encoder/probe memory
+        del encoder, adapter, probe
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info(f"Freed memory for {encoder_name}")
+
+    # Save results to CSV
+    output_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = output_dir / "perturbation_sensitivity.csv"
+
+    df = pd.DataFrame(results)
+    df.to_csv(csv_path, index=False)
+
+    logger.info(f"Saved results to {csv_path}")
+    logger.info(f"Total rows: {len(df)} (expected: {len(encoder_names) * len(perturbations)} if all encoders trained)")
+
+    return csv_path
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """CLI entry point for perturbation sensitivity analysis."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Perturbation sensitivity analysis for encoder robustness",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run with defaults (50 frames, seed 42)
+  python -m evaluation.perturbation
+
+  # Use 100 frames with different seed
+  python -m evaluation.perturbation --n-frames 100 --seed 123
+
+  # Custom output directory
+  python -m evaluation.perturbation --output-dir results/perturbation
+
+Environment variables:
+  NUSCENES_DATAROOT: Path to nuScenes dataset (default: data/nuscenes)
+
+Output:
+  CSV file at <output-dir>/perturbation_sensitivity.csv with columns:
+    encoder, perturbation, steering_drmse, steering_ci_lo, steering_ci_hi,
+    accel_drmse, accel_ci_lo, accel_ci_hi
+
+  15 rows total (5 encoders × 3 perturbations)
+        """,
+    )
+
+    parser.add_argument(
+        "--n-frames",
+        type=int,
+        default=50,
+        help="Number of random validation frames to evaluate (default: 50)",
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for frame selection and bootstrap CIs (default: 42)",
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("outputs/analysis"),
+        help="Output directory for CSV file (default: outputs/analysis)",
+    )
+
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Torch device (default: cuda if available, else cpu)",
+    )
+
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level (default: INFO)",
+    )
+
+    args = parser.parse_args()
+
+    # Configure logging
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Parse device
+    device = None
+    if args.device is not None:
+        device = torch.device(args.device)
+
+    # Run analysis
+    logger.info("=" * 70)
+    logger.info("Perturbation Sensitivity Analysis")
+    logger.info("=" * 70)
+
+    csv_path = run_perturbation_analysis(
+        n_frames=args.n_frames,
+        seed=args.seed,
+        output_dir=args.output_dir,
+        device=device,
+    )
+
+    logger.info("=" * 70)
+    logger.info(f"✓ Analysis complete! Results saved to: {csv_path}")
+    logger.info("=" * 70)
+
+
+if __name__ == "__main__":
+    main()
