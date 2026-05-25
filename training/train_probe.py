@@ -424,12 +424,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         log_csv_path=out_dir / "train_log.csv",
     )
 
-    # Save checkpoint (probe weights + minimal metadata; encoder weights
-    # are deterministic from `pretrained=True` + the pinned wrapper, so
-    # no need to dump them).
+    # Save checkpoint (probe weights + adapter weights + minimal metadata).
+    # Encoder backbone weights are deterministic from `pretrained=True`, but
+    # the adapter is trained, so we save it for downstream tasks.
     torch.save(
         {
             "probe_state_dict": probe.state_dict(),
+            "adapter_state_dict": encoder.adapter.state_dict() if not isinstance(encoder.adapter, nn.Identity) else None,
             "encoder_name": args.encoder,
             "pilot_name": spec.pilot_name,
             "final_train_loss": history["train_loss"][-1],
