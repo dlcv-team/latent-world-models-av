@@ -18,15 +18,135 @@ Output:
 
 from __future__ import annotations
 
+import importlib
 import logging
 import random
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import torch
+from torch import nn
 from nuscenes.nuscenes import NuScenes
 
+from config import load_canonical
+from models.probe import ActionProbe
+from training.train_probe import ENCODER_REGISTRY
+
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Encoder and probe loading
+# ---------------------------------------------------------------------------
+
+
+def load_encoder_and_probe(
+    encoder_name: str,
+    checkpoint_dir: Path,
+    device: torch.device,
+) -> tuple[nn.Module, nn.Module, nn.Module]:
+    """Load trained encoder, adapter, and probe from checkpoint.
+
+    Parameters
+    ----------
+    encoder_name
+        Encoder name from ENCODER_REGISTRY (e.g., "vits16", "dinov2")
+    checkpoint_dir
+        Directory containing checkpoint.pt (e.g., outputs/probes/vit_s16/)
+    device
+        Torch device for model placement
+
+    Returns
+    -------
+    tuple[nn.Module, nn.Module, nn.Module]
+        (encoder, adapter, probe) tuple, all in eval mode on device
+
+    Raises
+    ------
+    FileNotFoundError
+        If checkpoint.pt not found at checkpoint_dir
+    ValueError
+        If encoder_name not in ENCODER_REGISTRY
+    RuntimeError
+        If checkpoint missing required keys
+
+    Examples
+    --------
+    >>> encoder, adapter, probe = load_encoder_and_probe(
+    ...     "vits16",
+    ...     Path("outputs/probes/vit_s16"),
+    ...     torch.device("cpu")
+    ... )  # doctest: +SKIP
+    """
+    if encoder_name not in ENCODER_REGISTRY:
+        raise ValueError(
+            f"Unknown encoder {encoder_name!r}; "
+            f"choices are {sorted(ENCODER_REGISTRY)}"
+        )
+
+    spec = ENCODER_REGISTRY[encoder_name]
+    checkpoint_path = checkpoint_dir / "checkpoint.pt"
+
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(
+            f"Checkpoint not found: {checkpoint_path}. "
+            f"Train probe first with: python -m training.train_probe "
+            f"--encoder {encoder_name}"
+        )
+
+    # Load checkpoint
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    if "probe_state_dict" not in ckpt:
+        raise RuntimeError(
+            f"Checkpoint missing 'probe_state_dict': {checkpoint_path}"
+        )
+
+    # Build encoder (frozen backbone + adapter)
+    module = importlib.import_module(spec.module_path)
+    encoder_cls = getattr(module, spec.class_name)
+
+    if encoder_name == "clip":
+        encoder = encoder_cls(pretrained="openai")
+    else:
+        encoder = encoder_cls(pretrained=True)
+
+    encoder = encoder.to(device).eval()
+
+    # Extract adapter from encoder
+    # The adapter is encoder.adapter, but we need to handle it separately
+    # for loading trained weights if they exist in checkpoint
+    if ckpt.get("adapter_state_dict") is not None:
+        # Adapter weights were saved (from train_probes_full.py or patched train_probe.py)
+        native_dim = list(ckpt["adapter_state_dict"].values())[0].shape[1]
+        adapter = nn.Linear(native_dim, 384, bias=False)
+        adapter.load_state_dict(ckpt["adapter_state_dict"])
+        adapter = adapter.to(device).eval()
+        logger.info(
+            f"Loaded trained adapter for {encoder_name} ({native_dim}→384)"
+        )
+    else:
+        # No adapter weights in checkpoint - use encoder's built-in adapter
+        # This happens with current training/train_probe.py
+        adapter = encoder.adapter
+        if not isinstance(adapter, nn.Identity):
+            logger.warning(
+                f"No adapter_state_dict in checkpoint for {encoder_name}. "
+                f"Using randomly initialized adapter. This may reduce accuracy."
+            )
+
+    # Build and load probe
+    cfg = load_canonical()
+    probe = ActionProbe.from_canonical()
+    probe.load_state_dict(ckpt["probe_state_dict"])
+    probe = probe.to(device).eval()
+
+    logger.info(
+        f"Loaded {encoder_name} (pilot={spec.pilot_name}): "
+        f"encoder on {device}, probe with {sum(p.numel() for p in probe.parameters())} params"
+    )
+
+    return encoder, adapter, probe
 
 
 # ---------------------------------------------------------------------------
