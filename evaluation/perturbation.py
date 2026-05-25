@@ -37,6 +37,8 @@ import numpy as np
 import torch
 from torch import nn
 from nuscenes.nuscenes import NuScenes
+from nuscenes.utils.data_classes import Box
+from pyquaternion import Quaternion
 from tqdm import tqdm
 
 from config import load_canonical
@@ -285,8 +287,6 @@ def get_lead_vehicle_bbox_2d(
         ego_rotation = np.array(ego_pose["rotation"])  # quaternion
 
         # Inverse transform: global → ego
-        from pyquaternion import Quaternion
-
         q_ego = Quaternion(ego_rotation)
         center_ego = q_ego.inverse.rotate(center_global - ego_translation)
 
@@ -309,8 +309,6 @@ def get_lead_vehicle_bbox_2d(
     ann = nusc.get("sample_annotation", closest["ann_token"])
 
     # Get 3D bounding box corners in global frame
-    from nuscenes.utils.data_classes import Box
-
     box = Box(
         center=ann["translation"],
         size=ann["size"],
@@ -609,8 +607,9 @@ def compute_drmse_with_ci(
     # Convert to numpy array
     drmse_array = np.array(drmse_values, dtype=float)
 
-    # Handle edge case: all values identical (std=0)
-    if np.std(drmse_array) == 0:
+    # Handle edge case: all values identical (std ≈ 0)
+    # Use tolerance to avoid exact float comparison
+    if np.std(drmse_array) < 1e-12:
         mean_val = float(drmse_array[0])
         logger.warning(
             f"All DRMSE values identical ({mean_val:.6f}). "
@@ -633,9 +632,11 @@ def compute_drmse_with_ci(
 
 def run_perturbation_analysis(
     n_frames: int = 50,
-    seed: int = 42,
+    seed: Optional[int] = None,
     output_dir: Path = Path("outputs/analysis"),
     device: Optional[torch.device] = None,
+    encoder_names: Optional[list[str]] = None,
+    split: str = "p0_val",
 ) -> Path:
     """Run perturbation sensitivity analysis across all encoders and perturbations.
 
@@ -644,11 +645,18 @@ def run_perturbation_analysis(
     n_frames
         Number of random validation frames to evaluate
     seed
-        Random seed for frame selection and bootstrap CIs
+        Random seed for frame selection and bootstrap CIs. If None, uses
+        canonical global_seed from configs/canonical.yaml.
     output_dir
         Directory for output CSV (will be created if doesn't exist)
     device
-        Torch device (defaults to cuda if available, else cpu)
+        Torch device. If None, auto-selects: cuda > mps > cpu
+    encoder_names
+        List of encoder names to evaluate (registry keys from ENCODER_REGISTRY).
+        If None, evaluates all registered encoders.
+    split
+        Dataset split to use (e.g., "p0_val", "smoke_val").
+        Default is "p0_val" for canonical benchmark.
 
     Returns
     -------
@@ -657,7 +665,7 @@ def run_perturbation_analysis(
 
     Examples
     --------
-    >>> csv_path = run_perturbation_analysis(n_frames=50, seed=42)  # doctest: +SKIP
+    >>> csv_path = run_perturbation_analysis(n_frames=50)  # Uses canonical seed  # doctest: +SKIP
     >>> import pandas as pd  # doctest: +SKIP
     >>> df = pd.read_csv(csv_path)  # doctest: +SKIP
     >>> df.shape  # doctest: +SKIP
@@ -666,21 +674,47 @@ def run_perturbation_analysis(
     import pandas as pd
     from data.dataset import NuScenesFrameDataset
 
+    # Load canonical config
+    cfg = load_canonical()
+
+    # Use canonical seed if not provided
+    if seed is None:
+        seed = cfg.global_seed
+
     if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+
+    # Validate encoder names early (before expensive dataset operations)
+    if encoder_names is None:
+        encoder_names = sorted(ENCODER_REGISTRY.keys())
+    else:
+        # Validate provided encoder names
+        invalid = set(encoder_names) - set(ENCODER_REGISTRY.keys())
+        if invalid:
+            raise ValueError(
+                f"Invalid encoder names: {invalid}. "
+                f"Valid options: {sorted(ENCODER_REGISTRY.keys())}"
+            )
 
     logger.info(
         f"Starting perturbation analysis: {n_frames} frames, seed={seed}, device={device}"
     )
 
-    # Load canonical config
-    cfg = load_canonical()
-
     # Initialize nuScenes API for lead vehicle masking
     import os
 
     nuscenes_dataroot = Path(os.getenv("NUSCENES_DATAROOT", "data/nuscenes"))
-    dataset_version = cfg.raw["dataset"]["version"]
+
+    # Auto-detect nuScenes version from split prefix (same logic as NuScenesFrameDataset)
+    if split.startswith("smoke_"):
+        dataset_version = "v1.0-mini"
+    else:
+        dataset_version = cfg.raw["dataset"]["version"]
 
     # Validate version directory exists before initializing NuScenes API
     version_dir = nuscenes_dataroot / dataset_version
@@ -696,9 +730,6 @@ def run_perturbation_analysis(
 
     # Results accumulator
     results = []
-
-    # Encoder names to evaluate (from ENCODER_REGISTRY)
-    encoder_names = sorted(ENCODER_REGISTRY.keys())
 
     # Perturbation types
     perturbations = ["mask_left_lane", "mask_right_lane", "mask_lead_vehicle"]
@@ -724,10 +755,10 @@ def run_perturbation_analysis(
         # Load dataset (handle V-JEPA2 multi-frame vs single-frame)
         if encoder_name == "vjepa2":
             dataset = NuScenesFrameDataset(
-                split="p0_val", mode="clip", clip_frames=16
+                split=split, mode="clip", clip_frames=16
             )
         else:
-            dataset = NuScenesFrameDataset(split="p0_val", mode="single_frame")
+            dataset = NuScenesFrameDataset(split=split, mode="single_frame")
 
         # Select random validation frames
         frame_indices = select_validation_frames(len(dataset), n_frames, seed)
@@ -745,11 +776,12 @@ def run_perturbation_analysis(
 
             skipped_frames = 0
 
-            # Progress bar for frame processing
+            # Progress bar for frame processing (disabled if logging level > INFO)
             for idx in tqdm(
                 frame_indices,
                 desc=f"{spec.pilot_name}/{perturbation_type}",
-                leave=False
+                leave=False,
+                disable=logger.level > logging.INFO,
             ):
                 # Load frame
                 sample = dataset[idx]
@@ -819,8 +851,10 @@ def run_perturbation_analysis(
 
         # Free encoder/probe memory
         del encoder, adapter, probe
-        if torch.cuda.is_available():
+        if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
+        elif device.type == "mps" and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
         logger.info(f"Freed memory for {encoder_name}")
 
     # Save results to CSV
@@ -881,8 +915,8 @@ Output:
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
-        help="Random seed for frame selection and bootstrap CIs (default: 42)",
+        default=None,
+        help="Random seed for frame selection and bootstrap CIs (default: canonical global_seed)",
     )
 
     parser.add_argument(
@@ -896,6 +930,7 @@ Output:
         "--device",
         type=str,
         default=None,
+        choices=["cuda", "mps", "cpu"],
         help="Torch device (default: cuda if available, else cpu)",
     )
 
