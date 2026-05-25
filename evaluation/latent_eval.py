@@ -20,12 +20,16 @@ suitable for the figures pipeline).
 
 Per-variant ``z_real`` policy
 -----------------------------
-Each predictor variant is trained with its own adapter projection, so the
-conditioned and unconditional outputs live in **different 384-d subspaces**.
-``CosSim_conditioned`` must therefore be computed against
-``z_real_conditioned`` (matching adapter) and ``CosSim_unconditioned``
-against ``z_real_unconditioned`` -- never cross-mixed.  This matches the
-export contract documented in ``scripts/export_z_hat.py``.
+Depending on the training pipeline, predictor variants may use separate
+adapter projections (e.g. legacy P1 MLP with trainable adapters) or share
+a single frozen orthogonal adapter (DA7 fair MLP / DiT).  When adapters
+differ, conditioned and unconditional outputs occupy **different 384-d
+subspaces** and each variant's ``CosSim`` must be computed against its own
+``z_real``.  When the adapter is shared, both variants share the same
+``z_real`` -- the evaluator handles both cases correctly.  The key
+invariant is: never cross-mix a ``z_hat`` with a ``z_real`` from a
+*different* adapter.  This matches the export contract documented in
+``scripts/export_z_hat.py``.
 
 CLI
 ---
@@ -108,9 +112,7 @@ def _per_horizon_cossim(z_hat: torch.Tensor, z_real: torch.Tensor) -> dict[int, 
 
     out: dict[int, float] = {}
     for k in range(1, horizon + 1):
-        sims = F.cosine_similarity(
-            z_hat_f[:, k - 1, :], z_real_f[:, k - 1, :], dim=-1
-        )
+        sims = F.cosine_similarity(z_hat_f[:, k - 1, :], z_real_f[:, k - 1, :], dim=-1)
         out[k] = float(sims.mean().item())
     return out
 
@@ -121,9 +123,7 @@ def _load_tensor(path: Path, role: str) -> torch.Tensor:
         raise FileNotFoundError(f"{role} tensor not found: {path}")
     obj = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(obj, torch.Tensor):
-        raise ValueError(
-            f"{path}: expected a torch.Tensor, got {type(obj).__name__}"
-        )
+        raise ValueError(f"{path}: expected a torch.Tensor, got {type(obj).__name__}")
     return obj
 
 
@@ -209,6 +209,16 @@ def _build_results_payload(
     metadata: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     """Assemble the nested JSON payload (also used as the in-memory return)."""
+    cond_keys = set(cossim_conditioned)
+    uncond_keys = set(cossim_unconditioned)
+    delta_keys = set(delta_cossim)
+    if cond_keys != uncond_keys or cond_keys != delta_keys:
+        raise ValueError(
+            f"Key mismatch across result dicts: "
+            f"conditioned={sorted(cond_keys)}, "
+            f"unconditioned={sorted(uncond_keys)}, "
+            f"delta={sorted(delta_keys)}"
+        )
     horizons = sorted(cossim_conditioned)
     payload: dict[str, Any] = {
         "schema_version": "1.0",
@@ -329,16 +339,18 @@ def run_latent_eval(
     z_hat_uncond = Path(z_hat_unconditioned_path)
     z_real_uncond = Path(z_real_unconditioned_path)
 
-    cossim_cond, (n_samples, horizon, z_dim) = _evaluate_pair(
-        z_hat_cond, z_real_cond
-    )
-    cossim_uncond, _ = _evaluate_pair(z_hat_uncond, z_real_uncond)
+    cossim_cond, (n_samples, horizon, z_dim) = _evaluate_pair(z_hat_cond, z_real_cond)
+    cossim_uncond, uncond_shape = _evaluate_pair(z_hat_uncond, z_real_uncond)
+    if uncond_shape != (n_samples, horizon, z_dim):
+        raise ValueError(
+            f"Shape mismatch between conditioned and unconditioned tensors: "
+            f"conditioned={n_samples, horizon, z_dim}, "
+            f"unconditioned={uncond_shape}"
+        )
     delta = compute_delta_cossim(cossim_cond, cossim_uncond)
 
     metadata: dict[str, Any] = {
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(
-            timespec="seconds"
-        ),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "n_samples": n_samples,
         "horizon": horizon,
         "z_dim": z_dim,
@@ -409,8 +421,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional encoder name to record in the JSON metadata block "
+            "and namespace the output directory "
             "(does not affect the numbers)."
         ),
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional seed to record in the JSON metadata block (does not affect the numbers).",
     )
     return parser
 
@@ -437,11 +456,12 @@ def _resolve_paths_via_loader_fallback(
         return Path(a), Path(b), Path(c), Path(d)
 
     # Lazy import so the core module stays usable without data.z_hat on path.
-    from data.z_hat import _DEFAULT_DIR as _Z_HAT_DEFAULT_DIR  # noqa: PLC0415
-    from data.z_hat import load_z_hat, load_z_real  # noqa: PLC0415
+    from data.z_hat import get_default_dir, load_z_hat, load_z_real  # noqa: PLC0415
+
+    z_hat_dir = get_default_dir()
 
     def _cached_path(kind: str, variant: str, loader) -> Path:
-        cached = _Z_HAT_DEFAULT_DIR / f"{kind}_{variant}.pt"
+        cached = z_hat_dir / f"{kind}_{variant}.pt"
         if not cached.exists():
             # Touch the loader to trigger the HF cascade; the cached file
             # is then guaranteed to exist on disk at the returned path.
@@ -474,24 +494,28 @@ def main(argv: list[str] | None = None) -> int:
     extra_metadata: dict[str, Any] = {}
     if args.encoder is not None:
         extra_metadata["encoder"] = args.encoder
+    if args.seed is not None:
+        extra_metadata["seed"] = args.seed
+
+    output_dir = args.output_dir
+    if args.encoder is not None:
+        output_dir = output_dir / args.encoder
 
     payload = run_latent_eval(
         z_hat_conditioned_path=z_hat_cond,
         z_real_conditioned_path=z_real_cond,
         z_hat_unconditioned_path=z_hat_uncond,
         z_real_unconditioned_path=z_real_uncond,
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         extra_metadata=extra_metadata or None,
     )
 
     print(
-        f"[latent_eval] CosSim evaluation written to {args.output_dir}/"
+        f"[latent_eval] CosSim evaluation written to {output_dir}/"
         f" ({COSSIM_JSON_FILENAME}, {COSSIM_CSV_FILENAME})"
     )
     horizon = payload["horizon"]
-    print(
-        f"  {'k':>3}  {'CosSim_cond':>12}  {'CosSim_uncond':>14}  {'Delta':>8}"
-    )
+    print(f"  {'k':>3}  {'CosSim_cond':>12}  {'CosSim_uncond':>14}  {'Delta':>8}")
     for k in range(1, horizon + 1):
         row = payload["per_horizon"][str(k)]
         print(
