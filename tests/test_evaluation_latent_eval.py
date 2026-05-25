@@ -105,8 +105,8 @@ def test_evaluate_cossim_orthogonal_is_zero(tmp_path):
     n, horizon, z_dim = 4, 4, 8
     z_hat = torch.zeros(n, horizon, z_dim)
     z_real = torch.zeros(n, horizon, z_dim)
-    z_hat[..., 0] = 1.0    # along e_0
-    z_real[..., 1] = 1.0   # along e_1 (orthogonal to e_0)
+    z_hat[..., 0] = 1.0  # along e_0
+    z_real[..., 1] = 1.0  # along e_1 (orthogonal to e_0)
 
     p_hat = _save(z_hat, tmp_path / "z_hat.pt")
     p_real = _save(z_real, tmp_path / "z_real.pt")
@@ -141,7 +141,7 @@ def test_evaluate_cossim_per_horizon_independence(tmp_path):
     # horizons 3 / 4 are independent random tensors.
     z_hat = torch.randn(n, horizon, z_dim)
     z_real = z_hat.clone()
-    z_real[:, 1, :] = -z_hat[:, 1, :]      # k=2: anti-aligned
+    z_real[:, 1, :] = -z_hat[:, 1, :]  # k=2: anti-aligned
     z_real[:, 2, :] = torch.randn(n, z_dim)  # k=3: random
     z_real[:, 3, :] = torch.randn(n, z_dim)  # k=4: random
 
@@ -291,7 +291,12 @@ def test_compute_delta_cossim_simple():
     cond = {1: 0.5, 2: 0.4, 3: 0.3, 4: 0.2}
     uncond = {1: 0.1, 2: 0.1, 3: 0.1, 4: 0.1}
     delta = compute_delta_cossim(cond, uncond)
-    assert delta == {1: 0.4, 2: pytest.approx(0.3), 3: pytest.approx(0.2), 4: pytest.approx(0.1)}
+    assert delta == {
+        1: 0.4,
+        2: pytest.approx(0.3),
+        3: pytest.approx(0.2),
+        4: pytest.approx(0.1),
+    }
 
 
 def test_compute_delta_cossim_negative_when_uncond_wins():
@@ -552,6 +557,121 @@ def test_run_latent_eval_pipeline_matches_direct_evaluation(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Cross-variant shape validation
+# ---------------------------------------------------------------------------
+
+
+def test_run_latent_eval_cross_variant_n_mismatch_raises(tmp_path):
+    """Different N between conditioned and unconditioned tensors must raise."""
+    n_cond, n_uncond, horizon, z_dim = 16, 12, 4, 384
+    _save(torch.randn(n_cond, horizon, z_dim), tmp_path / "z_hat_cond.pt")
+    _save(torch.randn(n_cond, horizon, z_dim), tmp_path / "z_real_cond.pt")
+    _save(torch.randn(n_uncond, horizon, z_dim), tmp_path / "z_hat_uncond.pt")
+    _save(torch.randn(n_uncond, horizon, z_dim), tmp_path / "z_real_uncond.pt")
+
+    with pytest.raises(ValueError, match="Shape mismatch.*conditioned.*unconditioned"):
+        run_latent_eval(
+            z_hat_conditioned_path=tmp_path / "z_hat_cond.pt",
+            z_real_conditioned_path=tmp_path / "z_real_cond.pt",
+            z_hat_unconditioned_path=tmp_path / "z_hat_uncond.pt",
+            z_real_unconditioned_path=tmp_path / "z_real_uncond.pt",
+            output_dir=tmp_path / "out",
+        )
+
+
+def test_run_latent_eval_cross_variant_z_dim_mismatch_raises(tmp_path):
+    """Different z_dim between conditioned and unconditioned tensors must raise."""
+    n, horizon = 16, 4
+    _save(torch.randn(n, horizon, 384), tmp_path / "z_hat_cond.pt")
+    _save(torch.randn(n, horizon, 384), tmp_path / "z_real_cond.pt")
+    _save(torch.randn(n, horizon, 256), tmp_path / "z_hat_uncond.pt")
+    _save(torch.randn(n, horizon, 256), tmp_path / "z_real_uncond.pt")
+
+    with pytest.raises(ValueError, match="Shape mismatch.*conditioned.*unconditioned"):
+        run_latent_eval(
+            z_hat_conditioned_path=tmp_path / "z_hat_cond.pt",
+            z_real_conditioned_path=tmp_path / "z_real_cond.pt",
+            z_hat_unconditioned_path=tmp_path / "z_hat_uncond.pt",
+            z_real_unconditioned_path=tmp_path / "z_real_uncond.pt",
+            output_dir=tmp_path / "out",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Payload key validation
+# ---------------------------------------------------------------------------
+
+
+def test_build_results_payload_key_mismatch_raises():
+    """_build_results_payload must reject misaligned key sets."""
+    from evaluation.latent_eval import _build_results_payload
+
+    cond = {1: 0.5, 2: 0.4}
+    uncond = {1: 0.1}
+    delta = {1: 0.4, 2: 0.3}
+
+    with pytest.raises(ValueError, match="Key mismatch"):
+        _build_results_payload(cond, uncond, delta, None)
+
+
+# ---------------------------------------------------------------------------
+# CLI: encoder namespacing + seed metadata
+# ---------------------------------------------------------------------------
+
+
+def test_cli_encoder_namespaces_output_dir(tmp_path, capsys):
+    """When --encoder is provided, output is written to a subdirectory."""
+    paths = _seed_four_pt_files(tmp_path)
+    out_dir = tmp_path / "cli_out"
+
+    rc = main(
+        [
+            "--z-hat-conditioned",
+            str(paths["z_hat_cond"]),
+            "--z-real-conditioned",
+            str(paths["z_real_cond"]),
+            "--z-hat-unconditioned",
+            str(paths["z_hat_uncond"]),
+            "--z-real-unconditioned",
+            str(paths["z_real_uncond"]),
+            "--output-dir",
+            str(out_dir),
+            "--encoder",
+            "vjepa2_rep64",
+        ]
+    )
+    assert rc == 0
+    assert (out_dir / "vjepa2_rep64" / COSSIM_JSON_FILENAME).exists()
+    assert (out_dir / "vjepa2_rep64" / COSSIM_CSV_FILENAME).exists()
+    assert not (out_dir / COSSIM_JSON_FILENAME).exists()
+
+
+def test_cli_seed_recorded_in_metadata(tmp_path):
+    """--seed value should appear in JSON metadata."""
+    paths = _seed_four_pt_files(tmp_path)
+    out_dir = tmp_path / "cli_out"
+
+    main(
+        [
+            "--z-hat-conditioned",
+            str(paths["z_hat_cond"]),
+            "--z-real-conditioned",
+            str(paths["z_real_cond"]),
+            "--z-hat-unconditioned",
+            str(paths["z_hat_uncond"]),
+            "--z-real-unconditioned",
+            str(paths["z_real_uncond"]),
+            "--output-dir",
+            str(out_dir),
+            "--seed",
+            "42",
+        ]
+    )
+    payload = json.loads((out_dir / COSSIM_JSON_FILENAME).read_text())
+    assert payload["metadata"]["seed"] == 42
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -562,17 +682,24 @@ def test_cli_main_writes_artifacts(tmp_path, capsys):
 
     rc = main(
         [
-            "--z-hat-conditioned", str(paths["z_hat_cond"]),
-            "--z-real-conditioned", str(paths["z_real_cond"]),
-            "--z-hat-unconditioned", str(paths["z_hat_uncond"]),
-            "--z-real-unconditioned", str(paths["z_real_uncond"]),
-            "--output-dir", str(out_dir),
-            "--encoder", "synthetic",
+            "--z-hat-conditioned",
+            str(paths["z_hat_cond"]),
+            "--z-real-conditioned",
+            str(paths["z_real_cond"]),
+            "--z-hat-unconditioned",
+            str(paths["z_hat_uncond"]),
+            "--z-real-unconditioned",
+            str(paths["z_real_uncond"]),
+            "--output-dir",
+            str(out_dir),
+            "--encoder",
+            "synthetic",
         ]
     )
     assert rc == 0
-    json_path = out_dir / COSSIM_JSON_FILENAME
-    csv_path = out_dir / COSSIM_CSV_FILENAME
+    namespaced = out_dir / "synthetic"
+    json_path = namespaced / COSSIM_JSON_FILENAME
+    csv_path = namespaced / COSSIM_CSV_FILENAME
     assert json_path.exists() and csv_path.exists()
 
     payload = json.loads(json_path.read_text())
@@ -591,11 +718,16 @@ def test_cli_main_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         main(
             [
-                "--z-hat-conditioned", str(tmp_path / "missing.pt"),
-                "--z-real-conditioned", str(paths["z_real_cond"]),
-                "--z-hat-unconditioned", str(paths["z_hat_uncond"]),
-                "--z-real-unconditioned", str(paths["z_real_uncond"]),
-                "--output-dir", str(out_dir),
+                "--z-hat-conditioned",
+                str(tmp_path / "missing.pt"),
+                "--z-real-conditioned",
+                str(paths["z_real_cond"]),
+                "--z-hat-unconditioned",
+                str(paths["z_hat_uncond"]),
+                "--z-real-unconditioned",
+                str(paths["z_real_uncond"]),
+                "--output-dir",
+                str(out_dir),
             ]
         )
 
