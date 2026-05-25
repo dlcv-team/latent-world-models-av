@@ -30,6 +30,7 @@ from torch import nn
 from nuscenes.nuscenes import NuScenes
 
 from config import load_canonical
+from evaluation.metrics import compute_rmse
 from models.probe import ActionProbe
 from training.train_probe import ENCODER_REGISTRY
 
@@ -256,3 +257,117 @@ def apply_perturbation(
         )
 
     return perturbed
+
+
+# ---------------------------------------------------------------------------
+# Core evaluation functions
+# ---------------------------------------------------------------------------
+
+
+def evaluate_frame(
+    encoder: nn.Module,
+    adapter: nn.Module,
+    probe: nn.Module,
+    image: torch.Tensor,
+    actions: torch.Tensor,
+    device: torch.device,
+) -> tuple[float, float]:
+    """Run inference on a single frame and compute RMSE vs ground truth.
+
+    Parameters
+    ----------
+    encoder
+        Frozen encoder model (already on device, in eval mode)
+    adapter
+        Projection adapter (Identity or Linear, already on device)
+    probe
+        Action prediction probe (already on device, in eval mode)
+    image
+        Image tensor (3, 224, 224) or (16, 3, 224, 224) for clips.
+        Values in [0, 1].
+    actions
+        Ground truth actions, shape (2,) → [steering_norm, accel_norm]
+    device
+        Torch device for computation
+
+    Returns
+    -------
+    tuple[float, float]
+        (steer_rmse, accel_rmse) in normalized space
+
+    Examples
+    --------
+    >>> encoder = ...  # doctest: +SKIP
+    >>> adapter = nn.Identity()  # doctest: +SKIP
+    >>> probe = ...  # doctest: +SKIP
+    >>> image = torch.rand(3, 224, 224)  # doctest: +SKIP
+    >>> actions = torch.tensor([0.1, -0.3])  # doctest: +SKIP
+    >>> steer_rmse, accel_rmse = evaluate_frame(
+    ...     encoder, adapter, probe, image, actions, torch.device("cpu")
+    ... )  # doctest: +SKIP
+    """
+    with torch.no_grad():
+        # Add batch dimension and move to device
+        image_batch = image.unsqueeze(0).to(device)
+
+        # Forward pass: encoder → adapter → probe
+        embedding = encoder(image_batch)
+        projected = adapter(embedding)
+        pred = probe(projected).cpu().numpy()  # (1, 2)
+
+    # Compute RMSE vs ground truth
+    actions_np = actions.cpu().numpy().reshape(1, 2)
+    steer_rmse, accel_rmse = compute_rmse(pred, actions_np)
+
+    return steer_rmse, accel_rmse
+
+
+def compute_frame_drmse(
+    encoder: nn.Module,
+    adapter: nn.Module,
+    probe: nn.Module,
+    image_unmasked: torch.Tensor,
+    image_masked: torch.Tensor,
+    actions: torch.Tensor,
+    device: torch.device,
+) -> tuple[float, float]:
+    """Compute delta RMSE between masked and unmasked predictions.
+
+    Parameters
+    ----------
+    encoder, adapter, probe
+        Model components (already on device, in eval mode)
+    image_unmasked
+        Original unperturbed image, shape (3, 224, 224) or (16, 3, 224, 224)
+    image_masked
+        Perturbed image with same shape
+    actions
+        Ground truth actions, shape (2,)
+    device
+        Torch device
+
+    Returns
+    -------
+    tuple[float, float]
+        (steering_drmse, accel_drmse) = RMSE_masked - RMSE_unmasked
+
+    Examples
+    --------
+    >>> # Positive DRMSE means masking increases error (region is important)
+    >>> drmse_steer, drmse_accel = compute_frame_drmse(...)  # doctest: +SKIP
+    """
+    # Evaluate unmasked
+    steer_rmse_unmasked, accel_rmse_unmasked = evaluate_frame(
+        encoder, adapter, probe, image_unmasked, actions, device
+    )
+
+    # Evaluate masked
+    steer_rmse_masked, accel_rmse_masked = evaluate_frame(
+        encoder, adapter, probe, image_masked, actions, device
+    )
+
+    # Compute delta RMSE
+    steering_drmse = steer_rmse_masked - steer_rmse_unmasked
+    accel_drmse = accel_rmse_masked - accel_rmse_unmasked
+
+    return steering_drmse, accel_drmse

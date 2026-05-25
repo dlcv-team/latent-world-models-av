@@ -9,6 +9,8 @@ from torch import nn
 
 from evaluation.perturbation import (
     apply_perturbation,
+    compute_frame_drmse,
+    evaluate_frame,
     load_encoder_and_probe,
     select_validation_frames,
 )
@@ -272,3 +274,160 @@ class TestLoadEncoderAndProbe:
         assert isinstance(adapter, nn.Linear)
         assert adapter.weight.shape == (384, 512)
         assert torch.allclose(adapter.weight, adapter_weights)
+
+
+class TestEvaluateFrame:
+    """Tests for single frame evaluation function."""
+
+    def test_evaluate_frame_returns_rmse_tuple(self):
+        """Should return (steer_rmse, accel_rmse) tuple."""
+        # Create simple encoder/adapter/probe that return predictable values
+        encoder = nn.Identity()
+        adapter = nn.Identity()
+        probe = nn.Sequential(nn.Flatten(), nn.Linear(3 * 224 * 224, 2))
+
+        image = torch.rand(3, 224, 224)
+        actions = torch.tensor([0.5, -0.3])
+
+        steer_rmse, accel_rmse = evaluate_frame(
+            encoder, adapter, probe, image, actions, torch.device("cpu")
+        )
+
+        assert isinstance(steer_rmse, float)
+        assert isinstance(accel_rmse, float)
+        assert steer_rmse >= 0
+        assert accel_rmse >= 0
+
+    def test_evaluate_frame_perfect_prediction(self):
+        """RMSE should be near zero for perfect predictions."""
+        # Create probe that always predicts the ground truth
+        class PerfectProbe(nn.Module):
+            def __init__(self, target_actions):
+                super().__init__()
+                self.target = target_actions
+
+            def forward(self, x):
+                return self.target.unsqueeze(0)
+
+        encoder = nn.Identity()
+        adapter = nn.Identity()
+        actions = torch.tensor([0.5, -0.3])
+        probe = PerfectProbe(actions)
+
+        image = torch.rand(3, 224, 224)
+
+        steer_rmse, accel_rmse = evaluate_frame(
+            encoder, adapter, probe, image, actions, torch.device("cpu")
+        )
+
+        assert steer_rmse < 1e-6  # Near zero
+        assert accel_rmse < 1e-6
+
+    def test_evaluate_frame_with_adapter(self):
+        """Should work with non-identity adapter."""
+        # Encoder outputs 512-d, adapter projects to 384-d, probe predicts actions
+        encoder = nn.Sequential(nn.Flatten(), nn.Linear(3 * 224 * 224, 512))
+        adapter = nn.Linear(512, 384, bias=False)
+        probe = nn.Sequential(nn.Linear(384, 128), nn.ReLU(), nn.Linear(128, 2))
+
+        image = torch.rand(3, 224, 224)
+        actions = torch.tensor([0.1, 0.2])
+
+        steer_rmse, accel_rmse = evaluate_frame(
+            encoder, adapter, probe, image, actions, torch.device("cpu")
+        )
+
+        assert isinstance(steer_rmse, float)
+        assert isinstance(accel_rmse, float)
+        assert steer_rmse >= 0
+        assert accel_rmse >= 0
+
+    def test_evaluate_frame_with_clip_input(self):
+        """Should handle V-JEPA2 clip input (16, 3, 224, 224)."""
+        encoder = nn.Sequential(nn.Flatten(), nn.Linear(16 * 3 * 224 * 224, 384))
+        adapter = nn.Identity()
+        probe = nn.Linear(384, 2)
+
+        image = torch.rand(16, 3, 224, 224)  # Clip of 16 frames
+        actions = torch.tensor([0.0, 0.0])
+
+        steer_rmse, accel_rmse = evaluate_frame(
+            encoder, adapter, probe, image, actions, torch.device("cpu")
+        )
+
+        assert isinstance(steer_rmse, float)
+        assert isinstance(accel_rmse, float)
+
+
+class TestComputeFrameDRMSE:
+    """Tests for delta RMSE computation."""
+
+    def test_drmse_positive_when_masking_increases_error(self):
+        """DRMSE should be positive when masking increases error."""
+        # Create probe that predicts well on unmasked but poorly on masked
+        class MaskSensitiveProbe(nn.Module):
+            def forward(self, x):
+                # Check if input looks masked (has many zeros)
+                is_masked = (x == 0).float().mean() > 0.1
+                if is_masked:
+                    return torch.tensor([[0.9, 0.9]])  # Poor prediction
+                return torch.tensor([[0.1, 0.1]])  # Good prediction
+
+        encoder = nn.Identity()
+        adapter = nn.Identity()
+        probe = MaskSensitiveProbe()
+
+        image_unmasked = torch.ones(3, 224, 224)
+        image_masked = torch.ones(3, 224, 224)
+        image_masked[:, :, 0:75] = 0  # Mask left lane
+
+        actions = torch.tensor([0.1, 0.1])
+
+        steer_drmse, accel_drmse = compute_frame_drmse(
+            encoder, adapter, probe, image_unmasked, image_masked, actions, torch.device("cpu")
+        )
+
+        assert steer_drmse > 0  # Masking increased error
+        assert accel_drmse > 0
+
+    def test_drmse_zero_when_masking_has_no_effect(self):
+        """DRMSE should be near zero when masking doesn't affect prediction."""
+        # Probe that ignores input
+        class ConstantProbe(nn.Module):
+            def forward(self, x):
+                return torch.tensor([[0.5, 0.5]])
+
+        encoder = nn.Identity()
+        adapter = nn.Identity()
+        probe = ConstantProbe()
+
+        image_unmasked = torch.rand(3, 224, 224)
+        image_masked = apply_perturbation(image_unmasked, "mask_left_lane")
+
+        actions = torch.tensor([0.5, 0.5])
+
+        steer_drmse, accel_drmse = compute_frame_drmse(
+            encoder, adapter, probe, image_unmasked, image_masked, actions, torch.device("cpu")
+        )
+
+        assert abs(steer_drmse) < 1e-6  # No change
+        assert abs(accel_drmse) < 1e-6
+
+    def test_drmse_returns_float_tuple(self):
+        """Should return tuple of two floats."""
+        encoder = nn.Sequential(nn.Flatten(), nn.Linear(3 * 224 * 224, 2))
+        adapter = nn.Identity()
+        probe = nn.Identity()
+
+        image_unmasked = torch.rand(3, 224, 224)
+        image_masked = torch.rand(3, 224, 224)
+        actions = torch.tensor([0.0, 0.0])
+
+        result = compute_frame_drmse(
+            encoder, adapter, probe, image_unmasked, image_masked, actions, torch.device("cpu")
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], float)
