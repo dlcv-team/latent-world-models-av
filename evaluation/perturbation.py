@@ -37,6 +37,7 @@ import numpy as np
 import torch
 from torch import nn
 from nuscenes.nuscenes import NuScenes
+from tqdm import tqdm
 
 from config import load_canonical
 from evaluation.metrics import bootstrap_mean_ci, compute_rmse
