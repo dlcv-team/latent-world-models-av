@@ -89,7 +89,13 @@ def load_cossim_csv(path: Path) -> pd.DataFrame:
         raise ValueError(f"{path}: cossim CSV contains NaN values")
 
     df = df.copy()
-    df["k"] = df["k"].astype(int)
+    k_float = pd.to_numeric(df["k"], errors="coerce")
+    if k_float.isna().any() or not (k_float == k_float.astype(int)).all():
+        raise ValueError(
+            f"{path}: 'k' column contains non-integer values: "
+            f"{list(df['k'][k_float != k_float.astype(int)])}"
+        )
+    df["k"] = k_float.astype(int)
     df = df.sort_values("k").reset_index(drop=True)
     if list(df["k"]) != list(range(1, len(df) + 1)):
         raise ValueError(
@@ -106,9 +112,7 @@ def load_cossim_csv(path: Path) -> pd.DataFrame:
     return df
 
 
-def load_bc_baseline(
-    baselines_json_path: Path, encoder: str
-) -> dict[str, Any] | None:
+def load_bc_baseline(baselines_json_path: Path, encoder: str) -> dict[str, Any] | None:
     """Look up an encoder's BC baseline numbers from ``baselines.json``.
 
     Returns ``None`` if the file or the encoder entry is missing -- BC
@@ -187,13 +191,13 @@ def summarize_delta_cossim(cossim_df: pd.DataFrame) -> dict[str, Any]:
 
     # Monotonic non-increasing in k is the textbook expectation for a
     # working autoregressive predictor (further horizons = harder).
+    # 1e-6 tolerance absorbs fp32 rounding so near-equal values don't
+    # spuriously trip the flag.
     cond_monotonic_nonincreasing = all(
-        cond_series[i] >= cond_series[i + 1] - 1e-6
-        for i in range(len(cond_series) - 1)
+        cond_series[i] >= cond_series[i + 1] - 1e-6 for i in range(len(cond_series) - 1)
     )
 
     return {
-        "schema_version": SCHEMA_VERSION,
         "horizon": len(horizons),
         "per_horizon": horizons,
         "delta_positive_at_any_horizon": len(positive_ks) > 0,
@@ -277,20 +281,14 @@ def render_summary_markdown(
         cossim_metadata.get("encoder") if cossim_metadata else None
     ) or encoder
     n_samples = cossim_metadata.get("n_samples") if cossim_metadata else None
-    n_samples_clause = (
-        f" on the {n_samples:,}-sequence test split" if n_samples else ""
-    )
+    n_samples_clause = f" on the {n_samples:,}-sequence test split" if n_samples else ""
 
-    paragraph_1 = _render_cossim_paragraph(
-        analysis, encoder_label, n_samples_clause
-    )
+    paragraph_1 = _render_cossim_paragraph(analysis, encoder_label, n_samples_clause)
     paragraph_2 = _render_delta_paragraph(analysis)
-    paragraph_3 = _render_bc_comparison_paragraph(
-        analysis, bc_baseline, encoder_label
-    )
+    paragraph_3 = _render_bc_comparison_paragraph(analysis, bc_baseline, encoder_label)
 
     return (
-        f"# DeltaCosSim results summary — `{encoder_label}` (C5)\n\n"
+        f"# DeltaCosSim results summary -- `{encoder_label}` (C5)\n\n"
         f"{paragraph_1}\n\n"
         f"{paragraph_2}\n\n"
         f"{paragraph_3}\n"
@@ -328,10 +326,8 @@ def _render_cossim_paragraph(
 
 def _render_delta_paragraph(analysis: dict[str, Any]) -> str:
     """Paragraph 2: DeltaCosSim verdict on action conditioning."""
-    horizon = analysis["horizon"]
     deltas_str = ", ".join(
-        f"Δ(k={h['k']})={h['delta_cossim']:+.4f}"
-        for h in analysis["per_horizon"]
+        f"Δ(k={h['k']})={h['delta_cossim']:+.4f}" for h in analysis["per_horizon"]
     )
     best = analysis["best_horizon"]
     mean_delta = analysis["mean_delta"]
@@ -387,38 +383,54 @@ def _render_bc_comparison_paragraph(
             f"test RMSE = {bc_baseline['test_rmse_mean']:.4f} "
             f"(± {bc_baseline['test_rmse_std']:.4f} over "
             f"{bc_baseline['n_seeds'] or '?'} seeds) on the "
-            f"{bc_baseline['n_test_samples'] or '?'}-sample test split — "
+            f"{bc_baseline['n_test_samples'] or '?'}-sample test split -- "
             f"i.e. a non-trivial linear-decoder mapping from `z_t` to "
             f"(steer, accel) does exist."
         )
+
+    mean_uncond = analysis["mean_cossim_unconditioned"]
 
     if helps:
         richer_clause = (
             f"Combined with the positive DeltaCosSim signal "
             f"(mean CosSim_cond ≈ {mean_cond:.4f}), this supports the "
             f"claim that the latent predictor captures action-driven "
-            f"dynamics on top of what BC alone can recover from `z_t` — "
+            f"dynamics on top of what BC alone can recover from `z_t` -- "
             f"i.e. the predictor surfaces *richer* representation than "
             f"the static BC mapping."
+        )
+    elif analysis["delta_positive_at_any_horizon"]:
+        positive_ks = analysis["delta_positive_horizons"]
+        ks_str = ", ".join(f"k={k}" for k in positive_ks)
+        richer_clause = (
+            f"However, with DeltaCosSim positive only at a minority of "
+            f"horizons ({ks_str}) and a negative horizon-mean, "
+            f"CosSim_uncond (mean ≈ {mean_uncond:.4f}) still essentially "
+            f"matches CosSim_cond (mean ≈ {mean_cond:.4f}). The current "
+            f"evidence does **not** support the claim that the latent "
+            f"predictor provides a richer representation than BC: the "
+            f"sporadic positive signal is outweighed by the negative "
+            f"horizons. The honest read is that the *encoder* captures "
+            f"decodable action-relevant features at time t (BC works), "
+            f"but the *trained predictor* in this run does not reliably "
+            f"exploit them to model action-driven dynamics."
         )
     else:
         richer_clause = (
             f"However, with DeltaCosSim non-positive at every horizon and "
-            f"CosSim_uncond essentially matching CosSim_cond "
-            f"(mean ≈ {mean_cond:.4f}), the current evidence does **not** "
-            f"support the claim that the latent predictor provides a "
-            f"richer representation than BC: actions add no measurable "
-            f"signal beyond what `z_t` already encodes, so the predictor "
-            f"is effectively learning an identity / smoothing operator. "
-            f"The honest read is that the *encoder* captures decodable "
-            f"action-relevant features at time t (BC works), but the "
-            f"*trained predictor* in this run does not exploit them to "
-            f"model action-driven dynamics."
+            f"CosSim_uncond (mean ≈ {mean_uncond:.4f}) essentially "
+            f"matching CosSim_cond (mean ≈ {mean_cond:.4f}), the current "
+            f"evidence does **not** support the claim that the latent "
+            f"predictor provides a richer representation than BC: actions "
+            f"add no measurable signal beyond what `z_t` already encodes, "
+            f"so the predictor is effectively learning an identity / "
+            f"smoothing operator. The honest read is that the *encoder* "
+            f"captures decodable action-relevant features at time t (BC "
+            f"works), but the *trained predictor* in this run does not "
+            f"exploit them to model action-driven dynamics."
         )
 
-    return (
-        f"**Comparison to BC baseline.** {bc_clause} {richer_clause}"
-    )
+    return f"**Comparison to BC baseline.** {bc_clause} {richer_clause}"
 
 
 # ---------------------------------------------------------------------------
