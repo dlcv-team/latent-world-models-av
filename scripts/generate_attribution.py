@@ -35,7 +35,7 @@ def main():
         "--device",
         type=str,
         default="cuda",
-        choices=["cuda", "cpu"],
+        choices=["cuda", "mps", "cpu"],
         help="Device to run attribution on",
     )
     parser.add_argument(
