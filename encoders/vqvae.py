@@ -68,7 +68,7 @@ class VQVAEWrapper(BaseEncoderWrapper):
     encodes to (B, 256, 16, 16), spatially mean-pools, and projects
     to 384 via a trainable linear adapter.
 
-    When the checkpoint is unavailable, falls back to DINOv2-S/14
+    If checkpoint loading fails, falls back to DINOv2-S/14
     with ImageNet normalization and no projection adapter (native 384-d).
 
     Parameters
