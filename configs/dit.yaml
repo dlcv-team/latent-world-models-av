@@ -1,0 +1,26 @@
+dit:
+  n_blocks: 4
+  n_heads: 6
+  z_dim: 384
+  horizon: 4
+  cond_dim: 384
+  mlp_ratio: 4.0
+  dropout: 0.0
+
+diffusion:
+  schedule: cosine
+  n_train_steps: 1000
+  n_sample_steps: 50
+  prediction: epsilon
+  beta_start: 0.0001
+  beta_end: 0.02
+
+training:
+  epochs: 100
+  lr: 1.0e-4
+  batch_size: 256
+  ema_decay: 0.999
+  gradient_clip: 1.0
+  seed: 0
+  normalize_latents: true
+  adapter_frozen: true

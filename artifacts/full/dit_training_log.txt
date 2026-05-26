@@ -1,0 +1,745 @@
+✓ Initialized. View run at 
+https://modal.com/apps/rshar/main/ap-rIHPpXYqOVuPTAA83oQ6Gu
+✓ Created objects.
+├── 🔨 Created mount 
+│   /Users/clarus/Documents/stanford/cs231n/proj/code/latent-world-models-av/scr
+│   ipts/train_dit.py
+└── 🔨 Created function train_dit.
+[validate] All constants match configs/dit.yaml + canonical.yaml
+============================================================
+DiT Training (Latent Diffusion Transformer)
+  encoders: ['vit_s16', 'dino_vits14', 'clip_b32', 'vq_track', 'vjepa2_rep64', 'vjepa2_rep1']
+  seeds:    [0, 1, 2]
+  variants: ['conditioned', 'unconditioned']
+  total jobs: 36
+============================================================
+  Launching vit_s16/conditioned/seed=0 ...
+  Launching vit_s16/unconditioned/seed=0 ...
+  Launching vit_s16/conditioned/seed=1 ...
+  Launching vit_s16/unconditioned/seed=1 ...
+  Launching vit_s16/conditioned/seed=2 ...
+  Launching vit_s16/unconditioned/seed=2 ...
+  Launching dino_vits14/conditioned/seed=0 ...
+  Launching dino_vits14/unconditioned/seed=0 ...
+  Launching dino_vits14/conditioned/seed=1 ...
+  Launching dino_vits14/unconditioned/seed=1 ...
+  Launching dino_vits14/conditioned/seed=2 ...
+  Launching dino_vits14/unconditioned/seed=2 ...
+  Launching clip_b32/conditioned/seed=0 ...
+  Launching clip_b32/unconditioned/seed=0 ...
+  Launching clip_b32/conditioned/seed=1 ...
+  Launching clip_b32/unconditioned/seed=1 ...
+  Launching clip_b32/conditioned/seed=2 ...
+  Launching clip_b32/unconditioned/seed=2 ...
+  Launching vq_track/conditioned/seed=0 ...
+  Launching vq_track/unconditioned/seed=0 ...
+  Launching vq_track/conditioned/seed=1 ...
+  Launching vq_track/unconditioned/seed=1 ...
+  Launching vq_track/conditioned/seed=2 ...
+  Launching vq_track/unconditioned/seed=2 ...
+  Launching vjepa2_rep64/conditioned/seed=0 ...
+  Launching vjepa2_rep64/unconditioned/seed=0 ...
+  Launching vjepa2_rep64/conditioned/seed=1 ...
+  Launching vjepa2_rep64/unconditioned/seed=1 ...
+  Launching vjepa2_rep64/conditioned/seed=2 ...
+  Launching vjepa2_rep64/unconditioned/seed=2 ...
+  Launching vjepa2_rep1/conditioned/seed=0 ...
+  Launching vjepa2_rep1/unconditioned/seed=0 ...
+  Launching vjepa2_rep1/conditioned/seed=1 ...
+  Launching vjepa2_rep1/unconditioned/seed=1 ...
+  Launching vjepa2_rep1/conditioned/seed=2 ...
+  Launching vjepa2_rep1/unconditioned/seed=2 ...
+  Waiting for vit_s16/conditioned/seed=0 ...
+[dit] encoder=vit_s16, seed=0, variant=conditioned[dit] encoder=vit_s16, seed=0, variant=unconditioned
+
+[dit] encoder=vit_s16, seed=1, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False
+
+[dit] native_dim=384, adapter=False
+[dit] Normalization: per-elem std mean=1.6268, range=[0.6731, 3.9266], per-elem mean norm=37.7830
+[dit] Normalization: per-elem std mean=1.6268, range=[0.6731, 3.9266], per-elem mean norm=37.7830
+[dit] Train: 22450 windows, Val: 2343 windows[dit] encoder=vit_s16, seed=1, variant=unconditioned
+[dit] native_dim=384, adapter=False
+[dit] encoder=vit_s16, seed=2, variant=unconditioned
+
+[dit] Normalization: per-elem std mean=1.6268, range=[0.6731, 3.9266], per-elem mean norm=37.7830
+[dit] encoder=vit_s16, seed=2, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False
+[dit] DiT params: 11,822,592[dit] DiT params: 11,822,592
+[dit] Normalization: per-elem std mean=1.6268, range=[0.6731, 3.9266], per-elem mean norm=37.7830
+[dit] Normalization: per-elem std mean=1.6268, range=[0.6731, 3.9266], per-elem mean norm=37.7830[dit] encoder=dino_vits14, seed=0, variant=unconditioned
+
+
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False
+[dit] encoder=dino_vits14, seed=1, variant=unconditioned
+[dit] Normalization: per-elem std mean=1.6268, range=[0.6731, 3.9266], per-elem mean norm=37.7830
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False
+[dit] DiT params: 11,822,592
+[dit] encoder=dino_vits14, seed=1, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False[dit] Normalization: per-elem std mean=1.8565, range=[0.7377, 2.8766], per-elem mean norm=29.2623
+[dit] DiT params: 11,822,592
+[dit] DiT params: 11,822,592
+
+[dit] Normalization: per-elem std mean=1.8565, range=[0.7377, 2.8766], per-elem mean norm=29.2623
+[dit] Train: 22450 windows, Val: 2343 windows[dit] encoder=dino_vits14, seed=0, variant=conditioned
+[dit] native_dim=384, adapter=False
+
+[dit] Normalization: per-elem std mean=1.8565, range=[0.7377, 2.8766], per-elem mean norm=29.2623[dit] DiT params: 11,822,592
+
+[dit] DiT params: 11,822,592
+[dit] Train: 22450 windows, Val: 2343 windows[dit] DiT params: 11,822,592
+[dit] native_dim=384, adapter=False
+
+[dit] Normalization: per-elem std mean=1.8565, range=[0.7377, 2.8766], per-elem mean norm=29.2623
+[dit] DiT params: 11,822,592
+[dit] DiT params: 11,822,592
+[dit] Epoch 10/100: train=0.374293 val=0.402983 (14s)
+[dit] Epoch 10/100: train=0.375895 val=0.404868 (15s)
+[dit] Epoch 10/100: train=0.376850 val=0.377961 (15s)
+[dit] Epoch 10/100: train=0.375400 val=0.392738 (15s)
+[dit] Epoch 10/100: train=0.376965 val=0.378168 (16s)
+[dit] Epoch 10/100: train=0.347545 val=0.373434 (15s)
+[dit] Epoch 10/100: train=0.348499 val=0.347208 (14s)
+[dit] Epoch 10/100: train=0.378573 val=0.395822 (16s)
+[dit] Epoch 10/100: train=0.349621 val=0.349025 (16s)
+[dit] Epoch 10/100: train=0.349052 val=0.374896 (16s)
+[dit] Epoch 20/100: train=0.324842 val=0.338746 (29s)
+[dit] Epoch 20/100: train=0.324435 val=0.337478 (29s)
+[dit] Epoch 20/100: train=0.323971 val=0.345516 (29s)[dit] Epoch 20/100: train=0.325999 val=0.347639 (29s)
+
+[dit] Epoch 20/100: train=0.290548 val=0.311813 (29s)
+[dit] Epoch 20/100: train=0.289789 val=0.301799 (29s)
+[dit] Epoch 20/100: train=0.323480 val=0.346109 (31s)
+[dit] Epoch 20/100: train=0.328305 val=0.350957 (32s)
+[dit] Epoch 20/100: train=0.290353 val=0.312065 (32s)
+[dit] Epoch 20/100: train=0.289959 val=0.302953 (31s)
+[dit] Epoch 30/100: train=0.306593 val=0.323369 (43s)
+[dit] Epoch 30/100: train=0.306765 val=0.324622 (43s)
+[dit] Epoch 30/100: train=0.302470 val=0.326787 (43s)
+[dit] Epoch 30/100: train=0.307583 val=0.332039 (43s)
+[dit] Epoch 30/100: train=0.272591 val=0.295565 (43s)
+[dit] Epoch 30/100: train=0.271989 val=0.286043 (43s)
+[dit] Epoch 30/100: train=0.307051 val=0.332346 (46s)
+[dit] Epoch 30/100: train=0.302549 val=0.327925 (47s)
+[dit] Epoch 30/100: train=0.271364 val=0.295560 (47s)
+[dit] Epoch 30/100: train=0.271552 val=0.286750 (47s)
+[dit] Epoch 40/100: train=0.298807 val=0.320907 (57s)[dit] Epoch 40/100: train=0.298527 val=0.322365 (57s)
+
+[dit] Epoch 40/100: train=0.297184 val=0.323238 (57s)[dit] Epoch 40/100: train=0.300615 val=0.333546 (57s)
+
+[dit] Epoch 40/100: train=0.265453 val=0.295094 (57s)
+[dit] Epoch 40/100: train=0.262955 val=0.282794 (58s)
+[dit] Epoch 40/100: train=0.300015 val=0.334443 (61s)
+[dit] Epoch 40/100: train=0.296782 val=0.325137 (63s)
+[dit] Epoch 40/100: train=0.263831 val=0.295464 (63s)
+[dit] Epoch 40/100: train=0.261866 val=0.283402 (62s)
+[dit] Epoch 50/100: train=0.292331 val=0.317021 (72s)
+[dit] Epoch 50/100: train=0.292642 val=0.315806 (72s)
+[dit] Epoch 50/100: train=0.292121 val=0.320259 (71s)
+[dit] Epoch 50/100: train=0.290847 val=0.320201 (71s)
+[dit] Epoch 50/100: train=0.255022 val=0.282830 (71s)
+[dit] Epoch 50/100: train=0.257370 val=0.277532 (72s)
+[dit] Epoch 50/100: train=0.290213 val=0.321122 (76s)
+[dit] Epoch 50/100: train=0.291170 val=0.321144 (78s)
+[dit] Epoch 50/100: train=0.254091 val=0.283264 (79s)[dit] Epoch 50/100: train=0.256529 val=0.278426 (77s)
+
+[dit] Epoch 60/100: train=0.287075 val=0.318375 (86s)
+[dit] Epoch 60/100: train=0.287438 val=0.316714 (86s)
+[dit] Epoch 60/100: train=0.286390 val=0.327685 (86s)
+[dit] Epoch 60/100: train=0.287142 val=0.318438 (86s)
+[dit] Epoch 60/100: train=0.251713 val=0.279749 (85s)
+[dit] Epoch 60/100: train=0.251695 val=0.278569 (86s)
+[dit] Epoch 60/100: train=0.286095 val=0.319703 (91s)
+[dit] Epoch 60/100: train=0.284863 val=0.327989 (94s)
+[dit] Epoch 60/100: train=0.250931 val=0.279346 (92s)
+[dit] Epoch 60/100: train=0.250529 val=0.280838 (94s)
+[dit] Epoch 70/100: train=0.282016 val=0.325085 (100s)[dit] Epoch 70/100: train=0.281396 val=0.327016 (100s)
+
+[dit] Epoch 70/100: train=0.286278 val=0.325245 (100s)
+[dit] Epoch 70/100: train=0.245660 val=0.274042 (99s)
+[dit] Epoch 70/100: train=0.281039 val=0.312276 (101s)
+[dit] Epoch 70/100: train=0.246936 val=0.284286 (101s)
+[dit] Epoch 70/100: train=0.279883 val=0.313215 (107s)
+[dit] Epoch 70/100: train=0.284147 val=0.325174 (109s)
+[dit] Epoch 70/100: train=0.246072 val=0.286224 (108s)
+[dit] Epoch 70/100: train=0.244643 val=0.276264 (110s)
+[dit] Epoch 80/100: train=0.280873 val=0.317794 (114s)
+[dit] Epoch 80/100: train=0.280068 val=0.319306 (115s)
+[dit] Epoch 80/100: train=0.284997 val=0.315544 (114s)
+[dit] Epoch 80/100: train=0.242845 val=0.280877 (113s)
+[dit] Epoch 80/100: train=0.278159 val=0.318750 (116s)
+[dit] Epoch 80/100: train=0.246046 val=0.279096 (115s)
+[dit] Epoch 80/100: train=0.276729 val=0.320253 (122s)
+[dit] Epoch 80/100: train=0.245127 val=0.280513 (123s)
+[dit] Epoch 90/100: train=0.276266 val=0.309537 (129s)
+[dit] Epoch 80/100: train=0.282691 val=0.315763 (126s)
+[dit] Epoch 90/100: train=0.275376 val=0.311123 (129s)
+[dit] Epoch 80/100: train=0.241583 val=0.281468 (126s)
+[dit] Epoch 90/100: train=0.276939 val=0.321900 (128s)
+[dit] Epoch 90/100: train=0.241579 val=0.274569 (127s)
+[dit] Epoch 90/100: train=0.276241 val=0.311642 (130s)
+[dit] Epoch 90/100: train=0.241797 val=0.270992 (129s)
+[dit] Epoch 90/100: train=0.275167 val=0.312576 (137s)
+[dit] Epoch 100/100: train=0.270405 val=0.306652 (143s)
+[dit] vit_s16/unconditioned/seed=0: final_train=0.270405 final_val=0.306652 time=142.8s
+[dit] Epoch 100/100: train=0.269423 val=0.308432 (143s)
+[dit] vit_s16/conditioned/seed=0: final_train=0.269423 final_val=0.308432 time=143.2s
+[dit] Epoch 90/100: train=0.240725 val=0.273494 (138s)
+[dit] Epoch 100/100: train=0.276897 val=0.322465 (142s)
+[dit] vit_s16/unconditioned/seed=2: final_train=0.276897 final_val=0.322465 time=142.5s
+[dit] Epoch 90/100: train=0.274371 val=0.322142 (142s)
+[dit] Epoch 100/100: train=0.244122 val=0.268232 (142s)
+[dit] dino_vits14/unconditioned/seed=1: final_train=0.244122 final_val=0.268232 time=141.9s
+[dit] Epoch 90/100: train=0.240431 val=0.276057 (141s)
+[dit] Epoch 100/100: train=0.278493 val=0.305431 (145s)
+[dit] vit_s16/unconditioned/seed=1: final_train=0.278493 final_val=0.305431 time=144.6s
+[dit] Epoch 100/100: train=0.236937 val=0.268534 (144s)
+[dit] dino_vits14/unconditioned/seed=0: final_train=0.236937 final_val=0.268534 time=143.6s
+  vit_s16/conditioned/seed=0: train=0.269423 val=0.308432
+  Waiting for vit_s16/unconditioned/seed=0 ...
+[dit] encoder=dino_vits14, seed=2, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False
+[dit] Normalization: per-elem std mean=1.8565, range=[0.7377, 2.8766], per-elem mean norm=29.2623
+[dit] DiT params: 11,822,592
+[dit] encoder=dino_vits14, seed=2, variant=unconditioned
+[dit] encoder=clip_b32, seed=0, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=384, adapter=False
+[dit] Normalization: per-elem std mean=1.8565, range=[0.7377, 2.8766], per-elem mean norm=29.2623
+[dit] DiT params: 11,822,592
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=512, adapter=True
+[dit] Normalization: per-elem std mean=0.2383, range=[0.1577, 0.4438], per-elem mean norm=7.6591
+[dit] DiT params: 11,822,592
+[dit] encoder=clip_b32, seed=0, variant=unconditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=512, adapter=True
+[dit] Normalization: per-elem std mean=0.2383, range=[0.1577, 0.4438], per-elem mean norm=7.6591
+[dit] DiT params: 11,822,592
+[dit] encoder=clip_b32, seed=1, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=512, adapter=True
+[dit] Normalization: per-elem std mean=0.2389, range=[0.1715, 0.4107], per-elem mean norm=7.7142
+[dit] DiT params: 11,822,592
+  vit_s16/unconditioned/seed=0: train=0.270405 val=0.306652
+  Waiting for vit_s16/conditioned/seed=1 ...
+[dit] encoder=clip_b32, seed=1, variant=unconditioned
+[dit] Train: 22450 windows, Val: 2343 windows[dit] Epoch 100/100: train=0.276997 val=0.306411 (152s)
+[dit] vit_s16/conditioned/seed=1: final_train=0.276997 final_val=0.306411 time=151.9s
+
+[dit] native_dim=512, adapter=True
+[dit] Normalization: per-elem std mean=0.2389, range=[0.1715, 0.4107], per-elem mean norm=7.7142
+[dit] DiT params: 11,822,592
+  vit_s16/conditioned/seed=1: train=0.276997 val=0.306411
+  Waiting for vit_s16/unconditioned/seed=1 ...
+[dit] encoder=clip_b32, seed=2, variant=conditioned
+  vit_s16/unconditioned/seed=1: train=0.278493 val=0.305431
+  Waiting for vit_s16/conditioned/seed=2 ...
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=512, adapter=True
+[dit] Normalization: per-elem std mean=0.2394, range=[0.1694, 0.3862], per-elem mean norm=7.6546
+[dit] DiT params: 11,822,592
+[dit] Epoch 100/100: train=0.235754 val=0.271064 (154s)
+[dit] dino_vits14/conditioned/seed=0: final_train=0.235754 final_val=0.271064 time=153.6s
+[dit] Epoch 100/100: train=0.274642 val=0.322445 (158s)
+[dit] vit_s16/conditioned/seed=2: final_train=0.274642 final_val=0.322445 time=157.7s
+[dit] Epoch 100/100: train=0.242859 val=0.269025 (157s)
+[dit] dino_vits14/conditioned/seed=1: final_train=0.242859 final_val=0.269025 time=156.5s
+[dit] Epoch 10/100: train=0.349310 val=0.365073 (14s)
+[dit] encoder=clip_b32, seed=2, variant=unconditioned
+[dit] encoder=vq_track, seed=0, variant=conditioned
+  vit_s16/conditioned/seed=2: train=0.274642 val=0.322445
+  Waiting for vit_s16/unconditioned/seed=2 ...
+  vit_s16/unconditioned/seed=2: train=0.276897 val=0.322465
+  Waiting for dino_vits14/conditioned/seed=0 ...
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=512, adapter=True
+[dit] Epoch 10/100: train=0.347663 val=0.362871 (14s)[dit] Normalization: per-elem std mean=0.2394, range=[0.1694, 0.3862], per-elem mean norm=7.6546
+[dit] DiT params: 11,822,592
+
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=256, adapter=True
+[dit] Normalization: per-elem std mean=0.1421, range=[0.0233, 0.5797], per-elem mean norm=4.9486
+[dit] DiT params: 11,822,592
+  dino_vits14/conditioned/seed=0: train=0.235754 val=0.271064
+  Waiting for dino_vits14/unconditioned/seed=0 ...
+[dit] encoder=vq_track, seed=0, variant=unconditioned
+  dino_vits14/unconditioned/seed=0: train=0.236937 val=0.268534
+  Waiting for dino_vits14/conditioned/seed=1 ...
+  dino_vits14/conditioned/seed=1: train=0.242859 val=0.269025
+  Waiting for dino_vits14/unconditioned/seed=1 ...
+[dit] Epoch 10/100: train=0.343480 val=0.346356 (15s)
+  dino_vits14/unconditioned/seed=1: train=0.244122 val=0.268232
+  Waiting for dino_vits14/conditioned/seed=2 ...
+[dit] Train: 22450 windows, Val: 2343 windows[dit] Epoch 10/100: train=0.341769 val=0.344870 (15s)
+
+[dit] native_dim=256, adapter=True
+[dit] Normalization: per-elem std mean=0.1421, range=[0.0233, 0.5797], per-elem mean norm=4.9486
+[dit] DiT params: 11,822,592
+[dit] Epoch 10/100: train=0.347112 val=0.355506 (15s)
+[dit] Epoch 10/100: train=0.345091 val=0.352971 (14s)
+[dit] Epoch 10/100: train=0.342583 val=0.356092 (16s)
+[dit] Epoch 20/100: train=0.293735 val=0.315240 (29s)
+[dit] Epoch 20/100: train=0.293385 val=0.313908 (28s)
+[dit] Epoch 20/100: train=0.284165 val=0.302021 (29s)
+[dit] Epoch 10/100: train=0.226930 val=0.218511 (15s)[dit] Epoch 10/100: train=0.340893 val=0.354231 (16s)
+
+[dit] Epoch 20/100: train=0.284100 val=0.301182 (29s)
+[dit] Epoch 10/100: train=0.223491 val=0.214688 (15s)
+[dit] Epoch 20/100: train=0.286925 val=0.307995 (29s)
+[dit] Epoch 20/100: train=0.286234 val=0.306018 (29s)
+[dit] Epoch 20/100: train=0.283511 val=0.294872 (32s)
+[dit] Epoch 30/100: train=0.268491 val=0.291816 (43s)
+[dit] Epoch 30/100: train=0.268293 val=0.290425 (43s)
+[dit] Epoch 30/100: train=0.265418 val=0.279795 (44s)
+[dit] Epoch 20/100: train=0.145643 val=0.145153 (31s)
+[dit] Epoch 30/100: train=0.265843 val=0.279210 (44s)
+[dit] Epoch 20/100: train=0.282677 val=0.293202 (32s)
+[dit] Epoch 20/100: train=0.145244 val=0.143799 (30s)
+[dit] Epoch 30/100: train=0.266670 val=0.292318 (44s)
+[dit] Epoch 30/100: train=0.267112 val=0.291593 (44s)
+[dit] Epoch 30/100: train=0.261875 val=0.282169 (47s)
+[dit] Epoch 40/100: train=0.261095 val=0.287504 (58s)
+[dit] Epoch 40/100: train=0.261790 val=0.286627 (57s)
+[dit] Epoch 40/100: train=0.255211 val=0.277965 (59s)
+[dit] Epoch 40/100: train=0.256035 val=0.277282 (59s)
+[dit] Epoch 30/100: train=0.111616 val=0.112058 (46s)
+[dit] Epoch 30/100: train=0.261991 val=0.281321 (47s)
+[dit] Epoch 30/100: train=0.111810 val=0.112159 (45s)[dit] Epoch 40/100: train=0.255429 val=0.276841 (59s)
+
+[dit] Epoch 40/100: train=0.255584 val=0.275389 (58s)
+[dit] Epoch 40/100: train=0.253167 val=0.273644 (62s)
+[dit] Epoch 50/100: train=0.254967 val=0.281929 (72s)
+[dit] Epoch 50/100: train=0.256041 val=0.281253 (71s)
+[dit] Epoch 50/100: train=0.250070 val=0.275534 (74s)
+[dit] Epoch 50/100: train=0.250964 val=0.274616 (73s)
+[dit] Epoch 50/100: train=0.250264 val=0.268651 (73s)
+[dit] Epoch 40/100: train=0.098526 val=0.098423 (60s)[dit] Epoch 40/100: train=0.097621 val=0.098113 (62s)
+
+[dit] Epoch 50/100: train=0.250350 val=0.266713 (73s)[dit] Epoch 40/100: train=0.253772 val=0.272694 (62s)
+
+[dit] Epoch 60/100: train=0.249339 val=0.289491 (86s)
+[dit] Epoch 50/100: train=0.249302 val=0.275305 (78s)
+[dit] Epoch 60/100: train=0.250314 val=0.288417 (86s)
+[dit] Epoch 60/100: train=0.244487 val=0.271773 (88s)
+[dit] Epoch 60/100: train=0.245337 val=0.270887 (88s)
+[dit] Epoch 60/100: train=0.242198 val=0.273734 (88s)
+[dit] Epoch 60/100: train=0.242450 val=0.272035 (87s)
+[dit] Epoch 50/100: train=0.088976 val=0.091195 (75s)
+[dit] Epoch 50/100: train=0.087606 val=0.090165 (77s)[dit] Epoch 50/100: train=0.250036 val=0.274206 (77s)
+
+[dit] Epoch 70/100: train=0.248764 val=0.285971 (101s)
+[dit] Epoch 60/100: train=0.245963 val=0.274114 (93s)
+[dit] Epoch 70/100: train=0.249777 val=0.284998 (101s)
+[dit] Epoch 70/100: train=0.241600 val=0.268156 (103s)
+[dit] Epoch 70/100: train=0.242592 val=0.267020 (102s)
+[dit] Epoch 70/100: train=0.242556 val=0.268866 (102s)[dit] Epoch 70/100: train=0.242198 val=0.270533 (103s)
+
+[dit] Epoch 60/100: train=0.085876 val=0.087696 (90s)
+[dit] Epoch 60/100: train=0.083989 val=0.086242 (92s)
+[dit] Epoch 60/100: train=0.246745 val=0.272776 (93s)
+[dit] Epoch 80/100: train=0.248020 val=0.277552 (115s)
+[dit] Epoch 80/100: train=0.249149 val=0.276398 (116s)[dit] Epoch 70/100: train=0.240942 val=0.264816 (109s)
+
+[dit] Epoch 80/100: train=0.238360 val=0.266790 (118s)
+[dit] Epoch 80/100: train=0.239358 val=0.265401 (117s)
+[dit] Epoch 80/100: train=0.236242 val=0.264880 (116s)[dit] Epoch 80/100: train=0.235619 val=0.266363 (117s)
+
+[dit] Epoch 70/100: train=0.081590 val=0.087412 (105s)
+[dit] Epoch 70/100: train=0.241805 val=0.263434 (108s)[dit] Epoch 70/100: train=0.080429 val=0.086920 (108s)
+
+[dit] Epoch 90/100: train=0.240897 val=0.283009 (129s)
+[dit] Epoch 90/100: train=0.242107 val=0.281810 (130s)
+[dit] Epoch 80/100: train=0.237078 val=0.263663 (124s)
+[dit] Epoch 90/100: train=0.235528 val=0.259412 (132s)
+[dit] Epoch 90/100: train=0.236547 val=0.257746 (132s)
+[dit] Epoch 90/100: train=0.238724 val=0.272138 (131s)
+[dit] Epoch 90/100: train=0.238042 val=0.274130 (132s)
+[dit] Epoch 80/100: train=0.080768 val=0.083287 (120s)
+[dit] Epoch 80/100: train=0.079661 val=0.083181 (123s)
+[dit] Epoch 80/100: train=0.238054 val=0.262429 (124s)
+[dit] Epoch 100/100: train=0.241298 val=0.286111 (144s)
+[dit] dino_vits14/conditioned/seed=2: final_train=0.241298 final_val=0.286111 time=143.8s
+[dit] Epoch 100/100: train=0.242608 val=0.284769 (145s)
+[dit] dino_vits14/unconditioned/seed=2: final_train=0.242608 final_val=0.284769 time=145.3s
+  dino_vits14/conditioned/seed=2: train=0.241298 val=0.286111
+  Waiting for dino_vits14/unconditioned/seed=2 ...
+[dit] Epoch 90/100: train=0.234076 val=0.260207 (139s)
+[dit] encoder=vq_track, seed=1, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=256, adapter=True
+[dit] Normalization: per-elem std mean=0.1427, range=[0.0254, 0.4974], per-elem mean norm=4.9486
+[dit] DiT params: 11,822,592
+[dit] Epoch 100/100: train=0.233795 val=0.264188 (147s)
+[dit] clip_b32/conditioned/seed=0: final_train=0.233795 final_val=0.264188 time=146.9s
+[dit] Epoch 100/100: train=0.234799 val=0.262480 (147s)
+[dit] clip_b32/unconditioned/seed=0: final_train=0.234799 final_val=0.262480 time=146.7s
+  dino_vits14/unconditioned/seed=2: train=0.242608 val=0.284769
+  Waiting for clip_b32/conditioned/seed=0 ...
+[dit] encoder=vq_track, seed=1, variant=unconditioned
+[dit] Epoch 100/100: train=0.234338 val=0.265456 (145s)
+[dit] clip_b32/unconditioned/seed=1: final_train=0.234338 final_val=0.265456 time=145.3s
+[dit] Train: 22450 windows, Val: 2343 windows[dit] Epoch 100/100: train=0.233603 val=0.267041 (147s)
+
+[dit] native_dim=256, adapter=True
+[dit] Normalization: per-elem std mean=0.1427, range=[0.0254, 0.4974], per-elem mean norm=4.9486
+[dit] clip_b32/conditioned/seed=1: final_train=0.233603 final_val=0.267041 time=146.9s
+[dit] DiT params: 11,822,592
+[dit] Epoch 90/100: train=0.078883 val=0.078081 (135s)
+  clip_b32/conditioned/seed=0: train=0.233795 val=0.264188
+  Waiting for clip_b32/unconditioned/seed=0 ...
+[dit] encoder=vq_track, seed=2, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=256, adapter=True
+[dit] Normalization: per-elem std mean=0.1442, range=[0.0187, 0.4747], per-elem mean norm=4.9486
+[dit] DiT params: 11,822,592
+  clip_b32/unconditioned/seed=0: train=0.234799 val=0.262480
+  Waiting for clip_b32/conditioned/seed=1 ...
+[dit] encoder=vq_track, seed=2, variant=unconditioned[dit] Epoch 90/100: train=0.235087 val=0.258769 (139s)
+[dit] Epoch 90/100: train=0.077989 val=0.078077 (139s)
+
+[dit] Train: 22450 windows, Val: 2343 windows[dit] encoder=vjepa2_rep64, seed=0, variant=conditioned
+[dit] native_dim=256, adapter=True
+[dit] Normalization: per-elem std mean=0.1442, range=[0.0187, 0.4747], per-elem mean norm=4.9486
+[dit] DiT params: 11,822,592
+
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.5993, range=[0.3795, 1.0797], per-elem mean norm=29.5459
+[dit] DiT params: 11,822,592
+  clip_b32/conditioned/seed=1: train=0.233603 val=0.267041
+  Waiting for clip_b32/unconditioned/seed=1 ...
+  clip_b32/unconditioned/seed=1: train=0.234338 val=0.265456
+  Waiting for clip_b32/conditioned/seed=2 ...
+[dit] encoder=vjepa2_rep64, seed=0, variant=unconditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.5993, range=[0.3795, 1.0797], per-elem mean norm=29.5459
+[dit] DiT params: 11,822,592
+[dit] Epoch 10/100: train=0.234079 val=0.228451 (14s)
+[dit] Epoch 100/100: train=0.233340 val=0.262357 (155s)
+[dit] clip_b32/conditioned/seed=2: final_train=0.233340 final_val=0.262357 time=154.8s
+[dit] Epoch 10/100: train=0.229502 val=0.225304 (15s)
+  clip_b32/conditioned/seed=2: train=0.233340 val=0.262357
+  Waiting for clip_b32/unconditioned/seed=2 ...
+[dit] encoder=vjepa2_rep64, seed=1, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6067, range=[0.3906, 0.9977], per-elem mean norm=30.6565
+[dit] Epoch 100/100: train=0.078536 val=0.078986 (149s)
+[dit] DiT params: 11,822,592
+[dit] vq_track/unconditioned/seed=0: final_train=0.078536 final_val=0.078986 time=149.5s
+[dit] Epoch 10/100: train=0.230910 val=0.230453 (14s)
+[dit] Epoch 10/100: train=0.228002 val=0.227710 (15s)
+[dit] Epoch 100/100: train=0.234399 val=0.260988 (154s)
+[dit] clip_b32/unconditioned/seed=2: final_train=0.234399 final_val=0.260988 time=154.3s
+[dit] Epoch 100/100: train=0.077716 val=0.079067 (154s)
+[dit] vq_track/conditioned/seed=0: final_train=0.077716 final_val=0.079067 time=154.1s
+[dit] encoder=vjepa2_rep64, seed=1, variant=unconditioned
+[dit] Epoch 10/100: train=0.283658 val=0.285599 (15s)
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6067, range=[0.3906, 0.9977], per-elem mean norm=30.6565
+  clip_b32/unconditioned/seed=2: train=0.234399 val=0.260988
+  Waiting for vq_track/conditioned/seed=0 ...
+[dit] encoder=vjepa2_rep64, seed=2, variant=conditioned
+[dit] DiT params: 11,822,592
+  vq_track/conditioned/seed=0: train=0.077716 val=0.079067
+  Waiting for vq_track/unconditioned/seed=0 ...
+  vq_track/unconditioned/seed=0: train=0.078536 val=0.078986
+  Waiting for vq_track/conditioned/seed=1 ...
+[dit] encoder=vjepa2_rep64, seed=2, variant=unconditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6019, range=[0.3668, 1.0575], per-elem mean norm=29.7827
+[dit] DiT params: 11,822,592
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6019, range=[0.3668, 1.0575], per-elem mean norm=29.7827
+[dit] DiT params: 11,822,592
+[dit] Epoch 10/100: train=0.281145 val=0.282571 (16s)
+[dit] Epoch 20/100: train=0.149805 val=0.147890 (29s)
+[dit] Epoch 20/100: train=0.146505 val=0.144031 (29s)
+[dit] Epoch 20/100: train=0.147518 val=0.146697 (29s)
+[dit] Epoch 10/100: train=0.283019 val=0.289629 (16s)
+[dit] Epoch 20/100: train=0.146060 val=0.143099 (29s)
+[dit] Epoch 20/100: train=0.208574 val=0.223806 (30s)
+[dit] Epoch 10/100: train=0.280612 val=0.287283 (16s)
+[dit] Epoch 10/100: train=0.283984 val=0.295389 (16s)
+[dit] Epoch 10/100: train=0.283406 val=0.294589 (16s)
+[dit] Epoch 20/100: train=0.208575 val=0.222953 (31s)
+[dit] Epoch 30/100: train=0.117755 val=0.118202 (43s)
+[dit] Epoch 30/100: train=0.116275 val=0.116292 (43s)
+[dit] Epoch 30/100: train=0.112618 val=0.113373 (43s)
+[dit] Epoch 30/100: train=0.112782 val=0.112973 (43s)
+[dit] Epoch 20/100: train=0.206471 val=0.222502 (32s)
+[dit] Epoch 30/100: train=0.185363 val=0.199140 (45s)
+[dit] Epoch 20/100: train=0.205472 val=0.221207 (33s)
+[dit] Epoch 40/100: train=0.098868 val=0.099595 (57s)
+[dit] Epoch 20/100: train=0.208862 val=0.218869 (33s)
+[dit] Epoch 20/100: train=0.208431 val=0.217478 (33s)
+[dit] Epoch 30/100: train=0.185448 val=0.197773 (46s)
+[dit] Epoch 40/100: train=0.097776 val=0.098308 (58s)
+[dit] Epoch 40/100: train=0.096590 val=0.098873 (58s)
+[dit] Epoch 40/100: train=0.097069 val=0.098580 (58s)
+[dit] Epoch 40/100: train=0.175078 val=0.192327 (60s)
+[dit] Epoch 30/100: train=0.184500 val=0.204718 (49s)
+[dit] Epoch 50/100: train=0.088984 val=0.087340 (72s)
+[dit] Epoch 30/100: train=0.184495 val=0.203279 (49s)
+[dit] Epoch 40/100: train=0.175015 val=0.191086 (61s)
+[dit] Epoch 30/100: train=0.184031 val=0.200959 (49s)
+[dit] Epoch 50/100: train=0.089631 val=0.087288 (72s)[dit] Epoch 30/100: train=0.183500 val=0.199636 (49s)
+
+[dit] Epoch 50/100: train=0.087708 val=0.089498 (72s)
+[dit] Epoch 50/100: train=0.087764 val=0.089191 (72s)
+[dit] Epoch 50/100: train=0.167981 val=0.187960 (75s)
+[dit] Epoch 40/100: train=0.172554 val=0.188232 (66s)
+[dit] Epoch 60/100: train=0.081129 val=0.084068 (86s)
+[dit] Epoch 50/100: train=0.167570 val=0.186010 (76s)
+[dit] Epoch 60/100: train=0.082021 val=0.084782 (86s)[dit] Epoch 40/100: train=0.172810 val=0.187583 (65s)
+
+[dit] Epoch 40/100: train=0.173714 val=0.188453 (66s)
+[dit] Epoch 40/100: train=0.173508 val=0.186771 (66s)
+[dit] Epoch 60/100: train=0.084209 val=0.086516 (86s)
+[dit] Epoch 60/100: train=0.085187 val=0.086750 (86s)
+[dit] Epoch 60/100: train=0.161961 val=0.182720 (90s)
+[dit] Epoch 50/100: train=0.165381 val=0.179144 (82s)
+[dit] Epoch 70/100: train=0.082022 val=0.086131 (101s)
+[dit] Epoch 70/100: train=0.082379 val=0.086015 (100s)
+[dit] Epoch 60/100: train=0.161432 val=0.180657 (91s)
+[dit] Epoch 50/100: train=0.165646 val=0.178508 (81s)
+[dit] Epoch 70/100: train=0.081203 val=0.083290 (101s)
+[dit] Epoch 50/100: train=0.167230 val=0.186406 (82s)
+[dit] Epoch 50/100: train=0.168153 val=0.186087 (83s)[dit] Epoch 70/100: train=0.082199 val=0.083835 (101s)
+
+[dit] Epoch 70/100: train=0.158109 val=0.178742 (106s)
+[dit] Epoch 80/100: train=0.079305 val=0.083084 (116s)
+[dit] Epoch 80/100: train=0.079450 val=0.082656 (114s)
+[dit] Epoch 60/100: train=0.157747 val=0.179739 (98s)
+[dit] Epoch 70/100: train=0.157562 val=0.176363 (107s)
+[dit] Epoch 80/100: train=0.079609 val=0.081976 (115s)
+[dit] Epoch 60/100: train=0.158211 val=0.178506 (97s)
+[dit] Epoch 80/100: train=0.080128 val=0.081774 (115s)
+[dit] Epoch 60/100: train=0.163918 val=0.184268 (99s)
+[dit] Epoch 60/100: train=0.165197 val=0.184104 (99s)
+[dit] Epoch 80/100: train=0.155204 val=0.176220 (121s)
+[dit] Epoch 90/100: train=0.079589 val=0.086187 (128s)
+[dit] Epoch 90/100: train=0.079683 val=0.087075 (131s)
+[dit] Epoch 70/100: train=0.157988 val=0.179073 (115s)
+[dit] Epoch 90/100: train=0.077338 val=0.080009 (129s)
+[dit] Epoch 80/100: train=0.155142 val=0.174307 (123s)
+[dit] Epoch 90/100: train=0.077805 val=0.079810 (130s)
+[dit] Epoch 70/100: train=0.158514 val=0.178004 (114s)
+[dit] Epoch 70/100: train=0.158613 val=0.177537 (115s)
+[dit] Epoch 70/100: train=0.159753 val=0.176879 (116s)
+[dit] Epoch 90/100: train=0.151843 val=0.169421 (136s)
+[dit] Epoch 100/100: train=0.078871 val=0.080892 (143s)
+[dit] vq_track/unconditioned/seed=1: final_train=0.078871 final_val=0.080892 time=142.6s
+[dit] Epoch 100/100: train=0.078972 val=0.081626 (146s)
+[dit] vq_track/conditioned/seed=1: final_train=0.078972 final_val=0.081626 time=146.2s
+[dit] Epoch 100/100: train=0.077392 val=0.082262 (144s)
+[dit] vq_track/conditioned/seed=2: final_train=0.077392 final_val=0.082262 time=144.0s
+[dit] encoder=vjepa2_rep1, seed=0, variant=conditioned
+[dit] Epoch 80/100: train=0.152117 val=0.175239 (131s)
+  vq_track/conditioned/seed=1: train=0.078972 val=0.081626
+  Waiting for vq_track/unconditioned/seed=1 ...
+  vq_track/unconditioned/seed=1: train=0.078871 val=0.080892
+  Waiting for vq_track/conditioned/seed=2 ...
+[dit] encoder=vjepa2_rep1, seed=0, variant=unconditioned[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Epoch 100/100: train=0.077969 val=0.081767 (144s)[dit] Epoch 90/100: train=0.152303 val=0.167839 (138s)[dit] Normalization: per-elem std mean=0.6074, range=[0.3665, 1.1039], per-elem mean norm=31.2683
+
+
+[dit] vq_track/unconditioned/seed=2: final_train=0.077969 final_val=0.081767 time=144.0s
+
+[dit] DiT params: 11,822,592
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6074, range=[0.3665, 1.1039], per-elem mean norm=31.2683
+[dit] DiT params: 11,822,592
+[dit] Epoch 80/100: train=0.152823 val=0.174347 (130s)
+  vq_track/conditioned/seed=2: train=0.077392 val=0.082262
+  Waiting for vq_track/unconditioned/seed=2 ...
+[dit] encoder=vjepa2_rep1, seed=1, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows[dit] Epoch 80/100: train=0.154312 val=0.175677 (132s)
+
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6135, range=[0.3459, 0.9846], per-elem mean norm=32.8621
+[dit] DiT params: 11,822,592
+[dit] Epoch 80/100: train=0.154947 val=0.174287 (132s)
+[dit] Epoch 100/100: train=0.150339 val=0.170477 (151s)
+[dit] vjepa2_rep64/conditioned/seed=0: final_train=0.150339 final_val=0.170477 time=150.8s
+  vq_track/unconditioned/seed=2: train=0.077969 val=0.081767
+  Waiting for vjepa2_rep64/conditioned/seed=0 ...
+[dit] encoder=vjepa2_rep1, seed=1, variant=unconditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+  vjepa2_rep64/conditioned/seed=0: train=0.150339 val=0.170477
+  Waiting for vjepa2_rep64/unconditioned/seed=0 ...
+[dit] Normalization: per-elem std mean=0.6135, range=[0.3459, 0.9846], per-elem mean norm=32.8621
+[dit] DiT params: 11,822,592
+[dit] encoder=vjepa2_rep1, seed=2, variant=conditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6186, range=[0.3773, 1.1067], per-elem mean norm=30.9132
+[dit] DiT params: 11,822,592
+[dit] Epoch 100/100: train=0.151079 val=0.169196 (153s)
+[dit] vjepa2_rep64/unconditioned/seed=0: final_train=0.151079 final_val=0.169196 time=153.3s
+[dit] Epoch 10/100: train=0.297415 val=0.298350 (15s)
+[dit] Epoch 90/100: train=0.152910 val=0.179994 (148s)
+[dit] Epoch 10/100: train=0.295760 val=0.296352 (16s)
+  vjepa2_rep64/unconditioned/seed=0: train=0.151079 val=0.169196
+  Waiting for vjepa2_rep64/conditioned/seed=1 ...
+[dit] Epoch 90/100: train=0.153905 val=0.179470 (146s)
+[dit] encoder=vjepa2_rep1, seed=2, variant=unconditioned
+[dit] Train: 22450 windows, Val: 2343 windows
+[dit] native_dim=1024, adapter=True
+[dit] Normalization: per-elem std mean=0.6186, range=[0.3773, 1.1067], per-elem mean norm=30.9132
+[dit] DiT params: 11,822,592
+[dit] Epoch 10/100: train=0.296434 val=0.303119 (15s)
+[dit] Epoch 90/100: train=0.151306 val=0.171241 (148s)
+[dit] Epoch 90/100: train=0.151682 val=0.169682 (149s)
+[dit] Epoch 10/100: train=0.294892 val=0.300956 (15s)
+[dit] Epoch 10/100: train=0.295523 val=0.306871 (15s)
+[dit] Epoch 20/100: train=0.230616 val=0.244399 (30s)
+[dit] Epoch 100/100: train=0.150000 val=0.171328 (164s)
+[dit] vjepa2_rep64/conditioned/seed=1: final_train=0.150000 final_val=0.171328 time=163.9s
+[dit] Epoch 20/100: train=0.229907 val=0.243011 (32s)
+[dit] Epoch 100/100: train=0.150998 val=0.170280 (162s)
+[dit] vjepa2_rep64/unconditioned/seed=1: final_train=0.150998 final_val=0.170280 time=162.0s
+[dit] Epoch 10/100: train=0.293615 val=0.305029 (15s)[dit] Epoch 20/100: train=0.228835 val=0.244849 (30s)
+  vjepa2_rep64/conditioned/seed=1: train=0.150000 val=0.171328
+  Waiting for vjepa2_rep64/unconditioned/seed=1 ...
+
+[dit] Epoch 100/100: train=0.150511 val=0.171997 (164s)
+[dit] vjepa2_rep64/conditioned/seed=2: final_train=0.150511 final_val=0.171997 time=164.5s
+  vjepa2_rep64/unconditioned/seed=1: train=0.150998 val=0.170280
+  Waiting for vjepa2_rep64/conditioned/seed=2 ...
+[dit] Epoch 100/100: train=0.151074 val=0.170476 (165s)
+[dit] vjepa2_rep64/unconditioned/seed=2: final_train=0.151074 final_val=0.170476 time=165.2s
+  vjepa2_rep64/conditioned/seed=2: train=0.150511 val=0.171997
+  Waiting for vjepa2_rep64/unconditioned/seed=2 ...
+[dit] Epoch 20/100: train=0.228196 val=0.243554 (30s)
+  vjepa2_rep64/unconditioned/seed=2: train=0.151074 val=0.170476
+  Waiting for vjepa2_rep1/conditioned/seed=0 ...
+[dit] Epoch 20/100: train=0.227331 val=0.236252 (30s)
+[dit] Epoch 30/100: train=0.208871 val=0.221092 (46s)
+[dit] Epoch 30/100: train=0.208893 val=0.219814 (48s)
+[dit] Epoch 30/100: train=0.208810 val=0.227444 (45s)
+[dit] Epoch 20/100: train=0.226242 val=0.234157 (31s)
+[dit] Epoch 30/100: train=0.209340 val=0.227126 (45s)
+[dit] Epoch 30/100: train=0.204888 val=0.220630 (45s)
+[dit] Epoch 40/100: train=0.199091 val=0.215989 (61s)
+[dit] Epoch 40/100: train=0.199026 val=0.214458 (64s)
+[dit] Epoch 40/100: train=0.197237 val=0.212209 (60s)
+[dit] Epoch 30/100: train=0.204538 val=0.219082 (46s)
+[dit] Epoch 40/100: train=0.198165 val=0.212156 (60s)
+[dit] Epoch 40/100: train=0.195196 val=0.208752 (61s)
+[dit] Epoch 50/100: train=0.193244 val=0.211824 (76s)
+[dit] Epoch 50/100: train=0.190604 val=0.202548 (75s)
+[dit] Epoch 50/100: train=0.193067 val=0.210537 (80s)
+[dit] Epoch 40/100: train=0.195962 val=0.208388 (62s)
+[dit] Epoch 50/100: train=0.191690 val=0.202018 (75s)
+[dit] Epoch 50/100: train=0.190754 val=0.209807 (76s)
+[dit] Epoch 60/100: train=0.187556 val=0.207868 (91s)
+[dit] Epoch 60/100: train=0.183168 val=0.206390 (90s)
+[dit] Epoch 60/100: train=0.187382 val=0.206211 (95s)
+[dit] Epoch 50/100: train=0.191619 val=0.209012 (77s)
+[dit] Epoch 60/100: train=0.184445 val=0.205793 (90s)
+[dit] Epoch 60/100: train=0.187749 val=0.207869 (91s)
+[dit] Epoch 70/100: train=0.184037 val=0.203477 (107s)
+[dit] Epoch 70/100: train=0.183541 val=0.203836 (105s)
+[dit] Epoch 70/100: train=0.183874 val=0.201845 (111s)
+[dit] Epoch 60/100: train=0.188526 val=0.206493 (92s)
+[dit] Epoch 70/100: train=0.184757 val=0.203313 (106s)
+[dit] Epoch 70/100: train=0.183307 val=0.201253 (106s)
+[dit] Epoch 80/100: train=0.181372 val=0.201274 (122s)
+[dit] Epoch 80/100: train=0.177504 val=0.200324 (121s)
+[dit] Epoch 70/100: train=0.184049 val=0.200283 (108s)
+[dit] Epoch 80/100: train=0.181472 val=0.199615 (127s)
+[dit] Epoch 80/100: train=0.178586 val=0.199459 (121s)
+[dit] Epoch 80/100: train=0.179025 val=0.199545 (122s)
+[dit] Epoch 90/100: train=0.178078 val=0.194718 (137s)
+[dit] Epoch 90/100: train=0.179165 val=0.206114 (136s)
+[dit] Epoch 80/100: train=0.179916 val=0.198326 (123s)
+[dit] Epoch 90/100: train=0.178432 val=0.193164 (142s)
+[dit] Epoch 90/100: train=0.180161 val=0.204950 (136s)
+[dit] Epoch 90/100: train=0.176032 val=0.194063 (137s)
+[dit] Epoch 100/100: train=0.176429 val=0.196198 (152s)
+[dit] vjepa2_rep1/conditioned/seed=0: final_train=0.176429 final_val=0.196198 time=152.2s
+[dit] Epoch 100/100: train=0.175931 val=0.198583 (151s)
+[dit] vjepa2_rep1/conditioned/seed=1: final_train=0.175931 final_val=0.198583 time=150.9s
+  vjepa2_rep1/conditioned/seed=0: train=0.176429 val=0.196198
+  Waiting for vjepa2_rep1/unconditioned/seed=0 ...
+[dit] Epoch 90/100: train=0.176978 val=0.192951 (138s)
+[dit] Epoch 100/100: train=0.177029 val=0.194589 (158s)
+[dit] vjepa2_rep1/unconditioned/seed=0: final_train=0.177029 final_val=0.194589 time=158.3s
+[dit] Epoch 100/100: train=0.176862 val=0.197160 (151s)
+[dit] vjepa2_rep1/unconditioned/seed=1: final_train=0.176862 final_val=0.197160 time=151.5s
+  vjepa2_rep1/unconditioned/seed=0: train=0.177029 val=0.194589
+  Waiting for vjepa2_rep1/conditioned/seed=1 ...
+  vjepa2_rep1/conditioned/seed=1: train=0.175931 val=0.198583
+  Waiting for vjepa2_rep1/unconditioned/seed=1 ...
+[dit] Epoch 100/100: train=0.175317 val=0.196388 (152s)
+[dit] vjepa2_rep1/conditioned/seed=2: final_train=0.175317 final_val=0.196388 time=152.1s
+  vjepa2_rep1/unconditioned/seed=1: train=0.176862 val=0.197160
+  Waiting for vjepa2_rep1/conditioned/seed=2 ...
+  vjepa2_rep1/conditioned/seed=2: train=0.175317 val=0.196388
+  Waiting for vjepa2_rep1/unconditioned/seed=2 ...
+[dit] Epoch 100/100: train=0.176278 val=0.194951 (154s)
+[dit] vjepa2_rep1/unconditioned/seed=2: final_train=0.176278 final_val=0.194951 time=153.5s
+  vjepa2_rep1/unconditioned/seed=2: train=0.176278 val=0.194951
+
+======================================================================
+Encoder          Variant        Seed  Train Loss   Val Loss   Time
+----------------------------------------------------------------------
+clip_b32         conditioned       0    0.233795   0.264188   147s
+clip_b32         conditioned       1    0.233603   0.267041   147s
+clip_b32         conditioned       2    0.233340   0.262357   155s
+clip_b32         unconditioned     0    0.234799   0.262480   147s
+clip_b32         unconditioned     1    0.234338   0.265456   145s
+clip_b32         unconditioned     2    0.234399   0.260988   154s
+dino_vits14      conditioned       0    0.235754   0.271064   154s
+dino_vits14      conditioned       1    0.242859   0.269025   157s
+dino_vits14      conditioned       2    0.241298   0.286111   144s
+dino_vits14      unconditioned     0    0.236937   0.268534   144s
+dino_vits14      unconditioned     1    0.244122   0.268232   142s
+dino_vits14      unconditioned     2    0.242608   0.284769   145s
+vit_s16          conditioned       0    0.269423   0.308432   143s
+vit_s16          conditioned       1    0.276997   0.306411   152s
+vit_s16          conditioned       2    0.274642   0.322445   158s
+vit_s16          unconditioned     0    0.270405   0.306652   143s
+vit_s16          unconditioned     1    0.278493   0.305431   145s
+vit_s16          unconditioned     2    0.276897   0.322465   142s
+vjepa2_rep1      conditioned       0    0.176429   0.196198   152s
+vjepa2_rep1      conditioned       1    0.175931   0.198583   151s
+vjepa2_rep1      conditioned       2    0.175317   0.196388   152s
+vjepa2_rep1      unconditioned     0    0.177029   0.194589   158s
+vjepa2_rep1      unconditioned     1    0.176862   0.197160   151s
+vjepa2_rep1      unconditioned     2    0.176278   0.194951   154s
+vjepa2_rep64     conditioned       0    0.150339   0.170477   151s
+vjepa2_rep64     conditioned       1    0.150000   0.171328   164s
+vjepa2_rep64     conditioned       2    0.150511   0.171997   164s
+vjepa2_rep64     unconditioned     0    0.151079   0.169196   153s
+vjepa2_rep64     unconditioned     1    0.150998   0.170280   162s
+vjepa2_rep64     unconditioned     2    0.151074   0.170476   165s
+vq_track         conditioned       0    0.077716   0.079067   154s
+vq_track         conditioned       1    0.078972   0.081626   146s
+vq_track         conditioned       2    0.077392   0.082262   144s
+vq_track         unconditioned     0    0.078536   0.078986   149s
+vq_track         unconditioned     1    0.078871   0.080892   143s
+vq_track         unconditioned     2    0.077969   0.081767   144s
+
+Total wall time: 636s (10.6min)
+Results saved to artifacts/full/dit_results.json
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/rshar/main/ap-rIHPpXYqOVuPTAA83oQ6Gu
