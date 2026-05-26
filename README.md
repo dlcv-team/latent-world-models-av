@@ -63,7 +63,7 @@ them. There's no separate checklist to paste into PRs.
    load-bearing lives only in a notebook.
 3. **Figures are saved at `dpi=300`** and their captions name the
    trainval-mirror subset (180/20/40, seed 42) and the FR-08 VQ fallback
-   wherever VQ appears.
+   policy if VQ uses fallback.
 
 If a PR can pass `scripts/check_canonical_contract.py` and `pytest -q` on
 a clean checkout, it satisfies rules 1–3 mechanically. Rule 2 is enforced
