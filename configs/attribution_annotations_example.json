@@ -1,0 +1,57 @@
+{
+  "version": "1.0.0",
+  "annotations": {
+    "vit_s16": {
+      "intersection": [
+        {
+          "type": "box",
+          "coords": [60, 140, 160, 200],
+          "label": "Lane marking",
+          "color": "yellow",
+          "linewidth": 2
+        },
+        {
+          "type": "arrow",
+          "start": [112, 80],
+          "end": [112, 120],
+          "label": "Lead vehicle",
+          "color": "red",
+          "width": 3
+        }
+      ],
+      "other": [
+        {
+          "type": "box",
+          "coords": [50, 150, 170, 210],
+          "label": "Road edge",
+          "color": "cyan",
+          "linewidth": 2
+        }
+      ]
+    },
+    "dinov2_s14": {
+      "intersection": [
+        {
+          "type": "box",
+          "coords": [70, 130, 150, 190],
+          "label": "Intersection",
+          "color": "green",
+          "linewidth": 2
+        }
+      ],
+      "other": []
+    },
+    "clip_b32": {
+      "intersection": [],
+      "other": []
+    },
+    "vqvae": {
+      "intersection": [],
+      "other": []
+    },
+    "vjepa2": {
+      "intersection": [],
+      "other": []
+    }
+  }
+}

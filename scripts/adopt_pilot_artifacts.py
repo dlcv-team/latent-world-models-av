@@ -103,12 +103,14 @@ PILOT_PER_SCENE_RENAME = {
     "vjepa2_rep1": None,  # the 1-frame ablation; not part of the 5-encoder canon
 }
 
-# Documented caveat per FR-08: VQ wrapper always falls back to DINOv2.
+# Historical pilot caveat: VQ wrapper used DINOv2 fallback in the pilot run.
+# Current VQ loads real VQGAN (canonical.yaml v1.0.2), but pilot artifacts
+# predate that change.
 VQ_FALLBACK_CAVEAT = (
-    "VQ-VAE: no loadable pretrained VQ checkpoint; "
-    "the wrapper substitutes DINOv2-S/14 embeddings per FR-08. "
-    "Results labelled `vq_track` reflect this fallback, not a "
-    "from-scratch VQ-VAE."
+    "VQ-VAE: VQGAN checkpoint was not available during pilot run; "
+    "the wrapper substituted DINOv2-S/14 embeddings per FR-08. "
+    "Results labelled `vq_track` reflect this historical fallback, not "
+    "current VQ-VAE behavior (which uses real VQGAN by default)."
 )
 
 
