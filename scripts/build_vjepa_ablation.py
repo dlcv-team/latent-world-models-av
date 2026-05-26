@@ -4,8 +4,8 @@
 Reads existing full-dataset results from outputs/analysis/encoder_summary_with_ci.csv
 and baselines.json to produce a 3-row ablation table comparing:
 
-  1. V-JEPA2 rep64 (64-frame temporal input)
-  2. V-JEPA2 rep1  (single-frame, same architecture)
+  1. V-JEPA2 rep64 (fpc64 checkpoint, 16-frame temporal input)
+  2. V-JEPA2 rep1  (fpc1 checkpoint, single-frame input)
   3. DINOv2-S      (single-frame, different architecture -- best non-JEPA baseline)
 
 No new training or embedding computation is needed; this script only reshapes
@@ -31,9 +31,9 @@ OUT_DIR = ROOT / "outputs" / "analysis"
 ABLATION_ROWS = [
     {
         "encoder": "vjepa2_rep64",
-        "display_name": "V-JEPA2 (64-frame)",
+        "display_name": "V-JEPA2 (fpc64, 16-frame input)",
         "input_mode": "temporal",
-        "frames": 64,
+        "frames": 16,
     },
     {
         "encoder": "vjepa2_rep1",
@@ -130,7 +130,7 @@ def write_interpretation(table: list[dict]) -> Path:
     text = f"""\
 # V-JEPA2 Multi-Frame Ablation (A19)
 
-V-JEPA2 with 64-frame temporal input achieves a steer scene-mean RMSE of
+V-JEPA2 fpc64 (pre-trained on 64-frame clips, fed 16-frame input) achieves a steer scene-mean RMSE of
 {rep64['steer_rmse_scene_mean']:.4f}, which is {rep64_vs_dino_steer:.0f}% lower
 than the best single-frame encoder (DINOv2-S at {dino['steer_rmse_scene_mean']:.4f})
 and {rep64_vs_rep1_steer:.0f}% lower than V-JEPA2 in single-frame mode
