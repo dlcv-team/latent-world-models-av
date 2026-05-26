@@ -1,0 +1,44 @@
+{
+  "horizon": 4,
+  "mean_over_horizons": {
+    "cossim_conditioned": 0.9955181330442429,
+    "cossim_unconditioned": 0.9998895972967148,
+    "delta_cossim": -0.004371464252471924
+  },
+  "metadata": {
+    "encoder": "vjepa2_rep64",
+    "generated_at_utc": "2026-05-25T00:58:55+00:00",
+    "horizon": 4,
+    "n_samples": 5419,
+    "source_paths": {
+      "z_hat_conditioned": "z_hat_conditioned.pt",
+      "z_hat_unconditioned": "z_hat_unconditioned.pt",
+      "z_real_conditioned": "z_real_conditioned.pt",
+      "z_real_unconditioned": "z_real_unconditioned.pt"
+    },
+    "z_dim": 384
+  },
+  "per_horizon": {
+    "1": {
+      "cossim_conditioned": 0.9955065250396729,
+      "cossim_unconditioned": 0.999889075756073,
+      "delta_cossim": -0.0043825507164001465
+    },
+    "2": {
+      "cossim_conditioned": 0.99550861120224,
+      "cossim_unconditioned": 0.999889075756073,
+      "delta_cossim": -0.004380464553833008
+    },
+    "3": {
+      "cossim_conditioned": 0.9955352544784546,
+      "cossim_unconditioned": 0.9998899698257446,
+      "delta_cossim": -0.004354715347290039
+    },
+    "4": {
+      "cossim_conditioned": 0.995522141456604,
+      "cossim_unconditioned": 0.9998902678489685,
+      "delta_cossim": -0.004368126392364502
+    }
+  },
+  "schema_version": "1.0"
+}
