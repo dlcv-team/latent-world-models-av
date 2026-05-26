@@ -170,7 +170,7 @@ def test_attach_fallback_caveat_reads_provenance(tmp_path):
     enc_dir = tmp_path / winner
     enc_dir.mkdir()
     (enc_dir / "provenance.json").write_text(
-        json.dumps({"fallback_caveat": "VQ falls back to DINOv2 per FR-08."})
+        json.dumps({"fallback_caveat": "VQ used DINOv2 fallback per FR-08 (checkpoint load failed)."})
     )
     result = {"best_encoder": winner, "fallback_caveat": None}
     ibe.attach_fallback_caveat(result, tmp_path)
@@ -261,10 +261,10 @@ def test_render_summary_markdown_includes_fallback_when_present():
         "n_comparisons": 10,
         "significantly_beats": [],
         "tied": False,
-        "fallback_caveat": "VQ-VAE uses DINOv2 fallback.",
+        "fallback_caveat": "VQ-VAE used DINOv2 fallback (checkpoint load failed).",
     }
     md = ibe.render_summary_markdown(result)
-    assert "VQ-VAE uses DINOv2 fallback." in md
+    assert "VQ-VAE used DINOv2 fallback (checkpoint load failed)." in md
 
 
 def test_render_summary_markdown_calls_out_tie():
