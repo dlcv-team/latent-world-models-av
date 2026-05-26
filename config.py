@@ -19,6 +19,26 @@ import yaml
 
 CANONICAL_RELPATH = "configs/canonical.yaml"
 
+# Canonical encoder keys → human-readable display names for figures/reports
+# NOTE: "rep64" = V-JEPA2 checkpoint variant (facebook/vjepa2-vitl-fpc64-256),
+# NOT our input frame count (always 16). "fpc64" = pre-trained on 64-frame clips.
+#
+# These are single-line labels suitable for PDF titles, file names, and grid labels.
+# Figure scripts may insert \n locally for multi-line tick labels where space allows.
+ENCODER_DISPLAY = {
+    # M1 full-dataset canonical keys
+    "vit_s16": "ViT-S/16",
+    "dino_vits14": "DINOv2-S/14",
+    "clip_b32": "CLIP ViT-B/32",
+    "vq_track": "VQ-VAE",
+    "vjepa2_rep64": "V-JEPA2",
+    "vjepa2_rep1": "V-JEPA2 (1-frame)",  # Ablation variant (M2 task)
+    # P0 canonical encoder names (for backward compatibility)
+    "vjepa2": "V-JEPA2",
+    "dinov2_s14": "DINOv2-S/14",
+    "vqvae": "VQ-VAE",
+}
+
 
 def repo_root() -> Path:
     """Return the repository root, located by walking up to find ``configs/canonical.yaml``."""

@@ -174,6 +174,15 @@ def test_encoder_output_shape():
     assert out.shape == (2, 256, 16, 16)
 
 
+def test_encoder_has_conv_out_for_attribution(wrapper):
+    """Test that encoder has conv_out layer required for attribution."""
+    from encoders._vqgan_arch import Encoder
+    import torch.nn as nn
+    assert isinstance(wrapper.backbone, Encoder)
+    assert hasattr(wrapper.backbone, 'conv_out')
+    assert isinstance(wrapper.backbone.conv_out, nn.Conv2d)
+
+
 # ---------------------------------------------------------------------------
 # Slow / network tests
 # ---------------------------------------------------------------------------
