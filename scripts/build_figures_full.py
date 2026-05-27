@@ -17,6 +17,8 @@ import csv
 import sys
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # Non-interactive backend for headless/CI environments
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -40,7 +42,6 @@ ENCODER_DISPLAY = {
 
 
 def save_png_pdf(fig: plt.Figure, out_dir: Path, stem: str) -> None:
-    fig.tight_layout()
     fig.savefig(out_dir / f"{stem}.png", dpi=DPI, bbox_inches="tight")
     fig.savefig(out_dir / f"{stem}.pdf", dpi=DPI, bbox_inches="tight")
     plt.close(fig)
