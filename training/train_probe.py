@@ -86,6 +86,8 @@ ENCODER_REGISTRY: dict[str, EncoderSpec] = {
         "encoders.vqvae", "VQVAEWrapper", "single_frame", "vq_track",
         "vqgan-imagenet-f16-16384",
     ),
+    # "rep64" = checkpoint variant fpc64 (pre-trained on 64-frame clips),
+    # NOT our input frame count (16 frames per canonical.yaml::clip_frames).
     "vjepa2": EncoderSpec(
         "encoders.vjepa2", "VJEPA2Wrapper", "clip", "vjepa2_rep64",
         "facebook/vjepa2-vitl-fpc64-256",

@@ -162,6 +162,7 @@ class NuScenesFrameDataset(Dataset):
             "dropped_missing_can": 0,
             "dropped_no_camera": 0,
             "dropped_can_alignment": 0,
+            "blacklisted_scene_ids": [],  # Track actual scene names that were blacklisted
         }
 
         # Get drop policy from config
@@ -180,6 +181,7 @@ class NuScenesFrameDataset(Dataset):
             # Check CAN blacklist (only if config flag is True)
             if scene_name in can_blacklist_scenes:
                 stats["dropped_blacklist"] += 1
+                stats["blacklisted_scene_ids"].append(scene_name)
                 continue
 
             # Check if CAN data exists (required for action labels)

@@ -49,7 +49,7 @@ to transform this directory into the canonical
 * **`vjepa2_rep1` rows in `per_scene/per_scene_rmse.csv` are the
   1-frame V-JEPA2 ablation.** The adopt script filters them out by
   default; the 5-encoder canonical row uses `vjepa2_rep64` (the
-  64-frame V-JEPA2 path).
+  fpc64 V-JEPA2 checkpoint variant, fed 16-frame input).
 
 ## Regenerating
 
