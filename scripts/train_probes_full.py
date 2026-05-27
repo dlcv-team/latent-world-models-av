@@ -47,6 +47,9 @@ CANONICAL = {
     "seeds": [0, 1, 2],
 }
 
+# "rep64" / "rep1" refer to V-JEPA2 checkpoint variants, NOT input frame counts.
+# rep64 = facebook/vjepa2-vitl-fpc64-256 (pre-trained on 64-frame clips).
+# Our canonical input is 16 frames (canonical.yaml::dataset::vjepa2::clip_frames).
 ENCODER_NAMES = ["vit_s16", "dino_vits14", "clip_b32", "vq_track", "vjepa2_rep64", "vjepa2_rep1"]
 
 # Native dims for adapter construction

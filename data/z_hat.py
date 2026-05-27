@@ -28,6 +28,12 @@ import torch
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_DIR = _PROJECT_ROOT / "outputs" / "z_hat"
 
+
+def get_default_dir() -> Path:
+    """Return the default directory for z_hat / z_real tensor storage."""
+    return _DEFAULT_DIR
+
+
 _HF_REPO = "surlac/lwm-av-embeddings"
 
 _VALID_VARIANTS = ("conditioned", "unconditioned")
@@ -72,9 +78,7 @@ def load_z_hat(
         ``(N_test, horizon, z_dim)`` predicted latent states.
     """
     if variant not in _VALID_VARIANTS:
-        raise ValueError(
-            f"variant must be one of {_VALID_VARIANTS}, got {variant!r}"
-        )
+        raise ValueError(f"variant must be one of {_VALID_VARIANTS}, got {variant!r}")
 
     filename = f"z_hat_{variant}.pt"
     d = Path(directory) if directory else _DEFAULT_DIR
@@ -119,9 +123,7 @@ def load_z_real(
         ``(N_test, horizon, z_dim)`` real encoder embeddings.
     """
     if variant not in _VALID_VARIANTS:
-        raise ValueError(
-            f"variant must be one of {_VALID_VARIANTS}, got {variant!r}"
-        )
+        raise ValueError(f"variant must be one of {_VALID_VARIANTS}, got {variant!r}")
 
     filename = f"z_real_{variant}.pt"
     d = Path(directory) if directory else _DEFAULT_DIR
