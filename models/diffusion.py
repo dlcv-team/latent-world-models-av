@@ -241,3 +241,88 @@ class DDIMSampler:
             )
 
         return x
+
+    @torch.no_grad()
+    def sample_warm_start(
+        self,
+        noise_pred_fn: Callable[..., torch.Tensor],
+        x_init: torch.Tensor,
+        t_start: int,
+        cond_kwargs: dict[str, Any],
+        device: torch.device | str = "cpu",
+    ) -> torch.Tensor:
+        """DDIM sampling starting from a noised version of ``x_init``.
+
+        Instead of starting from pure Gaussian noise at the highest
+        timestep, forward-diffuses ``x_init`` to ``t_start`` and runs
+        DDIM from there.  When ``t_start`` is low, the output stays
+        close to ``x_init`` (few denoising steps); when ``t_start`` is
+        near T, most of the signal is destroyed and the result
+        approaches standard DDIM from noise.
+
+        Parameters
+        ----------
+        noise_pred_fn
+            Same as :meth:`sample`.
+        x_init
+            Initial clean data to noise and denoise from.
+            Shape ``(B, ...)``.
+        t_start
+            Timestep to forward-diffuse ``x_init`` to.  Must be in
+            ``[0, T)``.  ``0`` means no noise (returns ``x_init``
+            essentially unchanged); high values approach full DDIM.
+        cond_kwargs
+            Passed through to ``noise_pred_fn``.
+        device
+            Device to run sampling on.
+
+        Returns
+        -------
+        torch.Tensor
+            Denoised output of the same shape as ``x_init``.
+        """
+        if t_start <= 0:
+            return x_init.clone()
+
+        alphas_cumprod = self.schedule.alphas_cumprod.to(device)
+        alpha_bar_start = alphas_cumprod[t_start]
+
+        # Forward-diffuse x_init to t_start
+        noise = torch.randn_like(x_init)
+        x = (
+            torch.sqrt(alpha_bar_start) * x_init
+            + torch.sqrt(1.0 - alpha_bar_start) * noise
+        )
+
+        # Only iterate over timesteps <= t_start
+        active_timesteps = [t for t in self.timesteps if t <= t_start]
+
+        for i, t_val in enumerate(active_timesteps):
+            t = torch.full(
+                (x_init.shape[0],), t_val, device=device, dtype=torch.long
+            )
+
+            noise_pred = noise_pred_fn(x, timestep=t, **cond_kwargs)
+
+            alpha_bar_t = alphas_cumprod[t_val]
+
+            pred_x0 = (
+                x - torch.sqrt(1.0 - alpha_bar_t) * noise_pred
+            ) / torch.sqrt(alpha_bar_t)
+
+            if i < len(active_timesteps) - 1:
+                t_prev = active_timesteps[i + 1]
+                alpha_bar_prev = alphas_cumprod[t_prev]
+            else:
+                alpha_bar_prev = torch.tensor(1.0, device=device)
+
+            noise_direction = (
+                x - torch.sqrt(alpha_bar_t) * pred_x0
+            ) / torch.sqrt(1.0 - alpha_bar_t + 1e-8)
+
+            x = (
+                torch.sqrt(alpha_bar_prev) * pred_x0
+                + torch.sqrt(1.0 - alpha_bar_prev) * noise_direction
+            )
+
+        return x
