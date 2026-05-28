@@ -1,0 +1,125 @@
+{
+  "experiment": "DA8",
+  "date": "2026-05-27",
+  "description": "Can the DDIM bottleneck be improved? Inference-only warm-start and step-count experiments.",
+  "n_ddim_steps": 5,
+  "tier_a_complete": true,
+  "tier_b_executed": false,
+  "tier_b_skip_reason": "Model never beats copy baseline on any encoder. Every denoising step degrades signal. Retraining with x0/v-prediction would not address the fundamental issue.",
+  "gate_ga": {
+    "criterion": "recovery >= 10% from actual model improvement (excluding copy baseline)",
+    "result": "FAIL on all 6 encoders",
+    "detail": "Best non-copy config never exceeds copy baseline. Model actively destroys signal.",
+    "decision": "Skip Tier B. Report clean negative finding."
+  },
+  "targets": {
+    "T1": {
+      "criterion": "improved DiT-DDIM > 0.70 on all 6",
+      "met": true,
+      "note": "5-step DDIM 0.79-0.96, but below copy baseline"
+    },
+    "T2": {
+      "criterion": ">= 40% gap recovery on >= 4/6",
+      "met": false,
+      "note": "Model never beats copy"
+    },
+    "T3": {
+      "criterion": ">= MLP - 0.03 on >= 3/6",
+      "met": false,
+      "note": "Below MLP on all"
+    }
+  },
+  "per_encoder": {
+    "clip_b32": {
+      "copy_baseline": 0.9579,
+      "best_5step_ddim": 0.8996,
+      "best_warmstart": {
+        "t_start": 40,
+        "cossim_h1": 0.9573
+      },
+      "dit_ddim_50step": 0.621,
+      "dit_direct": 0.941,
+      "mlp": 0.955,
+      "gap_direct_vs_ddim": 0.32,
+      "model_recovery_pct": 105.1,
+      "denoising_degrades": true
+    },
+    "dino_vits14": {
+      "copy_baseline": 0.9323,
+      "best_5step_ddim": 0.793,
+      "best_warmstart": {
+        "t_start": 40,
+        "cossim_h1": 0.9309
+      },
+      "dit_ddim_50step": 0.448,
+      "dit_direct": 0.888,
+      "mlp": 0.932,
+      "gap_direct_vs_ddim": 0.44,
+      "model_recovery_pct": 109.7,
+      "denoising_degrades": true
+    },
+    "vit_s16": {
+      "copy_baseline": 0.9227,
+      "best_5step_ddim": 0.817,
+      "best_warmstart": {
+        "t_start": 40,
+        "cossim_h1": 0.9217
+      },
+      "dit_ddim_50step": 0.504,
+      "dit_direct": 0.891,
+      "mlp": 0.923,
+      "gap_direct_vs_ddim": 0.387,
+      "model_recovery_pct": 107.9,
+      "denoising_degrades": true
+    },
+    "vjepa2_rep1": {
+      "copy_baseline": 0.9875,
+      "best_5step_ddim": 0.9586,
+      "best_warmstart": {
+        "t_start": 40,
+        "cossim_h1": 0.9871
+      },
+      "dit_ddim_50step": 0.752,
+      "dit_direct": 0.983,
+      "mlp": 0.987,
+      "gap_direct_vs_ddim": 0.231,
+      "model_recovery_pct": 101.8,
+      "denoising_degrades": true
+    },
+    "vjepa2_rep64": {
+      "copy_baseline": 0.9914,
+      "best_5step_ddim": 0.9636,
+      "best_warmstart": {
+        "t_start": 200,
+        "cossim_h1": 0.9911
+      },
+      "dit_ddim_50step": 0.735,
+      "dit_direct": 0.988,
+      "mlp": 0.991,
+      "gap_direct_vs_ddim": 0.253,
+      "model_recovery_pct": 101.2,
+      "denoising_degrades": true
+    },
+    "vq_track": {
+      "copy_baseline": 0.9953,
+      "best_5step_ddim": 0.9253,
+      "best_warmstart": {
+        "t_start": 200,
+        "cossim_h1": 0.995
+      },
+      "dit_ddim_50step": 0.501,
+      "dit_direct": 0.993,
+      "mlp": 0.995,
+      "gap_direct_vs_ddim": 0.492,
+      "model_recovery_pct": 100.4,
+      "denoising_degrades": true
+    }
+  },
+  "key_findings": [
+    "Every denoising step degrades performance from copy baseline -- universal across all 6 encoders",
+    "Fewer DDIM steps monotonically better (5 >> 50): each step introduces signal destruction",
+    "Model has NOT learned useful denoising; copy baseline is optimal",
+    "Warm-start (SDEdit) provides no benefit because model contribution is negative",
+    "Epsilon-prediction misaligned with latent vector prediction in compact spaces"
+  ]
+}
