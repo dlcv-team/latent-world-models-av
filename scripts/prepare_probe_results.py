@@ -20,17 +20,10 @@ Usage:
 from __future__ import annotations
 
 import json
-import sys
 from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
-
-# Add project root to path for imports
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from config import ENCODER_DISPLAY
 
 
 def main():
@@ -43,12 +36,16 @@ def main():
     print(f"Source: {artifacts_root}")
     print(f"Destination: {output_root}\n")
 
-    # Process each encoder recognized by ENCODER_DISPLAY
+    # Scan for all encoder directories (not limited to ENCODER_DISPLAY keys)
+    if not artifacts_root.exists():
+        print(f"WARNING: {artifacts_root} does not exist")
+        return
+
     processed_count = 0
-    for encoder_name in sorted(ENCODER_DISPLAY.keys()):
-        encoder_dir = artifacts_root / encoder_name
-        if not encoder_dir.exists():
+    for encoder_dir in sorted(artifacts_root.iterdir()):
+        if not encoder_dir.is_dir():
             continue
+        encoder_name = encoder_dir.name
 
         print(f"Processing {encoder_name}")
         processed_count += 1
