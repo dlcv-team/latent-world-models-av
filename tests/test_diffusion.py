@@ -232,3 +232,111 @@ class TestDDIMSampler:
         )
         assert "z_t" in received_kwargs
         assert "a_embed" in received_kwargs
+
+
+# ---------------------------------------------------------------------------
+# DDIMSampler -- warm-start
+# ---------------------------------------------------------------------------
+
+
+class TestDDIMSamplerWarmStart:
+    def test_t_start_zero_returns_input(self):
+        """At t_start=0, no denoising occurs; output equals input."""
+        s = CosineNoiseSchedule(n_steps=T)
+        sampler = DDIMSampler(s, n_steps=50)
+
+        x_init = torch.randn(4, 4, 384)
+
+        def fail_pred(x_noisy, timestep, **kw):
+            raise AssertionError("Model should not be called at t_start=0")
+
+        out = sampler.sample_warm_start(
+            fail_pred, x_init, t_start=0, cond_kwargs={}, device="cpu"
+        )
+        assert torch.equal(out, x_init)
+
+    def test_output_shape(self):
+        """Output shape matches x_init for various t_start values."""
+        s = CosineNoiseSchedule(n_steps=T)
+        sampler = DDIMSampler(s, n_steps=50)
+
+        def zero_pred(x_noisy, timestep, **kw):
+            return torch.zeros_like(x_noisy)
+
+        x_init = torch.randn(4, 4, 384)
+        for t_start in [40, 200, 600, 980]:
+            out = sampler.sample_warm_start(
+                zero_pred, x_init, t_start=t_start,
+                cond_kwargs={}, device="cpu",
+            )
+            assert out.shape == x_init.shape, f"Shape mismatch at t_start={t_start}"
+
+    def test_deterministic(self):
+        """Two calls with same seed produce identical results."""
+        s = CosineNoiseSchedule(n_steps=T)
+        sampler = DDIMSampler(s, n_steps=10)
+
+        def zero_pred(x_noisy, timestep, **kw):
+            return torch.zeros_like(x_noisy)
+
+        x_init = torch.randn(2, 4, 384)
+
+        torch.manual_seed(42)
+        out1 = sampler.sample_warm_start(
+            zero_pred, x_init, t_start=200, cond_kwargs={}, device="cpu"
+        )
+        torch.manual_seed(42)
+        out2 = sampler.sample_warm_start(
+            zero_pred, x_init, t_start=200, cond_kwargs={}, device="cpu"
+        )
+        assert torch.allclose(out1, out2)
+
+    def test_fewer_model_calls_at_low_t_start(self):
+        """Lower t_start should invoke the model fewer times."""
+        s = CosineNoiseSchedule(n_steps=T)
+        sampler = DDIMSampler(s, n_steps=50)
+
+        call_counts = {}
+
+        def counting_pred(x_noisy, timestep, **kw):
+            key = "calls"
+            call_counts[key] = call_counts.get(key, 0) + 1
+            return torch.zeros_like(x_noisy)
+
+        x_init = torch.randn(2, 4, 384)
+
+        for t_start in [100, 400, 980]:
+            call_counts.clear()
+            sampler.sample_warm_start(
+                counting_pred, x_init, t_start=t_start,
+                cond_kwargs={}, device="cpu",
+            )
+            # More steps at higher t_start
+            if t_start == 100:
+                low_calls = call_counts["calls"]
+            elif t_start == 980:
+                high_calls = call_counts["calls"]
+
+        assert low_calls < high_calls, (
+            f"t_start=100 had {low_calls} calls, "
+            f"t_start=980 had {high_calls}; expected fewer at low t_start"
+        )
+
+    def test_cond_kwargs_passed_through(self):
+        """Conditioning kwargs are forwarded to the noise prediction fn."""
+        s = CosineNoiseSchedule(n_steps=100)
+        sampler = DDIMSampler(s, n_steps=5)
+
+        received_kwargs = {}
+
+        def capturing_pred(x_noisy, timestep, **kw):
+            received_kwargs.update(kw)
+            return torch.zeros_like(x_noisy)
+
+        x_init = torch.randn(2, 4, 384)
+        sampler.sample_warm_start(
+            capturing_pred, x_init, t_start=50,
+            cond_kwargs={"z_t": torch.randn(2, 384)},
+            device="cpu",
+        )
+        assert "z_t" in received_kwargs
