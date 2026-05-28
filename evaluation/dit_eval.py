@@ -26,6 +26,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -56,6 +57,7 @@ def evaluate_mlp(
     variant: str,
     seed: int,
     device: torch.device = torch.device("cpu"),
+    per_window: bool = False,
 ) -> dict:
     """Run MLP predictor on test set.
 
@@ -69,6 +71,8 @@ def evaluate_mlp(
     7. Compute CosSim, MSE, copy baseline (same metric space as DiT).
 
     Returns dict with same schema as DiT rollout results.
+    If ``per_window=True``, adds ``per_window_cossim`` and
+    ``per_window_copy_cossim`` keys: lists of (N,) arrays per horizon.
     """
     ckpt_path = (
         MLP_CKPT_ROOT / encoder_name / variant / f"seed_{seed}" / "checkpoint.pt"
@@ -119,6 +123,11 @@ def evaluate_mlp(
     copy_cossim_sums = [0.0] * horizon
     total_samples = 0
 
+    # Per-window storage (only allocated if requested)
+    if per_window:
+        pw_cossim: list[list[torch.Tensor]] = [[] for _ in range(horizon)]
+        pw_copy: list[list[torch.Tensor]] = [[] for _ in range(horizon)]
+
     batch_size = 256
     from torch.utils.data import DataLoader, TensorDataset
 
@@ -167,6 +176,10 @@ def evaluate_mlp(
                 copy_cs = F.cosine_similarity(z_t_orig, z_real_k, dim=-1)
                 copy_cossim_sums[k] += copy_cs.sum().item()
 
+                if per_window:
+                    pw_cossim[k].append(cs.cpu())
+                    pw_copy[k].append(copy_cs.cpu())
+
             total_samples += B
 
     elapsed = time.time() - t0
@@ -175,7 +188,7 @@ def evaluate_mlp(
     mse_by_horizon = [s / total_samples for s in mse_sums]
     copy_baseline_cossim = [s / total_samples for s in copy_cossim_sums]
 
-    return {
+    result = {
         "encoder": encoder_name,
         "variant": variant,
         "seed": seed,
@@ -187,6 +200,12 @@ def evaluate_mlp(
         },
         "time_s": round(elapsed, 1),
     }
+    if per_window:
+        result["per_window_cossim"] = [torch.cat(pw_cossim[k]).numpy()
+                                       for k in range(horizon)]
+        result["per_window_copy_cossim"] = [torch.cat(pw_copy[k]).numpy()
+                                            for k in range(horizon)]
+    return result
 
 
 def load_dit_results() -> dict:
@@ -249,6 +268,106 @@ def _build_summary(all_results: list[dict]) -> dict:
             }
 
     return summary
+
+
+DIFFICULTY_CSV_PATH = Path("artifacts/full/mlp_by_difficulty.csv")
+
+
+def build_difficulty_table(
+    encoders: list[str],
+    seeds: list[int],
+    device: torch.device = torch.device("cpu"),
+) -> list[dict]:
+    """Split MLP vs copy comparison by copy-baseline difficulty quartiles.
+
+    For each encoder, aggregates per-window CosSim across seeds and both
+    variants (conditioned + unconditioned). Uses ``pd.qcut`` on the h=1
+    copy baseline to define equal-count quartiles (Q1 = hardest scenes
+    where copy baseline is lowest, Q4 = easiest).
+
+    Returns list of dicts suitable for CSV export, one row per
+    (encoder, variant, quartile, horizon).
+    """
+    import pandas as pd
+
+    rows: list[dict] = []
+
+    for enc in encoders:
+        for var in VARIANTS:
+            # Collect per-window arrays across seeds
+            all_cossim: list[list[np.ndarray]] = None  # [horizon][seeds]
+            all_copy: list[list[np.ndarray]] = None
+            n_windows = None
+
+            for seed in seeds:
+                result = evaluate_mlp(enc, var, seed, device=device,
+                                      per_window=True)
+                if "error" in result:
+                    print(f"  [SKIP] {enc}/{var}/seed={seed}: {result['error']}")
+                    continue
+
+                horizon = len(result["per_window_cossim"])
+                if all_cossim is None:
+                    all_cossim = [[] for _ in range(horizon)]
+                    all_copy = [[] for _ in range(horizon)]
+
+                for k in range(horizon):
+                    all_cossim[k].append(result["per_window_cossim"][k])
+                    all_copy[k].append(result["per_window_copy_cossim"][k])
+
+                if n_windows is None:
+                    n_windows = result["n_test_windows"]
+
+            if all_cossim is None:
+                continue
+
+            # Average across seeds (per-window arrays are aligned)
+            horizon = len(all_cossim)
+            cossim_avg = [np.mean(all_cossim[k], axis=0) for k in range(horizon)]
+            copy_avg = [np.mean(all_copy[k], axis=0) for k in range(horizon)]
+
+            # Define quartiles on h=1 copy baseline
+            copy_h1 = copy_avg[0]
+            quartile_labels = pd.qcut(
+                copy_h1, q=4,
+                labels=["Q1 (hardest)", "Q2", "Q3", "Q4 (easiest)"],
+            )
+
+            for k in range(horizon):
+                df = pd.DataFrame({
+                    "mlp_cossim": cossim_avg[k],
+                    "copy_cossim": copy_avg[k],
+                    "quartile": quartile_labels,
+                })
+                for q_label, grp in df.groupby("quartile", observed=False):
+                    rows.append({
+                        "encoder": enc,
+                        "variant": var,
+                        "quartile": str(q_label),
+                        "horizon": k + 1,
+                        "mlp_cossim_mean": round(grp["mlp_cossim"].mean(), 6),
+                        "copy_cossim_mean": round(grp["copy_cossim"].mean(), 6),
+                        "mlp_minus_copy": round(
+                            (grp["mlp_cossim"] - grp["copy_cossim"]).mean(), 6
+                        ),
+                        "n_windows": len(grp),
+                    })
+
+    return rows
+
+
+def export_difficulty_csv(rows: list[dict], path: Path) -> None:
+    """Write difficulty table to CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "encoder", "variant", "quartile", "horizon",
+        "mlp_cossim_mean", "copy_cossim_mean", "mlp_minus_copy", "n_windows",
+    ]
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
 
 
 def build_comparison_table(
@@ -438,6 +557,11 @@ def main():
         default=None,
         help="Device (default: auto-detect).",
     )
+    parser.add_argument(
+        "--difficulty",
+        action="store_true",
+        help="Generate hard-subset difficulty table (DA7.5).",
+    )
     args = parser.parse_args()
 
     device = torch.device(
@@ -521,6 +645,27 @@ def main():
 
     export_latex(comparison_rows, LATEX_PATH)
     print(f"[saved] {LATEX_PATH}")
+
+    # Hard-subset difficulty table (DA7.5)
+    if args.difficulty:
+        print("\n" + "=" * 60)
+        print("DA7.5: Hard-Subset Difficulty Analysis")
+        print("=" * 60)
+        diff_rows = build_difficulty_table(args.encoders, args.seeds, device)
+        export_difficulty_csv(diff_rows, DIFFICULTY_CSV_PATH)
+        print(f"[saved] {DIFFICULTY_CSV_PATH}")
+
+        # Print summary for h=1
+        print(f"\n  {'Encoder':<15} {'Variant':<14} {'Quartile':<16} "
+              f"{'MLP':>8} {'Copy':>8} {'Gap':>8} {'N':>6}")
+        for r in diff_rows:
+            if r["horizon"] == 1:
+                print(
+                    f"  {r['encoder']:<15} {r['variant']:<14} "
+                    f"{r['quartile']:<16} {r['mlp_cossim_mean']:>8.4f} "
+                    f"{r['copy_cossim_mean']:>8.4f} "
+                    f"{r['mlp_minus_copy']:>+8.4f} {r['n_windows']:>6}"
+                )
 
     # Print summary
     print("\n" + "=" * 60)
