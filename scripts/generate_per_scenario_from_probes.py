@@ -88,10 +88,15 @@ def main():
         scenario_counts[bucket] = scenario_counts.get(bucket, 0) + 1
     print(f"Scenario distribution: {scenario_counts}")
 
-    # Compute per-scenario RMSE with bootstrap CIs
+    # Compute per-scenario RMSE with bootstrap CIs (read params from canonical config)
     # Note: Values are normalized in [-1, 1] space; will convert to physical
     # units (degrees, m/s²) before writing output CSV
     print("\nComputing per-scenario aggregates with bootstrap CIs...")
+
+    bootstrap_cfg = cfg.raw["evaluation"]["bootstrap"]
+    n_resamples = bootstrap_cfg["n_resamples"]
+    bootstrap_seed = bootstrap_cfg["seed"]
+    confidence_level = bootstrap_cfg["confidence_level"]
 
     results = []
     for encoder in encoders:
@@ -114,9 +119,9 @@ def main():
 
                 mean, ci_lo, ci_hi = bootstrap_mean_ci(
                     rmse_values,
-                    n_resamples=1000,
-                    seed=42,
-                    confidence_level=0.95
+                    n_resamples=n_resamples,
+                    seed=bootstrap_seed,
+                    confidence_level=confidence_level,
                 )
 
                 results.append({

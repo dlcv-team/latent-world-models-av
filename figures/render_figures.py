@@ -15,12 +15,11 @@ Consumes outputs from M1's analysis.paired_tests pipeline:
 
 import argparse
 import json
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import subprocess
-import sys
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 from config import ENCODER_DISPLAY
 
@@ -311,12 +310,13 @@ def render_figure2(per_scenario, encoder_summary, output_path="outputs/figure2_s
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label(colorbar_label, fontsize=10)
 
-    # Add value annotations
+    # Add value annotations (2 decimals for degrees/m/s², 4 for normalized)
+    fmt = '.2f' if steer_metric == 'steer_rmse_deg' else '.4f'
     for i in range(len(heatmap_data.index)):
         for j in range(len(heatmap_data.columns)):
             value = heatmap_data.iloc[i, j]
             text_color = 'white' if value > heatmap_data.values.max() * 0.6 else 'black'
-            ax.text(j, i, f'{value:.4f}', ha='center', va='center',
+            ax.text(j, i, f'{value:{fmt}}', ha='center', va='center',
                    color=text_color, fontsize=9)
 
     # Set ticks
