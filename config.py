@@ -41,6 +41,7 @@ ENCODER_DISPLAY = {
 
 
 
+
 def repo_root() -> Path:
     """Return the repository root, located by walking up to find ``configs/canonical.yaml``."""
     here = Path(__file__).resolve()
