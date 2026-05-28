@@ -1,0 +1,193 @@
+encoder,variant,quartile,horizon,mlp_cossim_mean,copy_cossim_mean,mlp_minus_copy,n_windows
+clip_b32,conditioned,Q1 (hardest),1,0.916367,0.922216,-0.005849,1355
+clip_b32,conditioned,Q2,1,0.934272,0.953523,-0.019252,1355
+clip_b32,conditioned,Q3,1,0.944562,0.968129,-0.023567,1354
+clip_b32,conditioned,Q4 (easiest),1,0.948026,0.986069,-0.038044,1355
+clip_b32,conditioned,Q1 (hardest),2,0.913508,0.908085,0.005423,1355
+clip_b32,conditioned,Q2,2,0.926438,0.93517,-0.008732,1355
+clip_b32,conditioned,Q3,2,0.936057,0.949758,-0.013701,1354
+clip_b32,conditioned,Q4 (easiest),2,0.94287,0.976975,-0.034105,1355
+clip_b32,conditioned,Q1 (hardest),3,0.907858,0.896899,0.010959,1355
+clip_b32,conditioned,Q2,3,0.919658,0.92282,-0.003162,1355
+clip_b32,conditioned,Q3,3,0.929552,0.938856,-0.009304,1354
+clip_b32,conditioned,Q4 (easiest),3,0.936,0.970129,-0.034129,1355
+clip_b32,conditioned,Q1 (hardest),4,0.903906,0.888474,0.015432,1355
+clip_b32,conditioned,Q2,4,0.913561,0.914333,-0.000772,1355
+clip_b32,conditioned,Q3,4,0.923235,0.929557,-0.006322,1354
+clip_b32,conditioned,Q4 (easiest),4,0.930337,0.964951,-0.034614,1355
+clip_b32,unconditioned,Q1 (hardest),1,0.921194,0.922216,-0.001021,1355
+clip_b32,unconditioned,Q2,1,0.938006,0.953523,-0.015517,1355
+clip_b32,unconditioned,Q3,1,0.947756,0.968129,-0.020373,1354
+clip_b32,unconditioned,Q4 (easiest),1,0.949665,0.986069,-0.036404,1355
+clip_b32,unconditioned,Q1 (hardest),2,0.917491,0.908085,0.009406,1355
+clip_b32,unconditioned,Q2,2,0.929356,0.93517,-0.005813,1355
+clip_b32,unconditioned,Q3,2,0.938419,0.949758,-0.011339,1354
+clip_b32,unconditioned,Q4 (easiest),2,0.943046,0.976975,-0.033929,1355
+clip_b32,unconditioned,Q1 (hardest),3,0.911803,0.896899,0.014904,1355
+clip_b32,unconditioned,Q2,3,0.922506,0.92282,-0.000314,1355
+clip_b32,unconditioned,Q3,3,0.93184,0.938856,-0.007016,1354
+clip_b32,unconditioned,Q4 (easiest),3,0.936125,0.970129,-0.034004,1355
+clip_b32,unconditioned,Q1 (hardest),4,0.908271,0.888474,0.019797,1355
+clip_b32,unconditioned,Q2,4,0.917462,0.914333,0.003129,1355
+clip_b32,unconditioned,Q3,4,0.926581,0.929557,-0.002976,1354
+clip_b32,unconditioned,Q4 (easiest),4,0.931448,0.964951,-0.033503,1355
+dino_vits14,conditioned,Q1 (hardest),1,0.83664,0.877568,-0.040928,1355
+dino_vits14,conditioned,Q2,1,0.868283,0.926385,-0.058102,1355
+dino_vits14,conditioned,Q3,1,0.883394,0.946487,-0.063094,1354
+dino_vits14,conditioned,Q4 (easiest),1,0.879785,0.978941,-0.099156,1355
+dino_vits14,conditioned,Q1 (hardest),2,0.818731,0.828197,-0.009466,1355
+dino_vits14,conditioned,Q2,2,0.851049,0.889368,-0.038319,1355
+dino_vits14,conditioned,Q3,2,0.867791,0.91507,-0.047279,1354
+dino_vits14,conditioned,Q4 (easiest),2,0.868472,0.965042,-0.096571,1355
+dino_vits14,conditioned,Q1 (hardest),3,0.802209,0.793572,0.008637,1355
+dino_vits14,conditioned,Q2,3,0.83309,0.858696,-0.025606,1355
+dino_vits14,conditioned,Q3,3,0.851709,0.88998,-0.038271,1354
+dino_vits14,conditioned,Q4 (easiest),3,0.853224,0.952705,-0.099481,1355
+dino_vits14,conditioned,Q1 (hardest),4,0.789926,0.770064,0.019862,1355
+dino_vits14,conditioned,Q2,4,0.818499,0.833868,-0.015369,1355
+dino_vits14,conditioned,Q3,4,0.837223,0.867649,-0.030425,1354
+dino_vits14,conditioned,Q4 (easiest),4,0.83903,0.94027,-0.10124,1355
+dino_vits14,unconditioned,Q1 (hardest),1,0.843022,0.877568,-0.034546,1355
+dino_vits14,unconditioned,Q2,1,0.873903,0.926385,-0.052482,1355
+dino_vits14,unconditioned,Q3,1,0.887931,0.946487,-0.058557,1354
+dino_vits14,unconditioned,Q4 (easiest),1,0.879984,0.978941,-0.098956,1355
+dino_vits14,unconditioned,Q1 (hardest),2,0.824674,0.828197,-0.003523,1355
+dino_vits14,unconditioned,Q2,2,0.85575,0.889368,-0.033618,1355
+dino_vits14,unconditioned,Q3,2,0.871148,0.91507,-0.043922,1354
+dino_vits14,unconditioned,Q4 (easiest),2,0.866472,0.965042,-0.09857,1355
+dino_vits14,unconditioned,Q1 (hardest),3,0.80899,0.793572,0.015418,1355
+dino_vits14,unconditioned,Q2,3,0.837712,0.858696,-0.020984,1355
+dino_vits14,unconditioned,Q3,3,0.855208,0.88998,-0.034772,1354
+dino_vits14,unconditioned,Q4 (easiest),3,0.85099,0.952705,-0.101714,1355
+dino_vits14,unconditioned,Q1 (hardest),4,0.796753,0.770064,0.02669,1355
+dino_vits14,unconditioned,Q2,4,0.823979,0.833868,-0.009889,1355
+dino_vits14,unconditioned,Q3,4,0.842053,0.867649,-0.025595,1354
+dino_vits14,unconditioned,Q4 (easiest),4,0.837203,0.94027,-0.103067,1355
+vit_s16,conditioned,Q1 (hardest),1,0.843772,0.854667,-0.010895,1355
+vit_s16,conditioned,Q2,1,0.878701,0.91613,-0.037429,1355
+vit_s16,conditioned,Q3,1,0.900817,0.942666,-0.041848,1354
+vit_s16,conditioned,Q4 (easiest),1,0.899683,0.977162,-0.077479,1355
+vit_s16,conditioned,Q1 (hardest),2,0.838858,0.820977,0.017882,1355
+vit_s16,conditioned,Q2,2,0.862273,0.878419,-0.016146,1355
+vit_s16,conditioned,Q3,2,0.884142,0.909234,-0.025092,1354
+vit_s16,conditioned,Q4 (easiest),2,0.889053,0.961778,-0.072725,1355
+vit_s16,conditioned,Q1 (hardest),3,0.830528,0.797755,0.032773,1355
+vit_s16,conditioned,Q2,3,0.849379,0.853103,-0.003724,1355
+vit_s16,conditioned,Q3,3,0.868513,0.886196,-0.017683,1354
+vit_s16,conditioned,Q4 (easiest),3,0.875011,0.949021,-0.07401,1355
+vit_s16,conditioned,Q1 (hardest),4,0.825167,0.782508,0.04266,1355
+vit_s16,conditioned,Q2,4,0.838058,0.834091,0.003967,1355
+vit_s16,conditioned,Q3,4,0.857281,0.869367,-0.012086,1354
+vit_s16,conditioned,Q4 (easiest),4,0.86322,0.936661,-0.07344,1355
+vit_s16,unconditioned,Q1 (hardest),1,0.849496,0.854667,-0.005171,1355
+vit_s16,unconditioned,Q2,1,0.88404,0.91613,-0.03209,1355
+vit_s16,unconditioned,Q3,1,0.905969,0.942666,-0.036697,1354
+vit_s16,unconditioned,Q4 (easiest),1,0.903991,0.977162,-0.073171,1355
+vit_s16,unconditioned,Q1 (hardest),2,0.843766,0.820977,0.022789,1355
+vit_s16,unconditioned,Q2,2,0.866665,0.878419,-0.011754,1355
+vit_s16,unconditioned,Q3,2,0.888512,0.909234,-0.020722,1354
+vit_s16,unconditioned,Q4 (easiest),2,0.890857,0.961778,-0.070921,1355
+vit_s16,unconditioned,Q1 (hardest),3,0.835496,0.797755,0.037741,1355
+vit_s16,unconditioned,Q2,3,0.854374,0.853103,0.001271,1355
+vit_s16,unconditioned,Q3,3,0.873618,0.886196,-0.012578,1354
+vit_s16,unconditioned,Q4 (easiest),3,0.875877,0.949021,-0.073144,1355
+vit_s16,unconditioned,Q1 (hardest),4,0.830782,0.782508,0.048274,1355
+vit_s16,unconditioned,Q2,4,0.844123,0.834091,0.010033,1355
+vit_s16,unconditioned,Q3,4,0.863784,0.869367,-0.005584,1354
+vit_s16,unconditioned,Q4 (easiest),4,0.864678,0.936661,-0.071982,1355
+vjepa2_rep1,conditioned,Q1 (hardest),1,0.971339,0.971762,-0.000423,1355
+vjepa2_rep1,conditioned,Q2,1,0.984932,0.990298,-0.005366,1355
+vjepa2_rep1,conditioned,Q3,1,0.987929,0.993849,-0.00592,1354
+vjepa2_rep1,conditioned,Q4 (easiest),1,0.98845,0.996883,-0.008433,1355
+vjepa2_rep1,conditioned,Q1 (hardest),2,0.965064,0.955669,0.009395,1355
+vjepa2_rep1,conditioned,Q2,2,0.980249,0.982887,-0.002638,1355
+vjepa2_rep1,conditioned,Q3,2,0.984166,0.988693,-0.004527,1354
+vjepa2_rep1,conditioned,Q4 (easiest),2,0.985408,0.99441,-0.009002,1355
+vjepa2_rep1,conditioned,Q1 (hardest),3,0.961649,0.945562,0.016086,1355
+vjepa2_rep1,conditioned,Q2,3,0.974974,0.975664,-0.00069,1355
+vjepa2_rep1,conditioned,Q3,3,0.980221,0.983752,-0.003531,1354
+vjepa2_rep1,conditioned,Q4 (easiest),3,0.981621,0.991564,-0.009943,1355
+vjepa2_rep1,conditioned,Q1 (hardest),4,0.958899,0.938468,0.02043,1355
+vjepa2_rep1,conditioned,Q2,4,0.970819,0.970058,0.000761,1355
+vjepa2_rep1,conditioned,Q3,4,0.976152,0.978904,-0.002752,1354
+vjepa2_rep1,conditioned,Q4 (easiest),4,0.977256,0.988436,-0.01118,1355
+vjepa2_rep1,unconditioned,Q1 (hardest),1,0.972395,0.971762,0.000632,1355
+vjepa2_rep1,unconditioned,Q2,1,0.985063,0.990298,-0.005235,1355
+vjepa2_rep1,unconditioned,Q3,1,0.988137,0.993849,-0.005712,1354
+vjepa2_rep1,unconditioned,Q4 (easiest),1,0.987729,0.996883,-0.009154,1355
+vjepa2_rep1,unconditioned,Q1 (hardest),2,0.965387,0.955669,0.009718,1355
+vjepa2_rep1,unconditioned,Q2,2,0.979974,0.982887,-0.002912,1355
+vjepa2_rep1,unconditioned,Q3,2,0.984235,0.988693,-0.004458,1354
+vjepa2_rep1,unconditioned,Q4 (easiest),2,0.984286,0.99441,-0.010124,1355
+vjepa2_rep1,unconditioned,Q1 (hardest),3,0.961137,0.945562,0.015575,1355
+vjepa2_rep1,unconditioned,Q2,3,0.974397,0.975664,-0.001267,1355
+vjepa2_rep1,unconditioned,Q3,3,0.979875,0.983752,-0.003877,1354
+vjepa2_rep1,unconditioned,Q4 (easiest),3,0.97942,0.991564,-0.012144,1355
+vjepa2_rep1,unconditioned,Q1 (hardest),4,0.958324,0.938468,0.019856,1355
+vjepa2_rep1,unconditioned,Q2,4,0.970369,0.970058,0.000311,1355
+vjepa2_rep1,unconditioned,Q3,4,0.975638,0.978904,-0.003266,1354
+vjepa2_rep1,unconditioned,Q4 (easiest),4,0.974791,0.988436,-0.013645,1355
+vjepa2_rep64,conditioned,Q1 (hardest),1,0.982322,0.980024,0.002298,1355
+vjepa2_rep64,conditioned,Q2,1,0.987773,0.993867,-0.006095,1355
+vjepa2_rep64,conditioned,Q3,1,0.989755,0.996421,-0.006666,1354
+vjepa2_rep64,conditioned,Q4 (easiest),1,0.990336,0.998222,-0.007885,1355
+vjepa2_rep64,conditioned,Q1 (hardest),2,0.978506,0.967939,0.010567,1355
+vjepa2_rep64,conditioned,Q2,2,0.983929,0.986409,-0.002481,1355
+vjepa2_rep64,conditioned,Q3,2,0.986392,0.99122,-0.004828,1354
+vjepa2_rep64,conditioned,Q4 (easiest),2,0.987418,0.994568,-0.00715,1355
+vjepa2_rep64,conditioned,Q1 (hardest),3,0.973132,0.956528,0.016604,1355
+vjepa2_rep64,conditioned,Q2,3,0.979023,0.978736,0.000287,1355
+vjepa2_rep64,conditioned,Q3,3,0.982766,0.986522,-0.003756,1354
+vjepa2_rep64,conditioned,Q4 (easiest),3,0.98422,0.991562,-0.007343,1355
+vjepa2_rep64,conditioned,Q1 (hardest),4,0.968452,0.948069,0.020382,1355
+vjepa2_rep64,conditioned,Q2,4,0.974666,0.972361,0.002305,1355
+vjepa2_rep64,conditioned,Q3,4,0.979133,0.982084,-0.002951,1354
+vjepa2_rep64,conditioned,Q4 (easiest),4,0.980905,0.988558,-0.007653,1355
+vjepa2_rep64,unconditioned,Q1 (hardest),1,0.982677,0.980024,0.002653,1355
+vjepa2_rep64,unconditioned,Q2,1,0.987883,0.993867,-0.005984,1355
+vjepa2_rep64,unconditioned,Q3,1,0.990018,0.996421,-0.006403,1354
+vjepa2_rep64,unconditioned,Q4 (easiest),1,0.990237,0.998222,-0.007985,1355
+vjepa2_rep64,unconditioned,Q1 (hardest),2,0.978157,0.967939,0.010218,1355
+vjepa2_rep64,unconditioned,Q2,2,0.9835,0.986409,-0.002909,1355
+vjepa2_rep64,unconditioned,Q3,2,0.986126,0.99122,-0.005094,1354
+vjepa2_rep64,unconditioned,Q4 (easiest),2,0.98683,0.994568,-0.007738,1355
+vjepa2_rep64,unconditioned,Q1 (hardest),3,0.972096,0.956528,0.015568,1355
+vjepa2_rep64,unconditioned,Q2,3,0.978136,0.978736,-0.0006,1355
+vjepa2_rep64,unconditioned,Q3,3,0.982187,0.986522,-0.004335,1354
+vjepa2_rep64,unconditioned,Q4 (easiest),3,0.983404,0.991562,-0.008158,1355
+vjepa2_rep64,unconditioned,Q1 (hardest),4,0.967421,0.948069,0.019352,1355
+vjepa2_rep64,unconditioned,Q2,4,0.973522,0.972361,0.00116,1355
+vjepa2_rep64,unconditioned,Q3,4,0.978406,0.982084,-0.003678,1354
+vjepa2_rep64,unconditioned,Q4 (easiest),4,0.980244,0.988558,-0.008314,1355
+vq_track,conditioned,Q1 (hardest),1,0.987808,0.987959,-0.000151,1355
+vq_track,conditioned,Q2,1,0.994102,0.99582,-0.001718,1355
+vq_track,conditioned,Q3,1,0.996147,0.997863,-0.001716,1354
+vq_track,conditioned,Q4 (easiest),1,0.996141,0.999381,-0.00324,1355
+vq_track,conditioned,Q1 (hardest),2,0.984612,0.983996,0.000615,1355
+vq_track,conditioned,Q2,2,0.991353,0.993012,-0.001658,1355
+vq_track,conditioned,Q3,2,0.994131,0.995926,-0.001796,1354
+vq_track,conditioned,Q4 (easiest),2,0.994657,0.998658,-0.004002,1355
+vq_track,conditioned,Q1 (hardest),3,0.982229,0.980978,0.001251,1355
+vq_track,conditioned,Q2,3,0.989328,0.991027,-0.001699,1355
+vq_track,conditioned,Q3,3,0.992574,0.99425,-0.001677,1354
+vq_track,conditioned,Q4 (easiest),3,0.993303,0.998039,-0.004735,1355
+vq_track,conditioned,Q1 (hardest),4,0.98061,0.97903,0.00158,1355
+vq_track,conditioned,Q2,4,0.987225,0.988862,-0.001636,1355
+vq_track,conditioned,Q3,4,0.991281,0.993145,-0.001864,1354
+vq_track,conditioned,Q4 (easiest),4,0.992384,0.997438,-0.005053,1355
+vq_track,unconditioned,Q1 (hardest),1,0.990202,0.987959,0.002243,1355
+vq_track,unconditioned,Q2,1,0.995285,0.99582,-0.000535,1355
+vq_track,unconditioned,Q3,1,0.99683,0.997863,-0.001033,1354
+vq_track,unconditioned,Q4 (easiest),1,0.995988,0.999381,-0.003393,1355
+vq_track,unconditioned,Q1 (hardest),2,0.987591,0.983996,0.003594,1355
+vq_track,unconditioned,Q2,2,0.992731,0.993012,-0.00028,1355
+vq_track,unconditioned,Q3,2,0.994855,0.995926,-0.001072,1354
+vq_track,unconditioned,Q4 (easiest),2,0.993725,0.998658,-0.004934,1355
+vq_track,unconditioned,Q1 (hardest),3,0.985358,0.980978,0.004379,1355
+vq_track,unconditioned,Q2,3,0.99078,0.991027,-0.000246,1355
+vq_track,unconditioned,Q3,3,0.993274,0.99425,-0.000977,1354
+vq_track,unconditioned,Q4 (easiest),3,0.991951,0.998039,-0.006088,1355
+vq_track,unconditioned,Q1 (hardest),4,0.98363,0.97903,0.0046,1355
+vq_track,unconditioned,Q2,4,0.988963,0.988862,0.000102,1355
+vq_track,unconditioned,Q3,4,0.992402,0.993145,-0.000743,1354
+vq_track,unconditioned,Q4 (easiest),4,0.99122,0.997438,-0.006218,1355
