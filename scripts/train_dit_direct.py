@@ -499,7 +499,9 @@ def train_dit_direct(encoder_name: str, seed: int, variant: str, lr: float):
     # Save results
     # ---------------------------------------------------------------
 
-    out_dir = f"{OUT_DIR}/{encoder_name}/{variant}/seed_{seed}"
+    # Include LR in path to avoid collisions during pilot sweeps
+    lr_tag = f"_lr{lr:.0e}".replace("+", "").replace("-0", "-")
+    out_dir = f"{OUT_DIR}/{encoder_name}/{variant}/seed_{seed}{lr_tag}"
     os.makedirs(out_dir, exist_ok=True)
 
     checkpoint = {

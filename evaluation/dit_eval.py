@@ -1,18 +1,21 @@
-"""DA7: Fair DiT-vs-MLP evaluation and comparison table generation.
+"""DA7/DA7.5: Fair model comparison and ablation evaluation.
 
-Evaluates MLP predictors (trained via ``scripts/train_mlp_fair.py``)
-on the test set using the same adapter/normalization as DiT, then
-produces a unified comparison table.
+Evaluates MLP and DiT-direct predictors on the test set using the same
+adapter/normalization as DiT-DDIM, then produces a unified comparison
+table with up to 4 models: copy_baseline, dit_direct, mlp, dit (DDIM).
 
 Output artifacts:
   - ``artifacts/full/mlp_rollout_results.json`` -- raw MLP results
+  - ``artifacts/full/dit_direct_rollout_results.json`` -- raw DiT-direct
   - ``artifacts/full/dit_vs_mlp_comparison.csv`` -- unified table
   - ``artifacts/full/dit_vs_mlp_table.tex`` -- LaTeX for report
+  - ``artifacts/full/mlp_by_difficulty.csv`` -- hard-subset analysis
 
 Usage
 -----
     python -m evaluation.dit_eval
-    python -m evaluation.dit_eval --device cuda
+    python -m evaluation.dit_eval --dit-direct-lr 0.001
+    python -m evaluation.dit_eval --difficulty
     python -m evaluation.dit_eval --encoders vit_s16 clip_b32
 """
 
@@ -43,7 +46,9 @@ from models.fourier_embed import FourierActionEmbedding
 from models.latent_pred import LatentPredictor
 
 MLP_CKPT_ROOT = Path("outputs/latent_predictors_fair")
+DIT_DIRECT_CKPT_ROOT = Path("outputs/dit_direct")
 MLP_RESULTS_PATH = Path("artifacts/full/mlp_rollout_results.json")
+DIT_DIRECT_RESULTS_PATH = Path("artifacts/full/dit_direct_rollout_results.json")
 COMPARISON_CSV_PATH = Path("artifacts/full/dit_vs_mlp_comparison.csv")
 LATEX_PATH = Path("artifacts/full/dit_vs_mlp_table.tex")
 
@@ -206,6 +211,220 @@ def evaluate_mlp(
         result["per_window_copy_cossim"] = [torch.cat(pw_copy[k]).numpy()
                                             for k in range(horizon)]
     return result
+
+
+# ---------------------------------------------------------------
+# DiT-direct model (inline, mirrors scripts/train_dit_direct.py)
+# ---------------------------------------------------------------
+
+
+def _modulate(x, shift, scale):
+    return x * (1.0 + scale) + shift
+
+
+class _DiTBlock(nn.Module):
+    """Transformer block with adaLN-Zero conditioning."""
+
+    def __init__(self, dim=384, cond_dim=384, n_heads=6,
+                 mlp_ratio=4.0, dropout=0.0):
+        super().__init__()
+        self.norm_attn = nn.LayerNorm(dim, elementwise_affine=False)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=dim, num_heads=n_heads,
+            dropout=dropout, batch_first=True,
+        )
+        self.norm_mlp = nn.LayerNorm(dim, elementwise_affine=False)
+        mlp_hidden = int(dim * mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, mlp_hidden), nn.GELU(),
+            nn.Linear(mlp_hidden, dim),
+        )
+        self.drop = (nn.Dropout(dropout) if dropout > 0.0
+                     else nn.Identity())
+        self.adaln_linear = nn.Linear(cond_dim, 6 * dim)
+        nn.init.zeros_(self.adaln_linear.weight)
+        nn.init.zeros_(self.adaln_linear.bias)
+
+    def forward(self, x, cond):
+        mod = self.adaln_linear(cond).unsqueeze(1)
+        shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = (
+            mod.chunk(6, dim=-1)
+        )
+        h = _modulate(self.norm_attn(x), shift_a, scale_a)
+        attn_out, _ = self.attn(h, h, h, need_weights=False)
+        x = x + gate_a * self.drop(attn_out)
+        h = _modulate(self.norm_mlp(x), shift_m, scale_m)
+        x = x + gate_m * self.drop(self.mlp(h))
+        return x
+
+
+class LatentDiTDirect(nn.Module):
+    """DiT for direct latent future prediction (no diffusion)."""
+
+    def __init__(self, z_dim=384, cond_dim=384, n_blocks=4,
+                 n_heads=6, horizon=4, mlp_ratio=4.0, dropout=0.0):
+        super().__init__()
+        self.z_dim = z_dim
+        self.horizon = horizon
+        self.input_proj = nn.Linear(z_dim, z_dim)
+        self.pos_embed = nn.Embedding(horizon, z_dim)
+        self.z_t_proj = nn.Linear(z_dim, cond_dim)
+        self.blocks = nn.ModuleList([
+            _DiTBlock(dim=z_dim, cond_dim=cond_dim, n_heads=n_heads,
+                      mlp_ratio=mlp_ratio, dropout=dropout)
+            for _ in range(n_blocks)
+        ])
+        self.final_norm = nn.LayerNorm(z_dim, elementwise_affine=False)
+        self.final_adaln = nn.Linear(cond_dim, 3 * z_dim)
+        nn.init.zeros_(self.final_adaln.weight)
+        nn.init.zeros_(self.final_adaln.bias)
+        self.final_linear = nn.Linear(z_dim, z_dim)
+
+    def forward(self, z_t, a_embed):
+        B = z_t.shape[0]
+        cond = self.z_t_proj(z_t) + a_embed
+        pos_ids = torch.arange(self.horizon, device=z_t.device)
+        x = self.input_proj(z_t).unsqueeze(1).expand(
+            B, self.horizon, -1
+        )
+        x = x + self.pos_embed(pos_ids).unsqueeze(0)
+        for block in self.blocks:
+            x = block(x, cond)
+        mod = self.final_adaln(cond).unsqueeze(1)
+        shift, scale, gate = mod.chunk(3, dim=-1)
+        x = gate * self.final_linear(
+            _modulate(self.final_norm(x), shift, scale)
+        )
+        return x
+
+
+def evaluate_dit_direct(
+    encoder_name: str,
+    variant: str,
+    seed: int,
+    lr: float,
+    device: torch.device = torch.device("cpu"),
+) -> dict:
+    """Run DiT-direct predictor on test set.
+
+    Same evaluation protocol as ``evaluate_mlp``: loads checkpoint,
+    reconstructs adapter/normalization, forward pass, inverse transform,
+    computes CosSim/MSE/copy baseline in adapted unnormalized space.
+
+    Returns dict with same schema as MLP/DiT results.
+    """
+    lr_tag = f"_lr{lr:.0e}".replace("+", "").replace("-0", "-")
+    ckpt_path = (
+        DIT_DIRECT_CKPT_ROOT / encoder_name / variant
+        / f"seed_{seed}{lr_tag}" / "checkpoint.pt"
+    )
+    if not ckpt_path.exists():
+        return {"error": f"Missing checkpoint: {ckpt_path}"}
+
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    z_mean = ckpt["z_mean"].to(device)
+    z_std = ckpt["z_std"].to(device)
+
+    # Reconstruct adapter
+    native_dim = NATIVE_DIMS[encoder_name]
+    needs_adapter = native_dim != TARGET_DIM
+    if needs_adapter and ckpt["adapter_state_dict"]:
+        adapter: nn.Module = nn.Linear(native_dim, TARGET_DIM, bias=False).to(device)
+        adapter.load_state_dict(ckpt["adapter_state_dict"])
+        for p in adapter.parameters():
+            p.requires_grad_(False)
+    else:
+        adapter = nn.Identity().to(device)
+
+    # Reconstruct DiT-direct + Fourier
+    dit = LatentDiTDirect().to(device)
+    dit.load_state_dict(ckpt["dit_direct_state_dict"])
+    dit.eval()
+
+    fourier_embed = FourierActionEmbedding.from_canonical().to(device)
+    fourier_embed.load_state_dict(ckpt["fourier_embed_state_dict"])
+    fourier_embed.eval()
+
+    # Load test data
+    data = load_embeddings(encoder_name)
+    test_win = build_windows(data, "test", DEFAULT_HORIZON)
+    if test_win is None:
+        return {"error": f"No test windows for {encoder_name}"}
+
+    z_t_test, act_test, zf_test = test_win
+    n_test = len(z_t_test)
+    horizon = zf_test.shape[1]
+
+    t0 = time.time()
+
+    cossim_sums = [0.0] * horizon
+    mse_sums = [0.0] * horizon
+    copy_cossim_sums = [0.0] * horizon
+    total_samples = 0
+
+    batch_size = 256
+    from torch.utils.data import DataLoader, TensorDataset
+
+    test_ds = TensorDataset(z_t_test, act_test, zf_test)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+
+    with torch.no_grad():
+        for z_t_b, act_b, zf_b in test_loader:
+            z_t_b = z_t_b.to(device)
+            act_b = act_b.to(device)
+            zf_b = zf_b.to(device)
+            B = z_t_b.shape[0]
+
+            B_f, H, _ = zf_b.shape
+            z_t_adapted = adapter(z_t_b)
+            zf_adapted = adapter(
+                zf_b.reshape(B_f * H, -1)
+            ).reshape(B_f, H, TARGET_DIM)
+
+            z_t_norm = (z_t_adapted - z_mean) / z_std
+
+            a_embed = fourier_embed(act_b)
+            if variant == "unconditioned":
+                a_embed = torch.zeros_like(a_embed)
+
+            # Single forward pass (no DDIM)
+            z_hat_norm = dit(z_t_norm, a_embed)  # (B, H, 384)
+
+            z_hat = z_hat_norm * z_std + z_mean
+            z_t_orig = z_t_adapted
+            zf_orig = zf_adapted
+
+            for k in range(horizon):
+                z_hat_k = z_hat[:, k]
+                z_real_k = zf_orig[:, k]
+
+                cs = F.cosine_similarity(z_hat_k, z_real_k, dim=-1)
+                cossim_sums[k] += cs.sum().item()
+
+                mse = ((z_hat_k - z_real_k) ** 2).mean(dim=-1)
+                mse_sums[k] += mse.sum().item()
+
+                copy_cs = F.cosine_similarity(z_t_orig, z_real_k, dim=-1)
+                copy_cossim_sums[k] += copy_cs.sum().item()
+
+            total_samples += B
+
+    elapsed = time.time() - t0
+
+    return {
+        "encoder": encoder_name,
+        "variant": variant,
+        "seed": seed,
+        "lr": lr,
+        "n_test_windows": total_samples,
+        "metrics": {
+            "cossim_by_horizon": [s / total_samples for s in cossim_sums],
+            "mse_by_horizon": [s / total_samples for s in mse_sums],
+            "copy_baseline_cossim": [s / total_samples
+                                     for s in copy_cossim_sums],
+        },
+        "time_s": round(elapsed, 1),
+    }
 
 
 def load_dit_results() -> dict:
@@ -373,6 +592,7 @@ def export_difficulty_csv(rows: list[dict], path: Path) -> None:
 def build_comparison_table(
     dit_results: list[dict],
     mlp_results: list[dict],
+    dit_direct_results: list[dict] | None = None,
 ) -> list[dict]:
     """Build unified comparison rows.
 
@@ -384,10 +604,16 @@ def build_comparison_table(
     """
     dit_summary = _build_summary(dit_results)
     mlp_summary = _build_summary(mlp_results)
+    dd_summary = (_build_summary(dit_direct_results)
+                  if dit_direct_results else {})
 
     rows: list[dict] = []
 
-    for enc in sorted(set(list(dit_summary.keys()) + list(mlp_summary.keys()))):
+    all_encs = sorted(set(
+        list(dit_summary.keys()) + list(mlp_summary.keys())
+        + list(dd_summary.keys())
+    ))
+    for enc in all_encs:
         # DiT rows
         if enc in dit_summary:
             for var in sorted(dit_summary[enc].keys()):
@@ -426,6 +652,27 @@ def build_comparison_table(
                         "n_seeds": s["n_seeds"],
                         "n_test_windows": mlp_results[0]["n_test_windows"],
                         "source": "mlp_rollout_results.json",
+                    })
+
+        # DiT-direct rows
+        if enc in dd_summary:
+            for var in sorted(dd_summary[enc].keys()):
+                s = dd_summary[enc][var]
+                horizon = len(s["cossim_mean"])
+                for k in range(horizon):
+                    rows.append({
+                        "model": "dit_direct",
+                        "encoder": enc,
+                        "variant": var,
+                        "horizon": k + 1,
+                        "cossim_mean": s["cossim_mean"][k],
+                        "cossim_std_seed": s["cossim_std"][k],
+                        "mse_mean": s["mse_mean"][k],
+                        "mse_std_seed": s["mse_std"][k],
+                        "n_seeds": s["n_seeds"],
+                        "n_test_windows": dit_direct_results[0][
+                            "n_test_windows"],
+                        "source": "dit_direct_rollout_results.json",
                     })
 
         # Copy baseline (single set of rows per encoder, variant="none")
@@ -562,6 +809,13 @@ def main():
         action="store_true",
         help="Generate hard-subset difficulty table (DA7.5).",
     )
+    parser.add_argument(
+        "--dit-direct-lr",
+        type=float,
+        default=0.0,
+        help="Evaluate DiT-direct checkpoints at this LR (DA7.5). "
+             "0 = skip DiT-direct evaluation.",
+    )
     args = parser.parse_args()
 
     device = torch.device(
@@ -638,8 +892,53 @@ def main():
         json.dump(mlp_output, fh, indent=2)
     print(f"\n[saved] {MLP_RESULTS_PATH}")
 
+    # DiT-direct evaluation (DA7.5)
+    dd_results: list[dict] | None = None
+    if args.dit_direct_lr > 0:
+        print("\n" + "=" * 60)
+        print("DA7.5: DiT-Direct Evaluation")
+        print(f"  lr: {args.dit_direct_lr}")
+        print("=" * 60)
+
+        dd_results = []
+        dd_variants = ["conditioned"]  # conditioned-only by design
+        for enc in args.encoders:
+            for var in dd_variants:
+                for seed in args.seeds:
+                    print(f"\n[eval-dd] {enc}/{var}/seed={seed}")
+                    result = evaluate_dit_direct(
+                        enc, var, seed, args.dit_direct_lr,
+                        device=device,
+                    )
+                    if "error" in result:
+                        print(f"  [SKIP] {result['error']}")
+                        continue
+                    m = result["metrics"]
+                    print(f"  {'k':>3}  {'CosSim':>8}  {'MSE':>8}  "
+                          f"{'CopyBL':>8}")
+                    for k in range(len(m["cossim_by_horizon"])):
+                        print(
+                            f"  k={k+1}:  "
+                            f"{m['cossim_by_horizon'][k]:>8.4f}  "
+                            f"{m['mse_by_horizon'][k]:>8.4f}  "
+                            f"{m['copy_baseline_cossim'][k]:>8.4f}"
+                        )
+                    dd_results.append(result)
+
+        if dd_results:
+            dd_summary = _build_summary(dd_results)
+            dd_output = {"results": dd_results, "summary": dd_summary}
+            DIT_DIRECT_RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with DIT_DIRECT_RESULTS_PATH.open("w") as fh:
+                json.dump(dd_output, fh, indent=2)
+            print(f"\n[saved] {DIT_DIRECT_RESULTS_PATH}")
+        else:
+            dd_results = None
+
     # Build comparison table
-    comparison_rows = build_comparison_table(dit_results, mlp_results)
+    comparison_rows = build_comparison_table(
+        dit_results, mlp_results, dd_results,
+    )
     export_csv(comparison_rows, COMPARISON_CSV_PATH)
     print(f"[saved] {COMPARISON_CSV_PATH}")
 
@@ -669,27 +968,62 @@ def main():
 
     # Print summary
     print("\n" + "=" * 60)
-    print("SUMMARY: DiT vs MLP CosSim (seed-averaged, k=1)")
-    print("=" * 60)
     dit_summary = _build_summary(dit_results)
-    print(f"  {'Encoder':<15} {'Variant':<14} {'DiT':>8} {'MLP':>8} {'CopyBL':>8} {'Winner':>8}")
-    print(f"  {'-'*13:<15} {'-'*12:<14} {'-'*6:>8} {'-'*6:>8} {'-'*6:>8} {'-'*6:>8}")
+    dd_sum = _build_summary(dd_results) if dd_results else {}
+    has_dd = bool(dd_sum)
 
-    for enc in sorted(args.encoders):
-        for var in VARIANTS:
-            dit_cs = dit_summary.get(enc, {}).get(var, {}).get("cossim_mean", [None])[0]
-            mlp_cs = mlp_summary.get(enc, {}).get(var, {}).get("cossim_mean", [None])[0]
-            copy_cs = dit_summary.get(enc, {}).get(var, {}).get("copy_baseline_cossim", [None])[0]
+    if has_dd:
+        print("SUMMARY: 4-Model CosSim Comparison (seed-averaged, k=1)")
+        print("=" * 60)
+        print(f"  {'Encoder':<15} {'Variant':<14} {'Copy':>8} "
+              f"{'DiT-dir':>8} {'MLP':>8} {'DiT-eps':>8}")
+        print(f"  {'-'*13:<15} {'-'*12:<14} {'-'*6:>8} "
+              f"{'-'*6:>8} {'-'*6:>8} {'-'*6:>8}")
 
-            winner = ""
-            if dit_cs is not None and mlp_cs is not None:
-                winner = "DiT" if dit_cs > mlp_cs else "MLP"
+        for enc in sorted(args.encoders):
+            for var in VARIANTS:
+                dit_cs = dit_summary.get(enc, {}).get(
+                    var, {}).get("cossim_mean", [None])[0]
+                mlp_cs = mlp_summary.get(enc, {}).get(
+                    var, {}).get("cossim_mean", [None])[0]
+                copy_cs = dit_summary.get(enc, {}).get(
+                    var, {}).get("copy_baseline_cossim", [None])[0]
+                dd_cs = dd_sum.get(enc, {}).get(
+                    var, {}).get("cossim_mean", [None])
+                dd_cs = dd_cs[0] if dd_cs else None
 
-            print(
-                f"  {enc:<15} {var:<14} "
-                f"{dit_cs:>8.4f} {mlp_cs:>8.4f} "
-                f"{copy_cs:>8.4f} {winner:>8}"
-            )
+                dd_str = f"{dd_cs:>8.4f}" if dd_cs else f"{'--':>8}"
+                print(
+                    f"  {enc:<15} {var:<14} "
+                    f"{copy_cs:>8.4f} {dd_str} "
+                    f"{mlp_cs:>8.4f} {dit_cs:>8.4f}"
+                )
+    else:
+        print("SUMMARY: DiT vs MLP CosSim (seed-averaged, k=1)")
+        print("=" * 60)
+        print(f"  {'Encoder':<15} {'Variant':<14} {'DiT':>8} "
+              f"{'MLP':>8} {'CopyBL':>8} {'Winner':>8}")
+        print(f"  {'-'*13:<15} {'-'*12:<14} {'-'*6:>8} "
+              f"{'-'*6:>8} {'-'*6:>8} {'-'*6:>8}")
+
+        for enc in sorted(args.encoders):
+            for var in VARIANTS:
+                dit_cs = dit_summary.get(enc, {}).get(
+                    var, {}).get("cossim_mean", [None])[0]
+                mlp_cs = mlp_summary.get(enc, {}).get(
+                    var, {}).get("cossim_mean", [None])[0]
+                copy_cs = dit_summary.get(enc, {}).get(
+                    var, {}).get("copy_baseline_cossim", [None])[0]
+
+                winner = ""
+                if dit_cs is not None and mlp_cs is not None:
+                    winner = "DiT" if dit_cs > mlp_cs else "MLP"
+
+                print(
+                    f"  {enc:<15} {var:<14} "
+                    f"{dit_cs:>8.4f} {mlp_cs:>8.4f} "
+                    f"{copy_cs:>8.4f} {winner:>8}"
+                )
 
 
 if __name__ == "__main__":
