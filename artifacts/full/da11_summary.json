@@ -1,0 +1,58 @@
+{
+  "experiment": "DA11",
+  "title": "Action-Sequence Conditioning for DiT",
+  "date": "2026-05-29",
+  "status": "complete",
+  "pilot_results": {
+    "p1_aggregate_win": false,
+    "p3_interaction": true
+  },
+  "full_results": {
+    "p1_aggregate_win": false,
+    "p3_interaction_all_3_encoders": true,
+    "per_encoder_h16": {
+      "vit_s16": {
+        "dit_actseq": 0.7998,
+        "mlp_flat_actseq": 0.8231,
+        "dit_single": 0.7848,
+        "mlp_single": 0.8179,
+        "dit_improvement": 0.015,
+        "mlp_improvement": 0.0052,
+        "interaction": 0.0099
+      },
+      "clip_b32": {
+        "dit_actseq": 0.896,
+        "mlp_flat_actseq": 0.9083,
+        "dit_single": 0.889,
+        "mlp_single": 0.9091,
+        "dit_improvement": 0.007,
+        "mlp_improvement": -0.0009,
+        "interaction": 0.0078
+      },
+      "dino_vits14": {
+        "dit_actseq": 0.7714,
+        "mlp_flat_actseq": 0.7964,
+        "dit_single": 0.7516,
+        "mlp_single": 0.7866,
+        "dit_improvement": 0.0198,
+        "mlp_improvement": 0.0099,
+        "interaction": 0.0099
+      }
+    },
+    "dit_beats_copy_at_last_step_h16": {
+      "vit_s16": true,
+      "clip_b32": true,
+      "dino_vits14": true
+    }
+  },
+  "key_finding": "MLP-flat-actseq wins on aggregate CosSim for all 3 pilot encoders (no P1 pass). Action-sequence conditioning benefits DiT more than MLP (interaction +0.008 to +0.010 at h=16), but the absolute gap remains negative. The interaction signal is modest and one MLP delta is negative (clip -0.0009), making the 2-3x ratio fragile. DiT-actseq beats copy baseline at the farthest horizon step, but this is a low bar. The interaction effect is a hypothesis-generating finding, not a demonstrated advantage.",
+  "report_framing": "Negative result with modest interaction effect as hypothesis for future work",
+  "caveats": [
+    "MLP-flat-actseq still wins on aggregate CosSim -- no P1 pass",
+    "MLP received same ordered action info (fair comparison)",
+    "DiT used EMA weights; MLP did not (standard practice but asymmetric)",
+    "Effect sizes are modest (interaction 0.008-0.010 CosSim)",
+    "Future actions are logged/planned, not predicted (open-loop world model framing)"
+  ],
+  "total_cost_usd": 18.0
+}
