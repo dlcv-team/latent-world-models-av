@@ -593,7 +593,7 @@ class TestAttributionPipeline:
         overlay, title = pipeline.generate_attribution_overlay(
             image_rgb,
             attribution_map,
-            encoder_name="vqvae",
+            encoder_name="vq_track",
             scenario="urban",
             frame_idx=5,
             is_fallback=True,
@@ -602,6 +602,52 @@ class TestAttributionPipeline:
         # Title should contain fallback caveat
         assert "fallback" in title.lower()
         assert "DINOv2" in title
+
+    @pytest.mark.parametrize(
+        "cuda_avail, mps_avail, expected_device",
+        [
+            (True, False, "cuda"),
+            (False, True, "mps"),
+            (True, True, "cuda"),   # cuda takes priority over mps
+            (False, False, "cpu"),
+        ],
+        ids=["cuda-only", "mps-only", "both-prefer-cuda", "cpu-fallback"],
+    )
+    def test_device_auto_detection(self, tmp_path, cuda_avail, mps_avail, expected_device):
+        """Test device auto-selection when device=None."""
+        with patch("evaluation.gradcam.torch") as mock_torch:
+            mock_torch.cuda.is_available.return_value = cuda_avail
+            mock_torch.backends.mps.is_available.return_value = mps_avail
+
+            pipeline = AttributionPipeline(
+                split="p0_test",
+                device=None,
+                output_dir=tmp_path,
+            )
+            assert pipeline.device == expected_device
+
+    def test_device_explicit_overrides_auto(self, tmp_path):
+        """Test that explicit device= skips auto-detection."""
+        pipeline = AttributionPipeline(
+            split="p0_test",
+            device="cpu",
+            output_dir=tmp_path,
+        )
+        assert pipeline.device == "cpu"
+
+    @patch("evaluation.gradcam.torch")
+    def test_mps_cleanup_called(self, mock_torch, tmp_path):
+        """Test that MPS cache cleanup is invoked for mps device."""
+        mock_torch.backends.mps.is_available.return_value = True
+        mock_torch.cuda.is_available.return_value = False
+
+        pipeline = AttributionPipeline(
+            split="p0_test",
+            device="mps",
+            output_dir=tmp_path,
+        )
+        pipeline._cleanup_encoder("vit_s16", None, None)
+        mock_torch.mps.empty_cache.assert_called_once()
 
     def test_output_directory_creation(self, tmp_path):
         """Test that output directory is created if it doesn't exist."""
