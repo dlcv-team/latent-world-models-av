@@ -28,7 +28,7 @@ ENCODER_DISPLAY = {
     "vjepa2_rep1": "V-JEPA2\n(fpc1)",
     "dino_vits14": "DINOv2\nViT-S/14",
     "vq_track": "VQ-VAE\nTracker",
-    # P0 canonical encoder names (for backward compatibility)
+    # P0 canonical encoder names (backward compat; remove after P0 scripts retired)
     "vjepa2": "V-JEPA2\n(fpc64)",
     "dinov2_s14": "DINOv2\nViT-S/14",
     "vqvae": "VQ-VAE\nTracker",
