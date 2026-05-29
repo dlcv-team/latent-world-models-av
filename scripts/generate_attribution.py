@@ -34,9 +34,9 @@ def main():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda",
-        choices=["cuda", "cpu"],
-        help="Device to run attribution on",
+        default=None,
+        choices=["cuda", "mps", "cpu"],
+        help="Device to run attribution on (default: auto-detect cuda > mps > cpu)",
     )
     parser.add_argument(
         "--output-dir",
