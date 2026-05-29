@@ -351,6 +351,18 @@ class AttributionGridGenerator:
         # Get annotations for this (encoder, scenario) pair
         annots = self.annotations.get((encoder_key, scenario_key), [])
 
+        # Determine image bounds from loaded images (fall back to 224 default)
+        img = self.images.get((encoder_key, scenario_key))
+        if img is not None:
+            img_h, img_w = img.shape[0], img.shape[1]
+        else:
+            img_h, img_w = 224, 224
+            if annots:
+                print(
+                    f"Warning: No loaded image for {encoder_key}/{scenario_key}; "
+                    f"clipping annotations to default 224x224 bounds"
+                )
+
         for annot in annots:
             annot_type = annot.get("type")
             label = annot.get("label", "")
@@ -367,11 +379,11 @@ class AttributionGridGenerator:
                 width = x2 - x1
                 height = y2 - y1
 
-                # Clip to image bounds (224×224)
-                x1 = max(0, min(224, x1))
-                y1 = max(0, min(224, y1))
-                width = max(0, min(224 - x1, width))
-                height = max(0, min(224 - y1, height))
+                # Clip to image bounds
+                x1 = max(0, min(img_w, x1))
+                y1 = max(0, min(img_h, y1))
+                width = max(0, min(img_w - x1, width))
+                height = max(0, min(img_h - y1, height))
 
                 rect = plt.Rectangle(
                     (x1, y1), width, height,
@@ -404,10 +416,10 @@ class AttributionGridGenerator:
                 x_end, y_end = end
 
                 # Clip to image bounds
-                x_start = max(0, min(224, x_start))
-                y_start = max(0, min(224, y_start))
-                x_end = max(0, min(224, x_end))
-                y_end = max(0, min(224, y_end))
+                x_start = max(0, min(img_w, x_start))
+                y_start = max(0, min(img_h, y_start))
+                x_end = max(0, min(img_w, x_end))
+                y_end = max(0, min(img_h, y_end))
 
                 ax.annotate(
                     '',  # No text at arrow
