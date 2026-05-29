@@ -1,0 +1,107 @@
+{
+  "experiment": "DA9",
+  "title": "Investigate whether DiT adds value beyond point prediction",
+  "date": "2026-05-28",
+  "status": "complete",
+
+  "experiments": {
+    "exp0_dynamic_subset": {
+      "status": "complete",
+      "description": "Per-quartile analysis of DA8 models by copy-baseline difficulty",
+      "csv": "artifacts/full/da9_dynamic_subset.csv",
+      "agg_csv": "artifacts/full/da9_dynamic_subset_agg.csv",
+      "finding": "DiT-x0 is behind MLP-residual on ALL quartiles including Q1 (hardest). The gap does NOT shrink on hard subsets. DiT underperforms even more on easier quartiles where copy baseline is strong.",
+      "encoders": ["clip_b32", "dino_vits14", "vit_s16", "vjepa2_rep1", "vjepa2_rep64", "vq_track"],
+      "seeds": [0, 1, 2],
+      "horizon": 4,
+      "cost_usd": 0
+    },
+
+    "exp1_diversity": {
+      "status": "complete",
+      "description": "K=10 DDIM diversity diagnostic with eta=0 (varying x_T)",
+      "csv": "artifacts/full/da9_diversity.csv",
+      "finding": "DiT-x0 has learned a near-unimodal conditional posterior. Pairwise distance across K=10 samples is very small (0.002-0.053), confirming the model functions as a point predictor. vjepa2_rep64 shows near-zero diversity (0.002). vit_s16 shows modest diversity (0.053) where Best-of-K oracle exceeds MLP-residual, but Mean-of-K (the accessible metric) does not.",
+      "encoders": ["vit_s16", "clip_b32", "vjepa2_rep64"],
+      "seeds": [0],
+      "k_samples": 10,
+      "eta": 0.0,
+      "horizon": 4,
+      "cost_usd": 0.15,
+      "detail": {
+        "vit_s16": {
+          "pairwise_distance": 0.0535,
+          "spread": 0.0221,
+          "best_of_k_h4": 0.857,
+          "mean_of_k_h4": 0.827,
+          "mlp_residual_h4": 0.838,
+          "best_of_k_beats_mlp_residual": true,
+          "mean_of_k_beats_mlp_residual": false,
+          "note": "Best-of-K is oracle; Mean-of-K is accessible. Oracle improves over MLP-residual but accessible metric does not."
+        },
+        "clip_b32": {
+          "pairwise_distance": 0.0227,
+          "spread": 0.0111,
+          "best_of_k_h4": 0.927,
+          "mean_of_k_h4": 0.912,
+          "mlp_residual_h4": 0.921,
+          "best_of_k_beats_mlp_residual": true,
+          "mean_of_k_beats_mlp_residual": false
+        },
+        "vjepa2_rep64": {
+          "pairwise_distance": 0.0023,
+          "spread": 0.0030,
+          "best_of_k_h4": 0.979,
+          "mean_of_k_h4": 0.976,
+          "mlp_residual_h4": 0.980,
+          "best_of_k_beats_mlp_residual": false,
+          "mean_of_k_beats_mlp_residual": false,
+          "note": "Near-complete mode collapse. DiT ignores noise prior entirely."
+        }
+      }
+    },
+
+    "exp2_rollout": {
+      "status": "dropped",
+      "description": "Autoregressive long rollout (dropped from scope per plan)"
+    },
+
+    "exp3_horizon": {
+      "status": "complete",
+      "description": "DiT-x0 vs MLP at longer horizons (h=8, h=16)",
+      "csv": "artifacts/full/da9_horizon_full.csv",
+      "finding": "DiT-x0 falls further behind MLP-residual at longer horizons. The gap WIDENS from h=4 to h=8/h=16 on every encoder. The hypothesis that DiT closes the gap when prediction becomes harder is REJECTED.",
+      "gate": {
+        "csv": "artifacts/full/da9_gate_full.json",
+        "criterion": "absolute proximity (|gap| < 0.02 AND mlp_residual > 0.60)",
+        "result": "5/6 encoders pass absolute proximity at h=16, but gap widens vs h=4",
+        "gap_closure_hypothesis_rejected": true,
+        "per_encoder_gap_h4_to_h16": {
+          "clip_b32": {"h4": -0.003, "h8": -0.017, "h16": -0.014},
+          "dino_vits14": {"h4": -0.001, "h8": -0.017, "h16": -0.010},
+          "vit_s16": {"h4": -0.011, "h8": -0.024, "h16": -0.021},
+          "vjepa2_rep1": {"h4": -0.002, "h8": -0.010, "h16": -0.008},
+          "vjepa2_rep64": {"h4": -0.002, "h8": -0.007, "h16": -0.005},
+          "vq_track": {"h4": -0.001, "h8": -0.009, "h16": -0.008}
+        },
+        "note": "Negative values = MLP-residual wins. Gap sign: positive = DiT wins."
+      },
+      "encoders": ["clip_b32", "dino_vits14", "vit_s16", "vjepa2_rep1", "vjepa2_rep64", "vq_track"],
+      "seeds": [0, 1, 2],
+      "horizons": [8, 16],
+      "cost_usd": 12.0,
+      "checkpoints_backed_up_to": "huggingface.co/surlac/lwm-av-checkpoints"
+    }
+  },
+
+  "overall_finding": "DiT-x0 provides no measurable advantage over MLP-residual in any tested setting: not on hard subsets (Exp 0), not at longer horizons (Exp 3), and it has collapsed to a near-point-predictor with minimal sampling diversity (Exp 1). At 2Hz nuScenes, the conditional future distribution is effectively unimodal, so diffusion adds computational overhead without representational benefit. This is a clean negative result that constrains when diffusion world models add value for autonomous driving.",
+
+  "caveats": [
+    "Best-of-K is an oracle metric -- real systems cannot select the best sample without ground truth",
+    "2Hz nuScenes may be too slow to capture multi-modal futures (e.g. lane change decisions happen within 0.5s)",
+    "MLP-residual is a stronger baseline than MLP-fair; papers comparing only against weaker baselines overstate diffusion value",
+    "Negative results constrain when diffusion adds value, which is itself a contribution"
+  ],
+
+  "total_cost_usd": 12.15
+}
