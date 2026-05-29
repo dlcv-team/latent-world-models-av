@@ -96,8 +96,13 @@ def evaluate_dit_objective(
     z_t_test, act_test, zf_test,
     prediction: str, residual: bool,
     n_steps: int = 50, seed: int = 0, device: torch.device = torch.device("cpu"),
+    per_window: bool = False,
 ):
-    """Run DDIM sampling with the appropriate x0 recovery for each objective."""
+    """Run DDIM sampling with the appropriate x0 recovery for each objective.
+
+    If ``per_window=True``, also returns per-window CosSim and copy-baseline
+    arrays (one np.ndarray per horizon step) for downstream quartile analysis.
+    """
     horizon = DEFAULT_HORIZON
     schedule = CosineNoiseSchedule(n_steps=DIFFUSION_CONFIG["n_train_steps"]).to(device)
 
@@ -120,6 +125,11 @@ def evaluate_dit_objective(
     z_hat_norm_sum = 0.0
     z_real_norm_sum = 0.0
     total = 0
+
+    # Per-window storage (only allocated if requested)
+    if per_window:
+        pw_cossim: list[list[torch.Tensor]] = [[] for _ in range(horizon)]
+        pw_copy: list[list[torch.Tensor]] = [[] for _ in range(horizon)]
 
     with torch.no_grad():
         for z_t_batch, act_batch, zf_batch in test_loader:
@@ -192,6 +202,9 @@ def evaluate_dit_objective(
             z_hat = z_hat_norm * z_std + z_mean
             zf_orig = zf_adapted * z_std + z_mean
 
+            # Copy baseline in unnormalized adapted space
+            z_t_unnorm = z_t_adapted * z_std + z_mean
+
             z_hat_norm_sum += z_hat.norm(dim=-1).sum().item()
             z_real_norm_sum += zf_orig.norm(dim=-1).sum().item()
 
@@ -201,20 +214,38 @@ def evaluate_dit_objective(
                 cossim_sums[k] += cs.sum().item()
                 mse_sums[k] += mse.sum().item()
 
+                if per_window:
+                    pw_cossim[k].append(cs.cpu())
+                    copy_cs = F.cosine_similarity(z_t_unnorm, zf_orig[:, k], dim=-1)
+                    pw_copy[k].append(copy_cs.cpu())
+
             total += B
 
-    return {
+    result = {
         "cossim_by_horizon": [s / total for s in cossim_sums],
         "mse_by_horizon": [s / total for s in mse_sums],
         "z_hat_norm_ratio": z_hat_norm_sum / (z_real_norm_sum + 1e-8),
         "n_test_windows": total,
     }
+    if per_window:
+        result["per_window_cossim"] = [
+            torch.cat(pw_cossim[k]).numpy() for k in range(horizon)
+        ]
+        result["per_window_copy_cossim"] = [
+            torch.cat(pw_copy[k]).numpy() for k in range(horizon)
+        ]
+    return result
 
 
 def evaluate_residual_mlp(
     encoder_name: str, seed: int, device: torch.device,
+    per_window: bool = False,
 ):
-    """Evaluate the residual MLP (B2 fairness control)."""
+    """Evaluate the residual MLP (B2 fairness control).
+
+    If ``per_window=True``, also returns per-window CosSim and copy-baseline
+    arrays for downstream quartile analysis.
+    """
     from models.latent_pred import LatentPredictor
     from config import load_canonical
 
@@ -264,6 +295,11 @@ def evaluate_residual_mlp(
     z_real_norm_sum = 0.0
     total = 0
 
+    # Per-window storage (only allocated if requested)
+    if per_window:
+        pw_cossim: list[list[torch.Tensor]] = [[] for _ in range(horizon)]
+        pw_copy: list[list[torch.Tensor]] = [[] for _ in range(horizon)]
+
     with torch.no_grad():
         for z_t_batch, act_batch, zf_batch in test_loader:
             z_t_batch = z_t_batch.to(device)
@@ -290,6 +326,9 @@ def evaluate_residual_mlp(
             z_hat = z_hat_norm * z_std + z_mean
             zf_orig = zf_adapted * z_std + z_mean
 
+            # Copy baseline in unnormalized adapted space
+            z_t_unnorm = z_t_adapted * z_std + z_mean
+
             z_hat_norm_sum += z_hat.norm(dim=-1).sum().item()
             z_real_norm_sum += zf_orig.norm(dim=-1).sum().item()
 
@@ -299,14 +338,27 @@ def evaluate_residual_mlp(
                 cossim_sums[k] += cs.sum().item()
                 mse_sums[k] += mse.sum().item()
 
+                if per_window:
+                    pw_cossim[k].append(cs.cpu())
+                    copy_cs = F.cosine_similarity(z_t_unnorm, zf_orig[:, k], dim=-1)
+                    pw_copy[k].append(copy_cs.cpu())
+
             total += B
 
-    return {
+    result = {
         "cossim_by_horizon": [s / total for s in cossim_sums],
         "mse_by_horizon": [s / total for s in mse_sums],
         "z_hat_norm_ratio": z_hat_norm_sum / (z_real_norm_sum + 1e-8),
         "n_test_windows": total,
     }
+    if per_window:
+        result["per_window_cossim"] = [
+            torch.cat(pw_cossim[k]).numpy() for k in range(horizon)
+        ]
+        result["per_window_copy_cossim"] = [
+            torch.cat(pw_copy[k]).numpy() for k in range(horizon)
+        ]
+    return result
 
 
 def main():
