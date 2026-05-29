@@ -67,7 +67,7 @@ def bootstrap_mean_ci(
         Tuple of (mean, ci_lo, ci_hi)
 
     Notes:
-        Uses percentile method with manual resampling loop.
+        Uses percentile method with vectorized resampling.
         For single-value inputs, returns (mean, mean, mean).
 
     Raises:
@@ -82,14 +82,11 @@ def bootstrap_mean_ci(
     if len(values) == 1:
         return mean, mean, mean
 
-    # Manual bootstrap resampling
+    # Vectorized bootstrap resampling
     rng = np.random.default_rng(seed)
     n = values.shape[0]
-    boot_means = np.empty(n_resamples, dtype=float)
-
-    for i in range(n_resamples):
-        sample = rng.choice(values, size=n, replace=True)
-        boot_means[i] = sample.mean()
+    indices = rng.integers(0, n, size=(n_resamples, n))
+    boot_means = values[indices].mean(axis=1)
 
     # Compute percentile-based CI
     alpha = 1.0 - confidence_level
@@ -141,17 +138,18 @@ def classify_scenes_by_scenario(
         scene = scene_records[0]
         description = scene.get("description", "").lower()
 
-        # String matching heuristic
+        # String matching heuristic (check specific before general:
+        # "intersection" before "urban" since descriptions may contain both)
         if "highway" in description or "freeway" in description:
             bucket = "highway"
+        elif "intersection" in description or "junction" in description:
+            bucket = "intersection"
         elif (
             "urban" in description
             or "city" in description
             or "downtown" in description
         ):
             bucket = "urban"
-        elif "intersection" in description or "junction" in description:
-            bucket = "intersection"
         else:
             bucket = "other"
 
@@ -172,7 +170,7 @@ def classify_scenes_by_scenario(
 def compute_per_scenario_rmse(
     predictions_df: pd.DataFrame,
     scene_to_bucket: dict[str, str],
-    cfg: CanonicalConfig,
+    cfg: CanonicalConfig | dict[str, Any],
 ) -> pd.DataFrame:
     """Compute per-scenario RMSE with bootstrap confidence intervals.
 
@@ -187,7 +185,7 @@ def compute_per_scenario_rmse(
             - steer_pred, accel_pred: float (normalized)
             - steer_true, accel_true: float (normalized)
         scene_to_bucket: Mapping from scene identifier to scenario bucket
-        cfg: Canonical config with evaluation.bootstrap parameters
+        cfg: Canonical config or plain dict with evaluation.bootstrap parameters
 
     Returns:
         DataFrame with columns:
