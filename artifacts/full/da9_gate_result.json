@@ -1,0 +1,26 @@
+{
+  "per_encoder": {
+    "vit_s16": {
+      "encoder": "vit_s16",
+      "h4_dit": 0.826431,
+      "h4_mlp_res": 0.83883,
+      "h4_gap": 0.012399,
+      "h16_dit": 0.765036,
+      "h16_mlp_res": 0.786552,
+      "h16_gap": 0.021516,
+      "passed": false
+    },
+    "clip_b32": {
+      "encoder": "clip_b32",
+      "h4_dit": 0.91205,
+      "h4_mlp_res": 0.913817,
+      "h4_gap": 0.001768,
+      "h16_dit": 0.876088,
+      "h16_mlp_res": 0.889264,
+      "h16_gap": 0.013176,
+      "pass_reason": "absolute_proximity (gap < 0.02, floor > 0.60)",
+      "passed": true
+    }
+  },
+  "any_pass": true
+}
