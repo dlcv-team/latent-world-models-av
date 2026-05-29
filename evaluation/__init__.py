@@ -10,10 +10,14 @@ from evaluation.latent_eval import (
     run_latent_eval,
 )
 from evaluation.metrics import (
+    compute_rmse,
     classify_scenes_by_scenario,
     compute_per_scenario_rmse,
-    compute_rmse,
     convert_steer_rmse_to_deg,
+)
+from evaluation.sidecars import (
+    write_data_quality_report,
+    write_per_scenario_rmse,
 )
 
 __all__ = [
@@ -28,4 +32,6 @@ __all__ = [
     "evaluate_cossim",
     "export_cossim_results",
     "run_latent_eval",
+    "write_data_quality_report",
+    "write_per_scenario_rmse",
 ]
