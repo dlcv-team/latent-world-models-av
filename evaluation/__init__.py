@@ -1,5 +1,6 @@
 """Evaluation harness for encoder benchmarking."""
 
+from evaluation.attribution_grid import AttributionGridGenerator
 from evaluation.latent_eval import (
     COSSIM_CSV_FILENAME,
     COSSIM_JSON_FILENAME,
@@ -20,6 +21,7 @@ from evaluation.sidecars import (
 )
 
 __all__ = [
+    "AttributionGridGenerator",
     "COSSIM_CSV_FILENAME",
     "COSSIM_JSON_FILENAME",
     "classify_scenes_by_scenario",
