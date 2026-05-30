@@ -1,0 +1,73 @@
+{
+  "source_archive_path": "fullscope-gpu-latest/attribution",
+  "upload_status": "pending_hf_auth",
+  "hf_repo": "surlac/lwm-av-embeddings",
+  "files": [
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_clip_b32.pdf",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_clip_b32.pdf",
+      "bytes": 2716861,
+      "sha256": "54e839cabee403921fd9919650d24a77efd0bada2d16dcc9d4f060e55f1a9082"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_clip_b32.png",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_clip_b32.png",
+      "bytes": 2909366,
+      "sha256": "ee2b784748196a5ffda3168c8d80561f94597fe8a001f6b75c4a97253c57bc4f"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_dino_vits14.pdf",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_dino_vits14.pdf",
+      "bytes": 2716911,
+      "sha256": "e0d89c7f8d4bf5c9f6380efa011cbc0be4ac22949f00317b0695fb28e95ac730"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_dino_vits14.png",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_dino_vits14.png",
+      "bytes": 2909357,
+      "sha256": "8eefad9e362b53f0e08828c8c3ebec198a77e16523648e4f0f7310371e36893f"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_vit_s16.pdf",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_vit_s16.pdf",
+      "bytes": 2716807,
+      "sha256": "3315d8603e4d9b10e04260a3a2bdf7fa31f9fa67a245287da543aebca6f89313"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_vit_s16.png",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_vit_s16.png",
+      "bytes": 2908631,
+      "sha256": "03c2f8b9f77bb30681980929a97c1cc31dc7ba068c9bad341b1020ca89ff7842"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_vjepa2_rep64.pdf",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_vjepa2_rep64.pdf",
+      "bytes": 2717765,
+      "sha256": "0cf24cb61e75d3c8c9bceb83edeede16aad95f1b914ae13e6a857f485aec86a5"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_vjepa2_rep64.png",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_vjepa2_rep64.png",
+      "bytes": 2911452,
+      "sha256": "a2ca4a128b3f4ca81c0bc02075334d17bc15d4d41f7b8e672d3d5618c7fa43da"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_vq_track.pdf",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_vq_track.pdf",
+      "bytes": 2716531,
+      "sha256": "3092a54ca1b764191248074e9e16e350818474d6c77cfba2c8e6f0124c39ec66"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/attribution_vq_track.png",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/attribution_vq_track.png",
+      "bytes": 2909066,
+      "sha256": "5180ae2fcc6edac1797692a400c5e4a01747d52ef50b51d57e456bc81c80f73d"
+    },
+    {
+      "source_archive_path": "fullscope-gpu-latest/attribution/phase_attribution_report.json",
+      "intended_hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope/phase_attribution_report.json",
+      "bytes": 603,
+      "sha256": "bd46de7b18abd3b266c985c4382c2024c8a04ccd6c720949bc3dd924acb41434"
+    }
+  ]
+}
