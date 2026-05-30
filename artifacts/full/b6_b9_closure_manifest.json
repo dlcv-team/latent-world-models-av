@@ -37,8 +37,11 @@
       "large_manifest": "artifacts/full/attribution/legacy_fullscope_manifest.json",
       "file_count": 11,
       "total_bytes": 28133350,
-      "hf_upload_status": "pending_hf_auth",
-      "caveat": "These are archived fullscope attribution composites, not freshly generated B7 per-frame overlays from evaluation/gradcam.py. Raw trainval images were unavailable during closure."
+      "hf_upload_status": "uploaded",
+      "caveat": "These are archived fullscope attribution composites, not freshly generated B7 per-frame overlays from evaluation/gradcam.py. Raw trainval images were unavailable during closure.",
+      "hf_repo": "surlac/lwm-av-embeddings",
+      "hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope",
+      "hf_url": "https://huggingface.co/datasets/surlac/lwm-av-embeddings/tree/main/b6_b9/artifacts/full/attribution/legacy_fullscope"
     },
     "legacy_attribution_grid": "artifacts/full/figures/attribution_grid.pdf"
   },
