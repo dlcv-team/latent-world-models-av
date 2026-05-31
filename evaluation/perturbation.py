@@ -37,6 +37,7 @@ import torch
 from torch import nn
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.data_classes import Box
+from nuscenes.utils.geometry_utils import view_points
 from pyquaternion import Quaternion
 from tqdm import tqdm
 
@@ -48,11 +49,16 @@ from training.train_probe import ENCODER_REGISTRY
 logger = logging.getLogger(__name__)
 
 # Image dimensions and perturbation regions
-# (Ranges specified in PRD B10: mask_left_lane columns 0-74, mask_right_lane columns 150-224)
+# (Ranges specified in PRD B10 spec, authoritative source for task B10)
 IMAGE_WIDTH = 224
 IMAGE_HEIGHT = 224
-LEFT_LANE_MASK_END = 75      # Rightmost column index (exclusive) for left lane mask
-RIGHT_LANE_MASK_START = 150  # Leftmost column index (inclusive) for right lane mask
+# Lane masks per PRD B10: left ~33% (cols 0-74), right ~33% (cols 150-224) of 224px width
+LEFT_LANE_MASK_END = 75      # Columns 0-74 (33.5% from left edge)
+RIGHT_LANE_MASK_START = 150  # Columns 150-224 (33.2% from right edge)
+
+# Minimum valid frames for reliable bootstrap CIs
+# (Below this threshold, a warning is logged)
+MIN_FRAMES_FOR_RELIABLE_CI = 10
 
 
 # ---------------------------------------------------------------------------
@@ -133,33 +139,47 @@ def load_encoder_and_probe(
 
     encoder = encoder.to(device).eval()
 
-    # Encoders that require trained adapters (non-Identity projection layers)
-    REQUIRES_ADAPTER = {"clip", "vqvae", "vjepa2"}
-
     # Extract adapter from encoder
     # The adapter is encoder.adapter, but we need to handle it separately
     # for loading trained weights if they exist in checkpoint
     if ckpt.get("adapter_state_dict") is not None:
-        # Adapter weights were saved
-        native_dim = list(ckpt["adapter_state_dict"].values())[0].shape[1]
+        # Adapter weights were saved - validate structure before loading
+        adapter_state = ckpt["adapter_state_dict"]
+        if not adapter_state:
+            raise RuntimeError(
+                f"adapter_state_dict is empty in checkpoint: {checkpoint_path}"
+            )
+        if "weight" not in adapter_state:
+            raise RuntimeError(
+                f"adapter_state_dict missing 'weight' key in checkpoint: {checkpoint_path}. "
+                f"Found keys: {list(adapter_state.keys())}"
+            )
+
+        # Infer adapter dimensions from saved weights
+        native_dim = adapter_state["weight"].shape[1]
         adapter = nn.Linear(native_dim, 384, bias=False)
-        adapter.load_state_dict(ckpt["adapter_state_dict"])
+        adapter.load_state_dict(adapter_state)
         adapter = adapter.to(device).eval()
         logger.info(
             f"Loaded trained adapter for {encoder_name} ({native_dim}→384)"
         )
     else:
-        # No adapter weights in checkpoint
-        if encoder_name in REQUIRES_ADAPTER:
-            # FATAL: Adapter is required but missing
+        # No adapter weights in checkpoint - check if encoder requires one
+        adapter = encoder.adapter
+
+        # Dynamic check: if adapter is non-Identity and weights are missing, that's a problem
+        if not isinstance(adapter, nn.Identity):
             raise RuntimeError(
-                f"Checkpoint for {encoder_name} missing 'adapter_state_dict'. "
-                f"This encoder requires a trained adapter projection. "
+                f"Checkpoint for {encoder_name} missing 'adapter_state_dict' "
+                f"but encoder has non-Identity adapter ({type(adapter).__name__}). "
+                f"This means the adapter was trained but not saved. "
                 f"Retrain probe with: python -m training.train_probe --encoder {encoder_name}"
             )
-        else:
-            # OK: This encoder uses Identity adapter (ViT-S/16, DINOv2)
-            adapter = encoder.adapter
+        # OK: This encoder uses Identity adapter (no trained weights needed)
+        # Ensure adapter is on correct device (encoder.adapter is already on device via encoder.to(device),
+        # but we make it explicit for consistency with the checkpoint path above)
+        adapter = adapter.to(device).eval()
+        logger.info(f"Using Identity adapter for {encoder_name} (no projection needed)")
 
     # Build and load probe
     cfg = load_canonical()
@@ -184,6 +204,9 @@ def select_validation_frames(
     dataset_length: int, n_frames: int, seed: int
 ) -> list[int]:
     """Select random validation frame indices for perturbation analysis.
+
+    Uses uniform random sampling without stratification. For analyses requiring
+    scenario-balanced sampling, use a different selection strategy.
 
     Parameters
     ----------
@@ -252,8 +275,6 @@ def get_lead_vehicle_bbox_2d(
     >>> if bbox:  # doctest: +SKIP
     ...     x1, y1, x2, y2 = bbox  # doctest: +SKIP
     """
-    from nuscenes.utils.geometry_utils import view_points
-
     # Get sample and CAM_FRONT data
     sample = nusc.get("sample", sample_token)
     cam_token = sample["data"]["CAM_FRONT"]
@@ -281,7 +302,7 @@ def get_lead_vehicle_bbox_2d(
         # Get 3D center in global frame
         center_global = np.array(ann["translation"])
 
-        # Transform to ego frame
+        # Transform to ego vehicle frame (nuScenes convention: x-forward, y-left, z-up)
         ego_translation = np.array(ego_pose["translation"])
         ego_rotation = np.array(ego_pose["rotation"])  # quaternion
 
@@ -290,6 +311,8 @@ def get_lead_vehicle_bbox_2d(
         center_ego = q_ego.inverse.rotate(center_global - ego_translation)
 
         # Check if in front (positive x in ego frame)
+        # Note: Later projection to camera frame (line ~330) uses camera coordinates
+        # where z-forward, but this ego-frame filtering is correct for x-forward
         if center_ego[0] <= 0:
             continue
 
@@ -395,11 +418,11 @@ def apply_perturbation(
     perturbed = image.clone()
 
     if perturbation_type == "mask_left_lane":
-        # Zero out columns 0-74 per PRD B10
+        # Zero out columns 0-74 per PRD B10 spec
         perturbed[..., :LEFT_LANE_MASK_END] = 0
 
     elif perturbation_type == "mask_right_lane":
-        # Zero out columns 150-224 per PRD B10
+        # Zero out columns 150-224 per PRD B10 spec
         perturbed[..., RIGHT_LANE_MASK_START:IMAGE_WIDTH] = 0
 
     elif perturbation_type == "mask_lead_vehicle":
@@ -830,12 +853,19 @@ def run_perturbation_analysis(
                     f"(perturbation returned None)"
                 )
 
-            # Compute mean and CIs via bootstrap
-            if len(steering_drmse_list) == 0:
+            # Validate minimum frame count for reliable statistics
+            n_valid = len(steering_drmse_list)
+
+            if n_valid == 0:
                 logger.error(
                     f"  No valid frames for {encoder_name} + {perturbation_type}. Skipping."
                 )
                 continue
+            elif n_valid < MIN_FRAMES_FOR_CI:
+                logger.warning(
+                    f"  Only {n_valid}/{n_frames} valid frames for {encoder_name} + "
+                    f"{perturbation_type}. CIs may be unreliable (recommend >={MIN_FRAMES_FOR_CI})."
+                )
 
             steer_mean, steer_ci_lo, steer_ci_hi = compute_drmse_with_ci(
                 steering_drmse_list, cfg
@@ -867,9 +897,9 @@ def run_perturbation_analysis(
 
         # Free encoder/probe memory
         del encoder, adapter, probe
-        if device.type == "cuda" and torch.cuda.is_available():
+        if device.type == "cuda":
             torch.cuda.empty_cache()
-        elif device.type == "mps" and torch.backends.mps.is_available():
+        elif device.type == "mps":
             torch.mps.empty_cache()
         logger.info(f"Freed memory for {encoder_name}")
 
