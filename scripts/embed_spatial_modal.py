@@ -140,6 +140,29 @@ def extract_spatial_embeddings(encoder_name: str):
     else:
         raise ValueError(f"Unknown loader: {config['loader']}")
 
+    # ---- Setup: extract raw images from tar if needed ----
+    import subprocess
+
+    DATA_ROOT = f"{VOL_PATH}/nuscenes"
+    RAW_DIR = f"{VOL_PATH}/raw"
+    cam_dir = f"{DATA_ROOT}/samples/CAM_FRONT"
+
+    os.makedirs(f"{DATA_ROOT}/samples", exist_ok=True)
+    if not os.path.isdir(cam_dir) or len(os.listdir(cam_dir)) < 30000:
+        tar_path = f"{RAW_DIR}/CAM_FRONT.tar"
+        if os.path.exists(tar_path):
+            print(f"[spatial-embed] Extracting CAM_FRONT.tar ({os.path.getsize(tar_path)/1e9:.1f} GB)...")
+            subprocess.run(["tar", "xf", tar_path, "-C", f"{DATA_ROOT}/samples/"], check=True)
+            n_imgs = len(os.listdir(cam_dir))
+            print(f"[spatial-embed] Extracted {n_imgs} images to {cam_dir}")
+        else:
+            print(f"[spatial-embed] ERROR: {tar_path} not found! Cannot extract spatial embeddings.")
+            print(f"[spatial-embed] Upload with: modal volume put nuscenes-full CAM_FRONT.tar /raw/CAM_FRONT.tar")
+            return None
+    else:
+        n_imgs = len(os.listdir(cam_dir))
+        print(f"[spatial-embed] CAM_FRONT already extracted ({n_imgs} images)")
+
     # ---- Load existing pooled embeddings to get metadata ----
     pooled_data = np.load(f"{EMBED_DIR}/{encoder_name}.npz", allow_pickle=True)
     scene_names = pooled_data["scene_names"]
@@ -151,6 +174,17 @@ def extract_spatial_embeddings(encoder_name: str):
     n_total = len(scene_names)
     print(f"[spatial-embed] {n_total} frames to process")
 
+    # ---- Verify first image is accessible ----
+    first_path = f"{DATA_ROOT}/{image_paths[0]}"
+    if not os.path.exists(first_path):
+        print(f"[spatial-embed] ERROR: First image not found at {first_path}")
+        print(f"[spatial-embed] Listing {DATA_ROOT}/samples/CAM_FRONT/:")
+        if os.path.isdir(cam_dir):
+            files = os.listdir(cam_dir)[:3]
+            print(f"  {files}")
+        return None
+    print(f"[spatial-embed] Image access verified: {first_path}")
+
     # ---- Load images and extract spatial embeddings ----
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -161,6 +195,7 @@ def extract_spatial_embeddings(encoder_name: str):
 
     batch_size = 64
     all_spatial = []
+    n_missing = 0
 
     with torch.no_grad():
         for start in range(0, n_total, batch_size):
@@ -169,20 +204,13 @@ def extract_spatial_embeddings(encoder_name: str):
 
             for i in range(start, end):
                 img_path = str(image_paths[i])
-                # Image paths are relative like "samples/CAM_FRONT/xxx.jpg"
-                # On Modal they're under /vol/nuscenes/
-                full_path = f"/vol/nuscenes/{img_path}"
+                full_path = f"{DATA_ROOT}/{img_path}"
                 if not os.path.exists(full_path):
-                    # Fallback: try other prefixes
-                    for prefix in ["/vol/nuscenes/trainval/", "/vol/", ""]:
-                        alt = prefix + img_path
-                        if os.path.exists(alt):
-                            full_path = alt
-                            break
-                    else:
-                        print(f"  WARNING: image not found: {img_path}")
-                        batch_imgs.append(torch.zeros(3, 224, 224))
-                        continue
+                    n_missing += 1
+                    if n_missing <= 5:
+                        print(f"  WARNING: image not found: {full_path}")
+                    batch_imgs.append(torch.zeros(3, 224, 224))
+                    continue
                 img = Image.open(full_path).convert("RGB")
                 batch_imgs.append(transform(img))
 
@@ -204,6 +232,10 @@ def extract_spatial_embeddings(encoder_name: str):
 
     spatial_embeddings = np.concatenate(all_spatial, axis=0)
     print(f"[spatial-embed] Final shape: {spatial_embeddings.shape}")
+    if n_missing > 0:
+        print(f"[spatial-embed] WARNING: {n_missing}/{n_total} images missing!")
+    else:
+        print(f"[spatial-embed] All {n_total} images processed successfully")
     # Expected: (n_total, S, dim) where S=49 for ViT or S=64 for DINOv2
 
     # ---- Save ----
