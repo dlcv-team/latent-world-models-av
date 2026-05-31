@@ -1,0 +1,58 @@
+{
+  "experiment": "T0",
+  "title": "DA11 Hard-Subset Analysis",
+  "date": "2026-05-30",
+  "gate": "PARTIAL_PASS",
+  "passing_encoders": 1,
+  "primary_slice": "Q1 copy-difficulty, h=16, steps 12-16",
+  "dino_vits14_Q1": {
+    "avg_gap": 0.0105,
+    "fisher_p": 0.013489,
+    "pass": true,
+    "per_seed": [
+      {
+        "gap": 0.0126,
+        "p": 0.0414,
+        "d": 0.353
+      },
+      {
+        "gap": 0.0072,
+        "p": 0.19,
+        "d": 0.223
+      },
+      {
+        "gap": 0.0116,
+        "p": 0.0416,
+        "d": 0.352
+      }
+    ]
+  },
+  "clip_b32_Q1": {
+    "avg_gap": -0.0037,
+    "fisher_p": 0.031736,
+    "pass": false
+  },
+  "vit_s16_Q1": {
+    "avg_gap": -0.003,
+    "fisher_p": 0.244848,
+    "pass": false
+  },
+  "dino_vits14_AV_Q4_exploratory": {
+    "avg_gap": 0.0165,
+    "per_seed": [
+      {
+        "gap": 0.0215,
+        "p": 0.0002
+      },
+      {
+        "gap": 0.0114,
+        "p": 0.0375
+      },
+      {
+        "gap": 0.0166,
+        "p": 0.0022
+      }
+    ]
+  },
+  "note": "DINOv2 DiT-actseq significantly beats MLP-flat on hardest Q1 slice (gap +0.011, p=0.013) and high action-variance scenes (gap +0.017, all seeds p<0.04)"
+}
