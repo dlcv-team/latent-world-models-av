@@ -171,8 +171,8 @@ def classify_scenes_by_environment(
     scene_names: list[str],
     night_scenes: set[str],
     rain_scenes: set[str],
-) -> dict[str, str]:
-    """Map scenes to night/rain/day environmental condition buckets.
+) -> dict[str, list[str]]:
+    """Map scenes to independent night/rain/day_clear environmental subsets.
 
     Parameters
     ----------
@@ -185,43 +185,56 @@ def classify_scenes_by_environment(
 
     Returns
     -------
-    dict[str, str]
-        Mapping from scene_name to environment category ("night", "rain", or "day").
+    dict[str, list[str]]
+        Mapping from environment type to list of scene names.
+        Keys: "night", "rain", "day_clear"
+        Scenes can appear in multiple subsets (e.g., night+rain scenes are in both).
 
     Notes
     -----
-    Scenes can only be in ONE bucket. Precedence: night > rain > day.
-    Night+rain scenes are classified as "night" since low-light conditions
-    dominate visual challenges.
+    This function creates INDEPENDENT, possibly OVERLAPPING subsets:
+    - "night": All night scenes (including night+rain)
+    - "rain": All rain scenes (including night+rain)
+    - "day_clear": Baseline scenes with neither night nor rain conditions
+
+    Night+rain scenes contribute to both night and rain performance metrics,
+    which is scientifically correct for isolating each environmental effect.
 
     Examples
     --------
-    >>> classify_scenes_by_environment(
-    ...     ["scene-0001", "scene-0002", "scene-0003"],
-    ...     night_scenes={"scene-0001"},
-    ...     rain_scenes={"scene-0002"}
+    >>> result = classify_scenes_by_environment(
+    ...     ["scene-0001", "scene-0002", "scene-0003", "scene-0004"],
+    ...     night_scenes={"scene-0001", "scene-0002"},
+    ...     rain_scenes={"scene-0002", "scene-0003"}
     ... )
-    {'scene-0001': 'night', 'scene-0002': 'rain', 'scene-0003': 'day'}
+    >>> result["night"]
+    ['scene-0001', 'scene-0002']
+    >>> result["rain"]
+    ['scene-0002', 'scene-0003']
+    >>> result["day_clear"]
+    ['scene-0004']
     """
-    mapping = {}
-    for scene_name in scene_names:
-        if scene_name in night_scenes:
-            mapping[scene_name] = "night"
-        elif scene_name in rain_scenes:
-            mapping[scene_name] = "rain"
-        else:
-            mapping[scene_name] = "day"
+    night_list = [s for s in scene_names if s in night_scenes]
+    rain_list = [s for s in scene_names if s in rain_scenes]
+    day_clear_list = [s for s in scene_names if s not in night_scenes and s not in rain_scenes]
+
+    # Find overlaps
+    overlap = set(night_list) & set(rain_list)
 
     # Log distribution
-    bucket_counts = Counter(mapping.values())
     total_scenes = len(scene_names)
-    logger.info("Environment classification breakdown (total=%d):", total_scenes)
-    for bucket in ["night", "rain", "day"]:
-        count = bucket_counts.get(bucket, 0)
-        pct = 100.0 * count / total_scenes if total_scenes > 0 else 0.0
-        logger.info("  %s: %d (%.1f%%)", bucket, count, pct)
+    logger.info("Environment subset distribution (total=%d):", total_scenes)
+    logger.info("  night:     %d (%.1f%%)", len(night_list), 100.0 * len(night_list) / total_scenes if total_scenes > 0 else 0.0)
+    logger.info("  rain:      %d (%.1f%%)", len(rain_list), 100.0 * len(rain_list) / total_scenes if total_scenes > 0 else 0.0)
+    logger.info("  day_clear: %d (%.1f%%)", len(day_clear_list), 100.0 * len(day_clear_list) / total_scenes if total_scenes > 0 else 0.0)
+    if overlap:
+        logger.info("  overlap (night+rain): %d scenes", len(overlap))
 
-    return mapping
+    return {
+        "night": sorted(night_list),
+        "rain": sorted(rain_list),
+        "day_clear": sorted(day_clear_list),
+    }
 
 
 def compute_per_scenario_rmse(

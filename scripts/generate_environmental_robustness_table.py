@@ -39,9 +39,9 @@ def main():
 
     # Validate required environments
     available_envs = set(df["environment"].unique())
-    if "day" not in available_envs:
-        print("\n❌ Error: 'day' environment not found in input data")
-        print("Cannot compute ratios without baseline day performance")
+    if "day_clear" not in available_envs:
+        print("\n❌ Error: 'day_clear' environment not found in input data")
+        print("Cannot compute ratios without baseline day_clear performance")
         return
 
     if "night" not in available_envs and "rain" not in available_envs:
@@ -49,7 +49,7 @@ def main():
         print("Populate configs/environment_scene_lists.yaml with night/rain scenes")
 
     # Pivot to get environment columns
-    # Columns after pivot: encoder, metric, n_scenes_day, mean_day, ci_lo_day, ci_hi_day, ...
+    # Columns after pivot: encoder, metric, n_scenes_day_clear, mean_day_clear, ...
     pivot_df = df.pivot_table(
         index=["encoder", "metric"],
         columns="environment",
@@ -71,8 +71,8 @@ def main():
         metric = row["metric"]
 
         # Extract values (handle missing environments gracefully)
-        mean_day = row.get("mean_day")
-        n_day = row.get("n_scenes_day", 0)
+        mean_day_clear = row.get("mean_day_clear")
+        n_day_clear = row.get("n_scenes_day_clear", 0)
 
         mean_night = row.get("mean_night")
         n_night = row.get("n_scenes_night", 0)
@@ -80,29 +80,29 @@ def main():
         mean_rain = row.get("mean_rain")
         n_rain = row.get("n_scenes_rain", 0)
 
-        # Validate day baseline
-        if pd.isna(mean_day) or mean_day == 0:
-            print(f"  Warning: {encoder}/{metric} has invalid day baseline (mean={mean_day}), skipping")
+        # Validate day_clear baseline
+        if pd.isna(mean_day_clear) or mean_day_clear == 0:
+            print(f"  Warning: {encoder}/{metric} has invalid day_clear baseline (mean={mean_day_clear}), skipping")
             continue
 
-        if n_day < 5:
-            print(f"  Warning: {encoder}/{metric} has only {n_day} day scenes (recommend ≥5)")
+        if n_day_clear < 5:
+            print(f"  Warning: {encoder}/{metric} has only {n_day_clear} day_clear scenes (recommend ≥5)")
 
-        # Compute ratios
-        ratio_night_day = mean_night / mean_day if not pd.isna(mean_night) else None
-        ratio_rain_day = mean_rain / mean_day if not pd.isna(mean_rain) else None
+        # Compute ratios (vs day_clear baseline)
+        ratio_night_day = mean_night / mean_day_clear if not pd.isna(mean_night) else None
+        ratio_rain_day = mean_rain / mean_day_clear if not pd.isna(mean_rain) else None
 
         results.append({
             "encoder": encoder,
             "metric": metric,
             "rmse_night": mean_night if not pd.isna(mean_night) else None,
             "rmse_rain": mean_rain if not pd.isna(mean_rain) else None,
-            "rmse_day": mean_day,
+            "rmse_day_clear": mean_day_clear,
             "ratio_night_day": ratio_night_day,
             "ratio_rain_day": ratio_rain_day,
             "n_night": int(n_night) if not pd.isna(n_night) else 0,
             "n_rain": int(n_rain) if not pd.isna(n_rain) else 0,
-            "n_day": int(n_day),
+            "n_day_clear": int(n_day_clear),
         })
 
     results_df = pd.DataFrame(results)
@@ -112,12 +112,14 @@ def main():
 
     # Log scene count distribution
     if len(results_df) > 0:
-        print("\nScene count summary:")
-        print(f"  Night scenes: {results_df['n_night'].iloc[0]}")
-        print(f"  Rain scenes: {results_df['n_rain'].iloc[0]}")
-        print(f"  Day scenes: {results_df['n_day'].iloc[0]}")
-        total = results_df['n_night'].iloc[0] + results_df['n_rain'].iloc[0] + results_df['n_day'].iloc[0]
-        print(f"  Total: {total} (should be 40 for p0_test)")
+        print("\nScene count summary (independent subsets, may overlap):")
+        print(f"  Night scenes:     {results_df['n_night'].iloc[0]}")
+        print(f"  Rain scenes:      {results_df['n_rain'].iloc[0]}")
+        print(f"  Day_clear scenes: {results_df['n_day_clear'].iloc[0]}")
+        overlap = results_df['n_night'].iloc[0] + results_df['n_rain'].iloc[0] + results_df['n_day_clear'].iloc[0] - 40
+        if overlap > 0:
+            print(f"  Overlap (night+rain): ~{overlap} scenes")
+        print(f"  Total unique: 40 (p0_test)")
 
     # Write output
     output_path = Path("outputs/analysis/environmental_robustness.csv")
@@ -129,7 +131,7 @@ def main():
 
     # Show sample
     print("\nSample output:")
-    display_cols = ["encoder", "metric", "ratio_night_day", "ratio_rain_day", "n_night", "n_rain", "n_day"]
+    display_cols = ["encoder", "metric", "ratio_night_day", "ratio_rain_day", "n_night", "n_rain", "n_day_clear"]
     if len(results_df) > 0:
         print(results_df[display_cols].head(10).to_string(index=False))
 
