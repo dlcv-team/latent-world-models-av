@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import random
 from pathlib import Path
 from typing import Optional
 
@@ -211,8 +210,8 @@ def select_validation_frames(
             f"{dataset_length} samples"
         )
 
-    rng = random.Random(seed)
-    indices = rng.sample(range(dataset_length), n_frames)
+    rng = np.random.default_rng(seed)
+    indices = rng.choice(dataset_length, size=n_frames, replace=False).tolist()
     return sorted(indices)
 
 
@@ -478,6 +477,15 @@ def evaluate_frame(
     tuple[float, float]
         (steer_rmse, accel_rmse) in normalized space
 
+    Notes
+    -----
+    This function computes RMSE on N=1 sample, which reduces to absolute error:
+    RMSE = sqrt(mean((pred - target)^2)) = |pred - target| when N=1.
+    The "RMSE" terminology is kept for consistency with compute_rmse(), but
+    note that per-frame values are absolute errors. Statistical aggregation
+    happens downstream via bootstrap in compute_drmse_with_ci(), which computes
+    the mean and CI of per-frame DRMSE values across many frames.
+
     Examples
     --------
     >>> encoder = ...  # doctest: +SKIP
@@ -533,6 +541,14 @@ def compute_frame_drmse(
     -------
     tuple[float, float]
         (steering_drmse, accel_drmse) = RMSE_masked - RMSE_unmasked
+
+    Notes
+    -----
+    Per-frame DRMSE values are deltas of absolute errors (not true RMSE, since
+    N=1 in evaluate_frame). The bootstrap aggregation in compute_drmse_with_ci()
+    provides the statistical summary: mean DRMSE and 95% CI across all frames.
+    Positive DRMSE → masking degrades predictions (region is important).
+    Negative DRMSE → masking improves predictions (region is distracting).
 
     Examples
     --------
