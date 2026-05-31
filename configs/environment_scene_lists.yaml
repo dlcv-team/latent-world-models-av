@@ -1,36 +1,37 @@
-# Environment-specific scene subsets from p0_test split (40 scenes total)
-# Manually identified by scene description and visual inspection
-version: "1.0.0"
-last_updated: "2026-05-31"
-
-# Night scenes: Low light conditions (dusk, night, tunnel interiors)
-# Expected count: ~20 scenes
-night_scenes: []
-  # Placeholder - populate after manual inspection of p0_test scenes
-  # Example format:
-  # - scene-0003
-  # - scene-0013
-
-# Rain scenes: Visible rain/wet conditions regardless of time of day
-# Expected count: ~15 scenes
-rain_scenes: []
-  # Placeholder - populate after manual inspection of p0_test scenes
-  # Example format:
-  # - scene-0017
-  # - scene-0061
-
+version: 1.0.0
+last_updated: '2026-05-31'
+night_scenes:
+- scene-1059
+- scene-1060
+- scene-1061
+- scene-1063
+- scene-1067
+- scene-1071
+rain_scenes:
+- scene-0635
+- scene-0638
+- scene-0904
+- scene-0905
+- scene-0906
+- scene-0913
+- scene-0914
+- scene-1060
+- scene-1067
 notes: |
   Classification guidelines:
-  - Night scenes: Low-light conditions (night, dusk, tunnel interiors)
-  - Rain scenes: Visible rain, wet roads, or water on windshield
-  - Day scenes: Everything else (implicit - not listed here)
+  - Night scenes: Low-light conditions (6pm-6am by timestamp)
+  - Rain scenes: Visible rain in scene descriptions or manual inspection
+  - Day_clear baseline: Scenes with neither night nor rain
 
-  Precedence for overlaps: night > rain
-  A night+rain scene should be classified as "night" since low-light
-  challenges dominate visual perception.
+  Subsets are INDEPENDENT and may OVERLAP:
+  - scene-1060 and scene-1067 are both night AND rain
+  - These scenes contribute to both night and rain RMSE metrics
+  - Allows isolation of each environmental effect independently
 
-  To populate these lists:
-  1. Load nuScenes v1.0-trainval with NuScenes API
-  2. Iterate through p0_test split scenes (see configs/trainval_subset_manifest.json)
-  3. Inspect scene["description"] and sample images for each scene
-  4. Add scene names to appropriate lists above
+  Classification results:
+  - Night scenes (6pm-6am): 6 scenes (auto-classified by timestamp)
+  - Rain scenes: 9 scenes (7 day+rain, 2 night+rain from descriptions)
+  - Day_clear baseline: 27 scenes (excludes night and rain)
+  - Overlap (night+rain): 2 scenes
+  - Total: 40 scenes
+  - Classification date: 2026-05-31

@@ -128,10 +128,10 @@ def main():
     scene_rmse_df = pd.DataFrame(all_scene_rmse)
     print(f"\nTotal scene-encoder pairs: {len(scene_rmse_df)}")
 
-    # Classify scenes by environment
+    # Classify scenes by environment (returns independent subsets)
     print("\nClassifying scenes by environment...")
     unique_scene_names = scene_rmse_df["scene_name"].unique().tolist()
-    scene_to_environment = classify_scenes_by_environment(
+    env_subsets = classify_scenes_by_environment(
         unique_scene_names, night_scenes, rain_scenes
     )
 
@@ -148,15 +148,12 @@ def main():
     for encoder in encoders:
         encoder_df = scene_rmse_df[scene_rmse_df["encoder"] == encoder]
 
-        # Aggregate by environment
+        # Aggregate by environment (independent subsets)
         for metric_name, col_name in [("steer_rmse", "steer_rmse"),
                                        ("accel_rmse", "accel_rmse")]:
-            for environment in ["night", "rain", "day"]:
-                # Filter scenes for this environment
-                env_scenes = [
-                    name for name, env in scene_to_environment.items()
-                    if env == environment
-                ]
+            for environment in ["night", "rain", "day_clear"]:
+                # Get scenes for this environment subset
+                env_scenes = env_subsets[environment]
                 env_df = encoder_df[encoder_df["scene_name"].isin(env_scenes)]
 
                 if len(env_df) == 0:
