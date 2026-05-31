@@ -33,6 +33,7 @@ mechanical:
 | Bootstrap CI protocol (n=1000, seed 42) | `evaluation.bootstrap` | M2 |
 | Paired-test correction policy (`ttest_rel` + Bonferroni; n_comparisons computed not asserted) | `evaluation.paired_tests` | M1 |
 | Scenario bucket lists (P0 and P2-extended) | `evaluation.scenario_buckets*` | M2 / M3 |
+| Environment scene lists (night/rain manual classification for p0_test) | `configs/environment_scene_lists.yaml` | M2 |
 | Figure DPI (300) and required caption strings | `figures` | M2 |
 
 ## What's NOT in the repo
@@ -47,6 +48,9 @@ mechanical:
 * **nuScenes raw data**. Each member sets `NUSCENES_DATAROOT` locally.
 * **Encoder embedding caches, probe checkpoints, figures**. Land under
   `outputs/` (gitignored).
+* **Environmental analysis outputs**:
+  - `outputs/analysis/per_environment_rmse.csv` — Per-environment RMSE with bootstrap CI
+  - `outputs/analysis/environmental_robustness.csv` — Night/day and rain/day RMSE ratios
 
 ## How to use it from module code
 
