@@ -1,0 +1,36 @@
+# Environment-specific scene subsets from p0_test split (40 scenes total)
+# Manually identified by scene description and visual inspection
+version: "1.0.0"
+last_updated: "2026-05-31"
+
+# Night scenes: Low light conditions (dusk, night, tunnel interiors)
+# Expected count: ~20 scenes
+night_scenes: []
+  # Placeholder - populate after manual inspection of p0_test scenes
+  # Example format:
+  # - scene-0003
+  # - scene-0013
+
+# Rain scenes: Visible rain/wet conditions regardless of time of day
+# Expected count: ~15 scenes
+rain_scenes: []
+  # Placeholder - populate after manual inspection of p0_test scenes
+  # Example format:
+  # - scene-0017
+  # - scene-0061
+
+notes: |
+  Classification guidelines:
+  - Night scenes: Low-light conditions (night, dusk, tunnel interiors)
+  - Rain scenes: Visible rain, wet roads, or water on windshield
+  - Day scenes: Everything else (implicit - not listed here)
+
+  Precedence for overlaps: night > rain
+  A night+rain scene should be classified as "night" since low-light
+  challenges dominate visual perception.
+
+  To populate these lists:
+  1. Load nuScenes v1.0-trainval with NuScenes API
+  2. Iterate through p0_test split scenes (see configs/trainval_subset_manifest.json)
+  3. Inspect scene["description"] and sample images for each scene
+  4. Add scene names to appropriate lists above
