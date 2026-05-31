@@ -78,9 +78,9 @@ def _modal_function_decorator(fn):
         return app.function(
             volumes={VOL_PATH: vol},
             image=base_image,
-            gpu="A10G",
-            timeout=7200,
-            memory=32768,  # 32 GB -- spatial tokens need more memory
+            gpu="A100",  # A100 for attention-heavy spatial tokens (3-4x faster than A10G)
+            timeout=14400,  # 4 hours
+            memory=32768,
         )(fn)
     return fn
 
@@ -330,7 +330,11 @@ def train_and_eval(
 
     # ---- Helper: Evaluate with pool-then-compare ----
     def evaluate_model(predict_fn, z_t_dev, act_dev, zf_dev, label=""):
-        """Evaluate spatial model using pool-then-compare CosSim."""
+        """Evaluate spatial model using per-token CosSim (averaged across S).
+
+        Computes CosSim independently for each spatial position, then averages.
+        This preserves spatial discrimination that pool-then-compare washes out.
+        """
         cossim_sums = [0.0] * horizon
         copy_sums = [0.0] * horizon
         total = 0
@@ -348,16 +352,25 @@ def train_and_eval(
                 z_hat_norm = predict_fn(z_t_b, act_b)  # (B, H*S, D)
                 z_hat = denormalize(z_hat_norm).reshape(B, horizon, n_spatial, TARGET_DIM)
 
-                # Pool-then-compare: mean over spatial dim
-                z_hat_pooled = z_hat.mean(dim=2)       # (B, H, D)
-                zf_pooled = zf_b.mean(dim=2)            # (B, H, D)
-                z_t_pooled = z_t_dev[start:end].mean(dim=1).to(device)  # (B, D) for copy
+                z_t_raw = z_t_dev[start:end].to(device)  # (B, S, D)
 
                 for k in range(horizon):
-                    cs = F.cosine_similarity(z_hat_pooled[:, k], zf_pooled[:, k], dim=-1)
-                    cossim_sums[k] += cs.sum().item()
-                    copy_cs = F.cosine_similarity(z_t_pooled, zf_pooled[:, k], dim=-1)
-                    copy_sums[k] += copy_cs.sum().item()
+                    # Per-token CosSim: compare each spatial position independently
+                    # z_hat[:, k]: (B, S, D), zf_b[:, k]: (B, S, D)
+                    # CosSim per token: (B, S), then mean over S
+                    cs_per_token = F.cosine_similarity(
+                        z_hat[:, k], zf_b[:, k], dim=-1  # (B, S)
+                    )
+                    cs_mean = cs_per_token.mean(dim=-1)  # (B,) -- mean over spatial
+                    cossim_sums[k] += cs_mean.sum().item()
+
+                    # Copy baseline: compare z_t[s] vs zf[k][s] per token
+                    copy_per_token = F.cosine_similarity(
+                        z_t_raw, zf_b[:, k], dim=-1  # (B, S)
+                    )
+                    copy_mean = copy_per_token.mean(dim=-1)  # (B,)
+                    copy_sums[k] += copy_mean.sum().item()
+
                 total += B
 
         result = {
