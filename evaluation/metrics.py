@@ -167,6 +167,63 @@ def classify_scenes_by_scenario(
     return mapping
 
 
+def classify_scenes_by_environment(
+    scene_names: list[str],
+    night_scenes: set[str],
+    rain_scenes: set[str],
+) -> dict[str, str]:
+    """Map scenes to night/rain/day environmental condition buckets.
+
+    Parameters
+    ----------
+    scene_names
+        List of scene names to classify.
+    night_scenes
+        Set of scene names identified as night/low-light conditions.
+    rain_scenes
+        Set of scene names identified as rain/wet conditions.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping from scene_name to environment category ("night", "rain", or "day").
+
+    Notes
+    -----
+    Scenes can only be in ONE bucket. Precedence: night > rain > day.
+    Night+rain scenes are classified as "night" since low-light conditions
+    dominate visual challenges.
+
+    Examples
+    --------
+    >>> classify_scenes_by_environment(
+    ...     ["scene-0001", "scene-0002", "scene-0003"],
+    ...     night_scenes={"scene-0001"},
+    ...     rain_scenes={"scene-0002"}
+    ... )
+    {'scene-0001': 'night', 'scene-0002': 'rain', 'scene-0003': 'day'}
+    """
+    mapping = {}
+    for scene_name in scene_names:
+        if scene_name in night_scenes:
+            mapping[scene_name] = "night"
+        elif scene_name in rain_scenes:
+            mapping[scene_name] = "rain"
+        else:
+            mapping[scene_name] = "day"
+
+    # Log distribution
+    bucket_counts = Counter(mapping.values())
+    total_scenes = len(scene_names)
+    logger.info("Environment classification breakdown (total=%d):", total_scenes)
+    for bucket in ["night", "rain", "day"]:
+        count = bucket_counts.get(bucket, 0)
+        pct = 100.0 * count / total_scenes if total_scenes > 0 else 0.0
+        logger.info("  %s: %d (%.1f%%)", bucket, count, pct)
+
+    return mapping
+
+
 def compute_per_scenario_rmse(
     predictions_df: pd.DataFrame,
     scene_to_bucket: dict[str, str],
