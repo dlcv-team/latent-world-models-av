@@ -5,8 +5,8 @@ Implements encoder-specific attribution methods per EDD §9.2:
 - DINOv2-S/14: Self-attention map thresholded at 60th percentile
 - CLIP ViT-B/32: GradCAM on visual transformer last block
 - VQ-VAE: Spatial activation L2 norm via VQGAN conv_out hook (DINOv2 fallback if checkpoint fails)
-- V-JEPA: Temporal attention averaged across 16 frames
-- V-JEPA rep1: Single-frame ablation variant (A19)
+- V-JEPA: Spatial activation magnitude with temporal averaging across 16 frames
+- V-JEPA rep1: Spatial activation magnitude, single-frame ablation variant (A19)
 
 Outputs:
 - PNG attribution overlays (20 frames × 6 encoders = 120 PNGs)
@@ -36,10 +36,13 @@ from pytorch_grad_cam.utils.image import show_cam_on_image
 logger = logging.getLogger(__name__)
 
 # Encoder imports
+import math
+
 from config import ENCODER_DISPLAY
 from encoders.clip_enc import CLIPB32Wrapper
 from encoders.dinov2 import DINOv2S14Wrapper
 from encoders.vits16 import ViTS16Wrapper
+from encoders.vjepa2 import NATIVE_INPUT_SIZE as VJEPA2_NATIVE_SIZE
 from encoders.vjepa2 import VJEPA2Wrapper
 from encoders.vqvae import VQVAEWrapper
 
@@ -244,8 +247,13 @@ class DINOv2Attribution(AttributionMethod):
             # Average over heads, take CLS row (index 0), remove CLS column
             attn_map = attn[0].mean(dim=0)[0, 1:].cpu().numpy()  # (256,)
 
-            # Reshape to 16×16 spatial grid (DINOv2-S/14: 224/14 = 16 patches per side)
-            attn_map = attn_map.reshape(16, 16)
+            # Reshape to spatial grid (DINOv2-S/14: 224/14 = 16 patches per side)
+            side = int(math.isqrt(attn_map.shape[0]))
+            assert side * side == attn_map.shape[0], (
+                f"Non-square patch count {attn_map.shape[0]}; "
+                f"expected perfect square (e.g. 256 = 16x16)"
+            )
+            attn_map = attn_map.reshape(side, side)
 
             # Threshold at 60th percentile
             threshold = np.percentile(attn_map, 60)
@@ -295,7 +303,21 @@ class CLIPAttribution(AttributionMethod):
         -------
         reshaped
             Shape (B, 768, 7, 7) spatial feature map.
+
+        Raises
+        ------
+        AssertionError
+            If tensor layout is not batch-first (B, N, D). OpenAI CLIP uses
+            seq-first (N, B, D) internally; pytorch_grad_cam should transpose
+            before calling reshape_transform, but we verify to catch layout bugs.
         """
+        # Verify batch-first layout: dim 1 should be num_tokens, not batch size
+        assert tensor.ndim == 3 and tensor.shape[1] == height * width + 1, (
+            f"Expected batch-first tensor (B, {height * width + 1}, D), "
+            f"got shape {tuple(tensor.shape)}. "
+            f"CLIP uses seq-first internally; reshape_transform expects "
+            f"pytorch_grad_cam to transpose to batch-first before calling."
+        )
         # Remove CLS token: (B, 50, 768) → (B, 49, 768)
         result = tensor[:, 1:, :]
         # Reshape to spatial grid: (B, 49, 768) → (B, 7, 7, 768)
@@ -434,7 +456,12 @@ class VQVAEAttribution(AttributionMethod):
 
 
 class VJEPA2Attribution(AttributionMethod):
-    """Temporal attention attribution for V-JEPA averaged across 16 frames."""
+    """Spatial activation magnitude for V-JEPA2 with temporal averaging.
+
+    Computes L2 norm of feature vectors across the spatial grid. For multi-frame
+    inputs (vjepa2_rep64), features are averaged over the temporal dimension first.
+    For single-frame inputs (vjepa2_rep1), only spatial tokens are used.
+    """
 
     def compute_attribution(self, input_tensor: torch.Tensor) -> np.ndarray:
         """Compute spatial activation attribution for V-JEPA averaged over time.
@@ -473,8 +500,7 @@ class VJEPA2Attribution(AttributionMethod):
                 _ = self.encoder._encode(input_tensor)
 
                 # Get spatial size after encoder's resize
-                from encoders.vjepa2 import NATIVE_INPUT_SIZE
-                spatial_size = NATIVE_INPUT_SIZE  # 256
+                spatial_size = VJEPA2_NATIVE_SIZE  # 256
 
             handle.remove()
 
@@ -549,7 +575,7 @@ class AttributionPipeline:
     def __init__(
         self,
         split: str = "p0_test",
-        device: str = "cuda",
+        device: str | None = None,
         output_dir: Path = Path("outputs/attribution"),
         n_per_scenario: int = 5,
         seed: int = 42,
@@ -561,7 +587,7 @@ class AttributionPipeline:
         split
             Dataset split to use (e.g., "p0_test", "smoke_test").
         device
-            Device to run attribution on.
+            Device to run attribution on. If None, auto-selects: cuda > mps > cpu.
         output_dir
             Directory to save outputs.
         n_per_scenario
@@ -570,6 +596,13 @@ class AttributionPipeline:
             Random seed for frame selection.
         """
         self.split = split
+        if device is None:
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
         self.device = device
         self.output_dir = Path(output_dir)
         self.n_per_scenario = n_per_scenario
@@ -694,9 +727,11 @@ class AttributionPipeline:
         gc.collect()
 
         # Force GPU memory release
-        if self.device == "cuda":
+        if self.device == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
+        elif self.device == "mps" and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
 
     def select_frames(
         self, dataset: Any, scenario_classifications: Dict[str, List[int]]
@@ -1054,7 +1089,7 @@ class AttributionPipeline:
             "dino_vits14": "SelfAttention-LastBlock-P60",
             "clip_b32": "GradCAM-CLIP-ViT",
             "vq_track": "VQ-SpatialActivation",
-            "vjepa2_rep64": "TemporalAttention-RealClip-16Frame",
+            "vjepa2_rep64": "SpatialActivation-TemporalAvg-16Frame",
             "vjepa2_rep1": "SpatialActivation-SingleFrame",
         }
         name = method_names.get(encoder_name, "Unknown")

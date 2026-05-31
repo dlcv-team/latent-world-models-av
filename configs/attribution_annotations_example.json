@@ -29,7 +29,7 @@
         }
       ]
     },
-    "dinov2_s14": {
+    "dino_vits14": {
       "intersection": [
         {
           "type": "box",
@@ -45,11 +45,11 @@
       "intersection": [],
       "other": []
     },
-    "vqvae": {
+    "vq_track": {
       "intersection": [],
       "other": []
     },
-    "vjepa2": {
+    "vjepa2_rep64": {
       "intersection": [],
       "other": []
     }
