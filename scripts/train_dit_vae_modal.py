@@ -471,12 +471,12 @@ def train_and_eval(
             steps = [0, 4, 8, 12, 15]
             with torch.no_grad():
                 for wi, frame_i in enumerate(picks):
-                    z_t = torch.tensor(latents[frame_i:frame_i + 1], device=device)
+                    z_t = torch.tensor(vae_latents[frame_i:frame_i + 1], device=device)
                     act = torch.stack([
-                        torch.tensor([steers[frame_i + k], accels[frame_i + k]], device=device)
+                        torch.tensor([steer_norms[frame_i + k], accel_norms[frame_i + k]], device=device)
                         for k in range(horizon)
                     ]).unsqueeze(0)
-                    zf_gt = torch.tensor(latents[frame_i + 1: frame_i + 1 + horizon], device=device).unsqueeze(0)
+                    zf_gt = torch.tensor(vae_latents[frame_i + 1: frame_i + 1 + horizon], device=device).unsqueeze(0)
                     z_t_n = norm_patches(z_t)
                     pred_n = dit_pred(z_t_n, act)
                     pred_lat = unpatchify(denorm_tokens(pred_n)).clamp(-3, 3)
