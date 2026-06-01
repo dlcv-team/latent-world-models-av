@@ -91,13 +91,17 @@ def train_and_eval(
     seed: int,
     horizon: int = 16,
     model_type: str = "both",  # "dit", "mlp", or "both"
+    epochs: int = 100,
 ):
-    """Train spatial DiT and/or MLP, then evaluate with pool-then-compare."""
+    """Train spatial DiT and/or MLP, then evaluate with per-token CosSim."""
     import numpy as np
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
     from copy import deepcopy
+
+    dit_epochs = epochs
+    mlp_epochs = max(epochs // 2, 10)
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -414,7 +418,7 @@ def train_and_eval(
             ema_params[name] = param.data.clone()
 
         t_start = time.time()
-        for epoch in range(TRAIN_EPOCHS):
+        for epoch in range(dit_epochs):
             dit.train()
             fourier.train()
             perm = torch.randperm(n_train)
@@ -453,8 +457,9 @@ def train_and_eval(
                 epoch_loss += loss.item()
                 n_batches += 1
 
-            if epoch % 20 == 0 or epoch == TRAIN_EPOCHS - 1:
-                print(f"  epoch {epoch}: loss={epoch_loss/n_batches:.6f}")
+            log_interval = max(dit_epochs // 5, 1)
+            if epoch % log_interval == 0 or epoch == dit_epochs - 1:
+                print(f"  epoch {epoch}/{dit_epochs}: loss={epoch_loss/n_batches:.6f}")
 
         train_time = time.time() - t_start
         print(f"  Training done in {train_time:.0f}s")
@@ -515,7 +520,7 @@ def train_and_eval(
         )
 
         t_start = time.time()
-        for epoch in range(50):  # MLP trains faster
+        for epoch in range(mlp_epochs):
             mlp.train()
             fourier_mlp.train()
             perm = torch.randperm(n_train)
@@ -542,8 +547,9 @@ def train_and_eval(
                 epoch_loss += loss.item()
                 n_batches += 1
 
-            if epoch % 10 == 0 or epoch == 49:
-                print(f"  epoch {epoch}: loss={epoch_loss/n_batches:.6f}")
+            log_interval = max(mlp_epochs // 5, 1)
+            if epoch % log_interval == 0 or epoch == mlp_epochs - 1:
+                print(f"  epoch {epoch}/{mlp_epochs}: loss={epoch_loss/n_batches:.6f}")
 
         mlp_train_time = time.time() - t_start
         print(f"  Training done in {mlp_train_time:.0f}s")
@@ -610,6 +616,7 @@ def main(
     encoder: str = "dino_vits14",
     seed: int = 0,
     horizon: int = 16,
+    epochs: int = 100,
 ):
     """Train + evaluate spatial DiT and MLP."""
     if encoder not in SPATIAL_TOKENS:
@@ -620,10 +627,10 @@ def main(
     print(f"\n{'='*60}")
     print(f"Spatial DiT Training Pipeline")
     print(f"  encoder: {encoder}, S={SPATIAL_TOKENS[encoder]}")
-    print(f"  horizon: {horizon}, seed: {seed}")
+    print(f"  horizon: {horizon}, seed: {seed}, epochs: {epochs}")
     print(f"{'='*60}")
 
-    result = train_and_eval.remote(encoder, seed, horizon)
+    result = train_and_eval.remote(encoder, seed, horizon, epochs=epochs)
     wall = time.time() - t_start
     print(f"\nDone in {wall:.0f}s")
     print(json.dumps(result, indent=2))

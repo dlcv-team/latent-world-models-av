@@ -107,6 +107,7 @@ def train_and_eval(
     horizon: int = 16,
     epochs: int = 100,
     smoke: bool = False,
+    mlp_hidden: int = 512,           # MLP hidden dim (default 512 = ~1.3M; 2816 = ~12M param-matched)
 ):
     import numpy as np
     import torch
@@ -524,7 +525,8 @@ def train_and_eval(
     # ==================================================================
     print(f"\n{'='*60}\nTraining Spatial MLP: {encoder_name}/h{horizon}/s{seed}\n{'='*60}")
 
-    mlp = SpatialMLPPredictor(**MLP_CONFIG, horizon=horizon, n_spatial=n_spatial).to(device)
+    mlp_cfg = {**MLP_CONFIG, "hidden": mlp_hidden}
+    mlp = SpatialMLPPredictor(**mlp_cfg, horizon=horizon, n_spatial=n_spatial).to(device)
     fourier_mlp = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
     n_params_mlp = sum(p.numel() for p in mlp.parameters()) + sum(p.numel() for p in fourier_mlp.parameters())
     print(f"  MLP params: {n_params_mlp:,}")
@@ -605,6 +607,7 @@ def main(
     horizon: int = 16,
     epochs: int = 100,
     smoke: bool = False,
+    mlp_hidden: int = 512,
 ):
     if encoder not in SPATIAL_TOKENS:
         print(f"ERROR: encoder must be one of {list(SPATIAL_TOKENS.keys())}")
@@ -615,9 +618,9 @@ def main(
 
     t_start = time.time()
     print(f"\n{'='*60}\nAnchored Spatial DiT: {encoder} mode={mode} h{horizon} s{seed} "
-          f"epochs={epochs} smoke={smoke}\n{'='*60}")
+          f"epochs={epochs} smoke={smoke} mlp_hidden={mlp_hidden}\n{'='*60}")
 
-    result = train_and_eval.remote(encoder, seed, mode, horizon, epochs, smoke)
+    result = train_and_eval.remote(encoder, seed, mode, horizon, epochs, smoke, mlp_hidden=mlp_hidden)
     wall = time.time() - t_start
     print(f"\nDone in {wall:.0f}s")
     print(json.dumps(result, indent=2))
