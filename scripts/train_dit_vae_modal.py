@@ -1,0 +1,520 @@
+"""VAE-latent direct-anchored DiT training (production pipeline bridge).
+
+Encodes driving scenes as SD VAE 32x32x4 grids, patchifies to 8x8=64 tokens of 64-d,
+trains direct-anchored DiT (no diffusion at 2Hz) vs param-matched MLP.
+
+Usage::
+
+    modal run scripts/train_dit_vae_modal.py --smoke
+    modal run --detach scripts/train_dit_vae_modal.py
+    modal run scripts/train_dit_vae_modal.py --mlp_hidden 1024
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import time
+from pathlib import Path
+
+try:
+    import modal
+except ImportError:
+    modal = None
+
+if modal is not None:
+    app = modal.App("lwm-av-vae-dit")
+    vol = modal.Volume.from_name("nuscenes-full")
+else:
+    app = None
+    vol = None
+
+VOL_PATH = "/vol"
+SPATIAL_DIR = f"{VOL_PATH}/embeddings/spatial"
+CKPT_DIR = f"{VOL_PATH}/dits/vae_latent"
+VAE_NPZ = f"{SPATIAL_DIR}/sd_vae_latents.npz"
+
+PATCH_SIZE = 4
+GRID_H = GRID_W = 32
+N_SPATIAL = (GRID_H // PATCH_SIZE) * (GRID_W // PATCH_SIZE)  # 64
+PATCH_DIM = PATCH_SIZE * PATCH_SIZE * 4  # 64
+MODEL_DIM = 256
+HORIZON = 16
+
+DIT_CONFIG = {
+    "z_dim": MODEL_DIM,
+    "cond_dim": MODEL_DIM,
+    "n_blocks": 4,
+    "n_heads": 4,
+    "mlp_ratio": 4.0,
+    "dropout": 0.0,
+}
+FOURIER_CONFIG = {"n_frequencies": 64, "base": 2.0, "out_dim": MODEL_DIM}
+TRAIN_LR = 1e-4
+TRAIN_BATCH = 64
+EMA_DECAY = 0.999
+
+if modal is not None:
+    base_image = (
+        modal.Image.debian_slim(python_version="3.12")
+        .pip_install(
+            "torch==2.5.1", "numpy>=1.26", "Pillow>=10.0",
+            "diffusers>=0.27", "matplotlib>=3.8", "accelerate", "transformers>=4.50",
+        )
+    )
+else:
+    base_image = None
+
+
+def patchify(latents, patch_size=PATCH_SIZE):
+    """(B, 4, 32, 32) -> (B, 64, 64)"""
+    B, C, H, W = latents.shape
+    p = patch_size
+    x = latents.reshape(B, C, H // p, p, W // p, p)
+    x = x.permute(0, 2, 4, 1, 3, 5).reshape(B, (H // p) * (W // p), C * p * p)
+    return x
+
+
+def unpatchify(tokens, patch_size=PATCH_SIZE, channels=4, grid_h=GRID_H, grid_w=GRID_W):
+    """(B, 64, 64) -> (B, 4, 32, 32)"""
+    B = tokens.shape[0]
+    p = patch_size
+    gh, gw = grid_h // p, grid_w // p
+    x = tokens.reshape(B, gh, gw, channels, p, p)
+    x = x.permute(0, 3, 1, 4, 2, 5).reshape(B, channels, grid_h, grid_w)
+    return x
+
+
+def _modal_function_decorator(fn):
+    if app is not None:
+        return app.function(
+            volumes={VOL_PATH: vol},
+            image=base_image,
+            gpu="A100",
+            timeout=14400,
+            memory=32768,
+        )(fn)
+    return fn
+
+
+@_modal_function_decorator
+def train_and_eval(
+    seed: int = 0,
+    horizon: int = 16,
+    epochs: int = 100,
+    smoke: bool = False,
+    mlp_hidden: int = 1024,
+):
+    import numpy as np
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from copy import deepcopy
+
+    max_train = max_test = None
+    if smoke:
+        epochs = 4
+        max_train = 2000
+        max_test = 256
+
+    mlp_epochs = max(epochs // 2, 10) if not smoke else 4
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    n_spatial = N_SPATIAL
+    token_dim = PATCH_DIM
+
+    print(f"[vae-dit] h{horizon}/s{seed} smoke={smoke} mlp_hidden={mlp_hidden} device={device}")
+
+    # ---- Models (inline, from spatial anchored script) ----
+
+    class TimestepEmbedding(nn.Module):
+        def __init__(self, cond_dim=MODEL_DIM):
+            super().__init__()
+            self.cond_dim = cond_dim
+            self.mlp = nn.Sequential(
+                nn.Linear(cond_dim, cond_dim), nn.SiLU(), nn.Linear(cond_dim, cond_dim),
+            )
+
+        def forward(self, timestep):
+            half = self.cond_dim // 2
+            freqs = torch.exp(
+                -math.log(10000.0) * torch.arange(half, device=timestep.device, dtype=torch.float32) / half
+            )
+            args = timestep.float().unsqueeze(-1) * freqs.unsqueeze(0)
+            emb = torch.cat([args.sin(), args.cos()], dim=-1)
+            return self.mlp(emb)
+
+    def _modulate(x, shift, scale):
+        return x * (1.0 + scale) + shift
+
+    class DiTBlock(nn.Module):
+        def __init__(self, dim=MODEL_DIM, cond_dim=MODEL_DIM, n_heads=4, mlp_ratio=4.0, dropout=0.0):
+            super().__init__()
+            self.norm_attn = nn.LayerNorm(dim, elementwise_affine=False)
+            self.attn = nn.MultiheadAttention(dim, n_heads, dropout=dropout, batch_first=True)
+            self.norm_mlp = nn.LayerNorm(dim, elementwise_affine=False)
+            hidden = int(dim * mlp_ratio)
+            self.mlp = nn.Sequential(nn.Linear(dim, hidden), nn.GELU(), nn.Linear(hidden, dim))
+            self.adaln_linear = nn.Linear(cond_dim, 6 * dim)
+
+        def forward(self, x, cond):
+            mod = self.adaln_linear(cond)
+            shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = mod.chunk(6, dim=-1)
+            h = _modulate(self.norm_attn(x), shift_a, scale_a)
+            attn_out, _ = self.attn(h, h, h, need_weights=False)
+            x = x + gate_a * attn_out
+            h = _modulate(self.norm_mlp(x), shift_m, scale_m)
+            x = x + gate_m * self.mlp(h)
+            return x
+
+    class AnchoredVAEDiT(nn.Module):
+        """Project patch tokens 64->256, run DiT, project 256->64, anchor in patch space."""
+
+        def __init__(self, horizon=16, n_spatial=64, patch_dim=64, model_dim=256, **dit_kw):
+            super().__init__()
+            self.horizon = horizon
+            self.n_spatial = n_spatial
+            self.patch_dim = patch_dim
+            self.model_dim = model_dim
+            self.latent_up = nn.Linear(patch_dim, model_dim)
+            self.latent_down = nn.Linear(model_dim, patch_dim)
+            self.input_proj = nn.Linear(model_dim, model_dim)
+            self.spatial_pos = nn.Parameter(torch.randn(1, n_spatial, model_dim) * 0.02)
+            self.temporal_pos = nn.Parameter(torch.randn(1, horizon, model_dim) * 0.02)
+            self.timestep_embed = TimestepEmbedding(model_dim)
+            self.z_t_proj = nn.Linear(patch_dim, model_dim)
+            n_heads = dit_kw.get("n_heads", 4)
+            n_blocks = dit_kw.get("n_blocks", 4)
+            mlp_ratio = dit_kw.get("mlp_ratio", 4.0)
+            self.blocks = nn.ModuleList([
+                DiTBlock(model_dim, model_dim, n_heads, mlp_ratio, 0.0) for _ in range(n_blocks)
+            ])
+            self.final_norm = nn.LayerNorm(model_dim, elementwise_affine=False)
+            self.final_adaln = nn.Linear(model_dim, 3 * model_dim)
+            self.final_linear = nn.Linear(model_dim, model_dim)
+            nn.init.zeros_(self.final_linear.weight)
+            nn.init.zeros_(self.final_linear.bias)
+
+        def forward(self, x_input_patch, z_t_patch, a_embed, timestep):
+            B = x_input_patch.shape[0]
+            H, S, Pd = self.horizon, self.n_spatial, self.patch_dim
+            Md = self.model_dim
+            x = self.latent_up(x_input_patch)
+            sp = self.spatial_pos.unsqueeze(1).expand(-1, H, -1, -1).reshape(1, H * S, Md)
+            tp = self.temporal_pos.unsqueeze(2).expand(-1, -1, S, -1).reshape(1, H * S, Md)
+            x = self.input_proj(x) + sp + tp
+            z_t_pooled = z_t_patch.mean(dim=1)
+            cond_global = self.timestep_embed(timestep) + self.z_t_proj(z_t_pooled)
+            a_broadcast = a_embed.unsqueeze(2).expand(-1, -1, S, -1).reshape(B, H * S, Md)
+            cond = cond_global.unsqueeze(1).expand(-1, H * S, -1) + a_broadcast
+            for block in self.blocks:
+                x = block(x, cond)
+            mod = self.final_adaln(cond)
+            shift, scale, gate = mod.chunk(3, dim=-1)
+            delta_md = gate * self.final_linear(_modulate(self.final_norm(x), shift, scale))
+            delta_patch = self.latent_down(delta_md)
+            z_t_rep = z_t_patch.unsqueeze(1).expand(-1, H, -1, -1).reshape(B, H * S, Pd)
+            return z_t_rep + delta_patch
+
+    class FourierActionEmbedding(nn.Module):
+        def __init__(self, action_dim=2, n_frequencies=64, base=2.0, out_dim=MODEL_DIM):
+            super().__init__()
+            freqs = base ** torch.arange(n_frequencies, dtype=torch.float32) * torch.pi
+            self.register_buffer("freqs", freqs)
+            fdim = action_dim * 2 * n_frequencies
+            self.proj = nn.Sequential(
+                nn.Linear(fdim, out_dim), nn.GELU(), nn.Linear(out_dim, out_dim),
+            )
+
+        def forward(self, action):
+            if action.dim() == 2:
+                action = action.unsqueeze(1)
+            x = action.unsqueeze(-1) * self.freqs
+            x = torch.cat([x.sin(), x.cos()], dim=-1).flatten(-2)
+            return self.proj(x)
+
+    class PatchMLPPredictor(nn.Module):
+        def __init__(self, patch_dim=64, a_dim=MODEL_DIM, horizon=16, n_spatial=64, hidden=1024, dropout=0.1):
+            super().__init__()
+            self.horizon = horizon
+            self.n_spatial = n_spatial
+            input_dim = patch_dim * 2 + a_dim
+            self.net = nn.Sequential(
+                nn.Linear(input_dim, hidden), nn.GELU(), nn.Dropout(dropout),
+                nn.Linear(hidden, hidden), nn.GELU(), nn.Dropout(dropout),
+                nn.Linear(hidden, patch_dim),
+            )
+
+        def forward(self, z_t_patch, a_embed):
+            B, S, Pd = z_t_patch.shape
+            H = self.horizon
+            z_pool = z_t_patch.mean(dim=1)
+            outs = []
+            for h in range(H):
+                a_h = a_embed[:, h, :].unsqueeze(1).expand(-1, S, -1)
+                z_pool_e = z_pool.unsqueeze(1).expand(-1, S, -1)
+                x = torch.cat([z_t_patch, z_pool_e, a_h], dim=-1)
+                outs.append(z_t_patch + self.net(x))
+            return torch.stack(outs, dim=1).reshape(B, H * S, Pd)
+
+    # ---- Load VAE latents ----
+    if not os.path.exists(VAE_NPZ):
+        print(f"[vae-dit] ERROR: {VAE_NPZ} not found. Run embed_vae_modal.py first.")
+        return None
+
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    vae_latents = data["vae_latents"]  # (N, 4, 32, 32)
+    scene_names = data["scene_names"]
+    splits = data["splits"]
+    steer_norms = data["steer_norms"]
+    accel_norms = data["accel_norms"]
+
+    N_total = len(scene_names)
+    print(f"[vae-dit] Loaded {N_total} VAE latents, shape {vae_latents.shape}")
+
+    def build_windows(split_name):
+        mask = splits == split_name
+        lat = vae_latents[mask]
+        steers = steer_norms[mask]
+        accels = accel_norms[mask]
+        scenes = scene_names[mask]
+        z_t_list, act_list, zf_list = [], [], []
+        for scene in np.unique(scenes):
+            idx = np.where(scenes == scene)[0]
+            for j in range(len(idx) - horizon):
+                z_t_list.append(lat[idx[j]])
+                act_list.append(np.stack([
+                    np.array([steers[idx[j + k]], accels[idx[j + k]]]) for k in range(horizon)
+                ]))
+                zf_list.append(lat[idx[j + 1: j + 1 + horizon]])
+        return (
+            torch.tensor(np.array(z_t_list), dtype=torch.float32),
+            torch.tensor(np.array(act_list), dtype=torch.float32),
+            torch.tensor(np.array(zf_list), dtype=torch.float32),
+        )
+
+    z_t_train, act_train, zf_train = build_windows("train")
+    z_t_test, act_test, zf_test = build_windows("test")
+    if max_train and len(z_t_train) > max_train:
+        z_t_train, act_train, zf_train = z_t_train[:max_train], act_train[:max_train], zf_train[:max_train]
+    if max_test and len(z_t_test) > max_test:
+        z_t_test, act_test, zf_test = z_t_test[:max_test], act_test[:max_test], zf_test[:max_test]
+
+    n_train, n_test = len(z_t_train), len(z_t_test)
+    print(f"[vae-dit] Train {n_train}, Test {n_test} windows")
+
+    # Normalize patch tokens
+    z_t_patch_train = patchify(z_t_train)
+    flat = z_t_patch_train.reshape(-1, PATCH_DIM)
+    z_mean = flat.mean(dim=0).to(device)
+    z_std = flat.std(dim=0).clamp(min=1e-6).to(device)
+
+    def norm_patches(grid_b):
+        p = patchify(grid_b)
+        return (p - z_mean) / z_std
+
+    def denorm_tokens(tok):
+        return tok * z_std + z_mean
+
+    def evaluate(predict_fn, label=""):
+        cs_sums = [0.0] * horizon
+        copy_sums = [0.0] * horizon
+        total = 0
+        with torch.no_grad():
+            for start in range(0, n_test, 32):
+                end = min(start + 32, n_test)
+                B = end - start
+                z_t_b = norm_patches(z_t_test[start:end].to(device))
+                act_b = act_test[start:end].to(device)
+                zf_b = zf_test[start:end].to(device)
+                z_hat = predict_fn(z_t_b, act_b)
+                z_hat = denorm_tokens(z_hat).reshape(B, horizon, n_spatial, PATCH_DIM)
+                z_t_raw = patchify(z_t_test[start:end].to(device))
+                for k in range(horizon):
+                    gt = patchify(zf_b[:, k])
+                    cs_sums[k] += F.cosine_similarity(z_hat[:, k], gt, dim=-1).mean(dim=-1).sum().item()
+                    copy_sums[k] += F.cosine_similarity(z_t_raw, gt, dim=-1).mean(dim=-1).sum().item()
+                total += B
+        res = {
+            "cossim_by_step": [round(s / total, 6) for s in cs_sums],
+            "copy_by_step": [round(s / total, 6) for s in copy_sums],
+            "mean_cossim": round(sum(cs_sums) / (total * horizon), 6),
+            "n_test": total,
+        }
+        print(f"  [{label}] mean={res['mean_cossim']:.4f} step1={res['cossim_by_step'][0]:.4f}")
+        return res
+
+    results = {"smoke": smoke, "mlp_hidden": mlp_hidden}
+
+    # ---- Train DiT ----
+    print(f"\n{'='*60}\nTraining VAE DiT-direct\n{'='*60}")
+    dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+    fourier = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+    n_dit = sum(p.numel() for p in dit.parameters()) + sum(p.numel() for p in fourier.parameters())
+    print(f"  DiT params: {n_dit:,}")
+
+    opt = torch.optim.Adam(list(dit.parameters()) + list(fourier.parameters()), lr=TRAIN_LR)
+    ema = {n: p.data.clone() for n, p in list(dit.named_parameters()) + list(fourier.named_parameters())}
+
+    for epoch in range(epochs):
+        dit.train()
+        fourier.train()
+        perm = torch.randperm(n_train)
+        loss_sum, nb = 0.0, 0
+        for start in range(0, n_train, TRAIN_BATCH):
+            end = min(start + TRAIN_BATCH, n_train)
+            idx = perm[start:end]
+            B = len(idx)
+            z_t_b = norm_patches(z_t_train[idx].to(device))
+            act_b = act_train[idx].to(device)
+            zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
+            zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
+            a_emb = fourier(act_b)
+            z_rep = z_t_b.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(B, horizon * n_spatial, PATCH_DIM)
+            t0 = torch.zeros(B, dtype=torch.long, device=device)
+            pred = dit(z_rep, z_t_b, a_emb, t0)
+            loss = F.mse_loss(pred, zf_b)
+            opt.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(dit.parameters(), 1.0)
+            opt.step()
+            with torch.no_grad():
+                for n, p in list(dit.named_parameters()) + list(fourier.named_parameters()):
+                    ema[n].mul_(EMA_DECAY).add_(p.data, alpha=1 - EMA_DECAY)
+            loss_sum += loss.item()
+            nb += 1
+        if epoch % max(epochs // 5, 1) == 0 or epoch == epochs - 1:
+            print(f"  epoch {epoch}/{epochs}: loss={loss_sum/nb:.6f}")
+
+    dit_e = deepcopy(dit)
+    f_e = deepcopy(fourier)
+    with torch.no_grad():
+        for n, p in dit_e.named_parameters():
+            if n in ema:
+                p.copy_(ema[n])
+        for n, p in f_e.named_parameters():
+            if n in ema:
+                p.copy_(ema[n])
+    dit_e.eval()
+    f_e.eval()
+
+    def dit_pred(z_t_b, act_b):
+        B = z_t_b.shape[0]
+        z_rep = z_t_b.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(B, horizon * n_spatial, PATCH_DIM)
+        t0 = torch.zeros(B, dtype=torch.long, device=device)
+        return dit_e(z_rep, z_t_b, f_e(act_b), t0)
+
+    dit_res = evaluate(dit_pred, "DiT-vae-direct")
+    dit_res["n_params"] = n_dit
+    results["dit"] = dit_res
+
+    if not smoke:
+        os.makedirs(f"{CKPT_DIR}/h{horizon}/seed_{seed}", exist_ok=True)
+        torch.save({
+            "dit": dit.state_dict(),
+            "fourier": fourier.state_dict(),
+            "ema": ema,
+            "z_mean": z_mean.cpu(),
+            "z_std": z_std.cpu(),
+        }, f"{CKPT_DIR}/h{horizon}/seed_{seed}/dit.pt")
+
+    # ---- MLP ----
+    print(f"\n{'='*60}\nTraining VAE MLP (hidden={mlp_hidden})\n{'='*60}")
+    mlp = PatchMLPPredictor(hidden=mlp_hidden, horizon=horizon, n_spatial=n_spatial).to(device)
+    f_mlp = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+    n_mlp = sum(p.numel() for p in mlp.parameters()) + sum(p.numel() for p in f_mlp.parameters())
+    print(f"  MLP params: {n_mlp:,}")
+    opt_m = torch.optim.Adam(list(mlp.parameters()) + list(f_mlp.parameters()), lr=1e-3)
+    for epoch in range(mlp_epochs):
+        mlp.train()
+        f_mlp.train()
+        perm = torch.randperm(n_train)
+        for start in range(0, n_train, TRAIN_BATCH * 2):
+            end = min(start + TRAIN_BATCH * 2, n_train)
+            idx = perm[start:end]
+            B = len(idx)
+            z_t_b = norm_patches(z_t_train[idx].to(device))
+            zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
+            zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
+            pred = mlp(z_t_b, f_mlp(act_train[idx].to(device)))
+            loss = F.mse_loss(pred, zf_b)
+            opt_m.zero_grad()
+            loss.backward()
+            opt_m.step()
+
+    mlp.eval()
+    f_mlp.eval()
+
+    def mlp_pred(z_t_b, act_b):
+        return mlp(z_t_b, f_mlp(act_b))
+
+    mlp_res = evaluate(mlp_pred, "MLP-vae")
+    mlp_res["n_params"] = n_mlp
+    results["mlp"] = mlp_res
+    results["gap"] = round(dit_res["mean_cossim"] - mlp_res["mean_cossim"], 6)
+    results["dit_wins"] = results["gap"] > 0
+    print(f"\n  DiT - MLP gap: {results['gap']:+.4f}")
+
+    # Quick visual demo (3 test windows) when full run completes
+    if not smoke and dit_res["mean_cossim"] > 0:
+        try:
+            from diffusers import AutoencoderKL
+            import matplotlib.pyplot as plt
+            vae_dec = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device).eval()
+            out_dir = f"{SPATIAL_DIR}/vae_figure"
+            os.makedirs(out_dir, exist_ok=True)
+            test_idx = np.where(splits == "test")[0]
+            picks = [int(test_idx[i]) for i in range(min(3, len(test_idx)))]
+            steps = [0, 4, 8, 12, 15]
+            with torch.no_grad():
+                for wi, frame_i in enumerate(picks):
+                    z_t = torch.tensor(latents[frame_i:frame_i + 1], device=device)
+                    act = torch.stack([
+                        torch.tensor([steers[frame_i + k], accels[frame_i + k]], device=device)
+                        for k in range(horizon)
+                    ]).unsqueeze(0)
+                    zf_gt = torch.tensor(latents[frame_i + 1: frame_i + 1 + horizon], device=device).unsqueeze(0)
+                    z_t_n = norm_patches(z_t)
+                    pred_n = dit_pred(z_t_n, act)
+                    pred_lat = unpatchify(denorm_tokens(pred_n)).clamp(-3, 3)
+                    fig, axes = plt.subplots(2, len(steps), figsize=(12, 5))
+                    for col, k in enumerate(steps):
+                        for row, grid in enumerate([zf_gt[:, k], pred_lat[:, k]]):
+                            img = vae_dec.decode(grid / 0.18215).sample
+                            im = ((img.clamp(-1, 1) + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
+                            axes[row, col].imshow(im)
+                            axes[row, col].axis("off")
+                            axes[row, col].set_title("GT" if row == 0 else "DiT")
+                    fig.savefig(f"{out_dir}/demo_{wi}.png", dpi=100, bbox_inches="tight")
+                    plt.close(fig)
+            print(f"[vae-dit] Saved demo figures to {out_dir}/")
+        except Exception as e:
+            print(f"[vae-dit] Visual demo skipped: {e}")
+
+    vol.commit()
+    return results
+
+
+def _modal_entrypoint_decorator(fn):
+    if app is not None:
+        return app.local_entrypoint()(fn)
+    return fn
+
+
+@_modal_entrypoint_decorator
+def main(seed: int = 0, horizon: int = 16, epochs: int = 100, smoke: bool = False, mlp_hidden: int = 1024):
+    t0 = time.time()
+    print(f"VAE DiT training seed={seed} smoke={smoke}")
+    result = train_and_eval.remote(seed, horizon, epochs, smoke, mlp_hidden)
+    print(json.dumps(result, indent=2))
+    tag = "smoke" if smoke else "result"
+    suffix = f"_mlpH{mlp_hidden}" if mlp_hidden != 1024 else ""
+    out = Path(f"artifacts/full/vae_dit_direct_{tag}_h{horizon}_s{seed}{suffix}.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w") as f:
+        json.dump(result, f, indent=2)
+    print(f"Saved {out} ({time.time()-t0:.0f}s)")
+
