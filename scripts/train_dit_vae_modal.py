@@ -7,7 +7,8 @@ Usage::
 
     modal run scripts/train_dit_vae_modal.py --smoke
     modal run --detach scripts/train_dit_vae_modal.py
-    modal run scripts/train_dit_vae_modal.py --mlp_hidden 1024
+    modal run scripts/train_dit_vae_modal.py --mode diffusion --smoke
+    modal run --detach scripts/train_dit_vae_modal.py --mode diffusion --n-samples 16
 """
 
 from __future__ import annotations
@@ -54,6 +55,13 @@ FOURIER_CONFIG = {"n_frequencies": 64, "base": 2.0, "out_dim": MODEL_DIM}
 TRAIN_LR = 1e-4
 TRAIN_BATCH = 64
 EMA_DECAY = 0.999
+DIFFUSION_STEPS = 1000
+N_DDIM_STEPS = 50
+N_DDIM_STEPS_SMOKE = 10
+DIRECT_BASELINE_MEAN = 0.527
+MLP_BASELINE_MEAN = 0.484
+G6_WEAK_BEST_OF_K = 0.547
+G6_DIVERSITY_MIN = 0.05
 
 if modal is not None:
     base_image = (
@@ -88,6 +96,23 @@ def unpatchify(tokens, patch_size=PATCH_SIZE, channels=4, grid_h=GRID_H, grid_w=
 
 def _modulate(x, shift, scale):
     return x * (1.0 + scale) + shift
+
+
+def _define_noise_schedule():
+    import torch.nn as nn
+
+    class CosineNoiseSchedule(nn.Module):
+        def __init__(self, n_steps=1000, s=0.008):
+            super().__init__()
+            steps = torch.arange(n_steps + 1, dtype=torch.float64)
+            f_t = torch.cos(((steps / n_steps) + s) / (1 + s) * (math.pi / 2)) ** 2
+            alphas_cumprod = f_t / f_t[0]
+            self.register_buffer("alphas_cumprod", alphas_cumprod[:n_steps].float())
+
+        def forward(self):
+            return self.alphas_cumprod
+
+    return CosineNoiseSchedule
 
 
 def _define_vae_models():
@@ -233,9 +258,34 @@ try:
         FourierActionEmbedding,
         PatchMLPPredictor,
     ) = _define_vae_models()
+    CosineNoiseSchedule = _define_noise_schedule()
 except ImportError:
     TimestepEmbedding = DiTBlock = AnchoredVAEDiT = None
     FourierActionEmbedding = PatchMLPPredictor = None
+    CosineNoiseSchedule = None
+
+
+def evaluate_g6(result: dict) -> dict:
+    """Autonomous G6 gate from diffusion JSON vs fixed direct baseline."""
+    mean = float(result.get("dit", {}).get("mean_cossim", 0))
+    dist = result.get("dit_distributional") or {}
+    best = float(dist.get("best_of_k_mean_cossim", 0))
+    div = float(dist.get("sample_diversity_l2", 0))
+    sane = mean == mean and best == best  # NaN check
+    if sane and mean >= DIRECT_BASELINE_MEAN and mean >= MLP_BASELINE_MEAN:
+        outcome = "strong_pass"
+    elif mean < DIRECT_BASELINE_MEAN and best >= G6_WEAK_BEST_OF_K and div > G6_DIVERSITY_MIN:
+        outcome = "weak_pass"
+    else:
+        outcome = "fail"
+    return {
+        "outcome": outcome,
+        "mean_cossim": mean,
+        "best_of_k_mean_cossim": best,
+        "sample_diversity_l2": div,
+        "direct_baseline_mean": DIRECT_BASELINE_MEAN,
+        "mlp_baseline_mean": MLP_BASELINE_MEAN,
+    }
 
 
 def _modal_function_decorator(fn):
@@ -257,6 +307,8 @@ def train_and_eval(
     epochs: int = 100,
     smoke: bool = False,
     mlp_hidden: int = 1024,
+    mode: str = "direct",
+    n_samples: int = 1,
 ):
     import numpy as np
     import torch
@@ -278,7 +330,11 @@ def train_and_eval(
     n_spatial = N_SPATIAL
     token_dim = PATCH_DIM
 
-    print(f"[vae-dit] h{horizon}/s{seed} smoke={smoke} mlp_hidden={mlp_hidden} device={device}")
+    assert mode in ("direct", "diffusion"), f"bad mode {mode}"
+    is_diffusion = mode == "diffusion"
+    n_ddim_steps = N_DDIM_STEPS_SMOKE if smoke else N_DDIM_STEPS
+    print(f"[vae-dit] h{horizon}/s{seed} mode={mode} smoke={smoke} "
+          f"mlp_hidden={mlp_hidden} n_samples={n_samples} device={device}")
 
     # ---- Load VAE latents ----
     if not os.path.exists(VAE_NPZ):
@@ -339,6 +395,29 @@ def train_and_eval(
     def denorm_tokens(tok):
         return tok * z_std + z_mean
 
+    def ddim_sample(model, fourier_embed, z_t_patch_norm, act_seq, schedule, n_steps):
+        B = z_t_patch_norm.shape[0]
+        H, S, D = horizon, n_spatial, PATCH_DIM
+        T = DIFFUSION_STEPS
+        stride = max(T // n_steps, 1)
+        timesteps = list(reversed(list(range(0, T, stride))[:n_steps]))
+        alphas = schedule.alphas_cumprod
+        a_embed = fourier_embed(act_seq)
+        x = torch.randn(B, H * S, D, device=device)
+        for i, t_val in enumerate(timesteps):
+            t = torch.full((B,), t_val, device=device, dtype=torch.long)
+            pred_x0 = model(x, z_t_patch_norm, a_embed, t)
+            alpha_t = alphas[t_val]
+            alpha_prev = alphas[timesteps[i + 1]] if i < len(timesteps) - 1 else torch.tensor(1.0, device=device)
+            noise_dir = (x - torch.sqrt(alpha_t) * pred_x0) / torch.sqrt(1 - alpha_t + 1e-8)
+            x = torch.sqrt(alpha_prev) * pred_x0 + torch.sqrt(1 - alpha_prev) * noise_dir
+        return x
+
+    def ddim_sample_multi(model, fourier_embed, z_t_b, act_b, schedule, k, n_steps):
+        return torch.stack([
+            ddim_sample(model, fourier_embed, z_t_b, act_b, schedule, n_steps) for _ in range(k)
+        ], dim=0)
+
     def evaluate(predict_fn, label=""):
         cs_sums = [0.0] * horizon
         copy_sums = [0.0] * horizon
@@ -367,9 +446,140 @@ def train_and_eval(
         print(f"  [{label}] mean={res['mean_cossim']:.4f} step1={res['cossim_by_step'][0]:.4f}")
         return res
 
-    results = {"smoke": smoke, "mlp_hidden": mlp_hidden}
+    results = {
+        "smoke": smoke,
+        "mlp_hidden": mlp_hidden,
+        "mode": mode,
+        "direct_baseline_mean": DIRECT_BASELINE_MEAN,
+        "mlp_baseline_mean": MLP_BASELINE_MEAN,
+    }
 
-    # ---- Train DiT ----
+    if is_diffusion:
+        schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device)
+        print(f"\n{'='*60}\nTraining VAE DiT-diffusion (DDIM steps={n_ddim_steps})\n{'='*60}")
+        dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+        fourier = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+        n_dit = sum(p.numel() for p in dit.parameters()) + sum(p.numel() for p in fourier.parameters())
+        print(f"  DiT params: {n_dit:,}")
+        opt = torch.optim.Adam(list(dit.parameters()) + list(fourier.parameters()), lr=TRAIN_LR)
+        ema = {n: p.data.clone() for n, p in list(dit.named_parameters()) + list(fourier.named_parameters())}
+        epoch_losses = []
+        for epoch in range(epochs):
+            dit.train()
+            fourier.train()
+            perm = torch.randperm(n_train)
+            loss_sum, nb = 0.0, 0
+            for start in range(0, n_train, TRAIN_BATCH):
+                end = min(start + TRAIN_BATCH, n_train)
+                idx = perm[start:end]
+                B = len(idx)
+                z_t_b = norm_patches(z_t_train[idx].to(device))
+                act_b = act_train[idx].to(device)
+                zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
+                zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
+                a_emb = fourier(act_b)
+                t = torch.randint(0, DIFFUSION_STEPS, (B,), device=device)
+                alpha_bar = schedule.alphas_cumprod[t].unsqueeze(1).unsqueeze(2)
+                noise = torch.randn_like(zf_b)
+                x_noisy = torch.sqrt(alpha_bar) * zf_b + torch.sqrt(1 - alpha_bar) * noise
+                pred = dit(x_noisy, z_t_b, a_emb, t)
+                loss = F.mse_loss(pred, zf_b)
+                if not torch.isfinite(loss):
+                    print(f"  ERROR: non-finite loss at epoch {epoch}")
+                    results["smoke_fail"] = "non_finite_loss"
+                    vol.commit()
+                    return results
+                opt.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(dit.parameters(), 1.0)
+                opt.step()
+                with torch.no_grad():
+                    for n, p in list(dit.named_parameters()) + list(fourier.named_parameters()):
+                        ema[n].mul_(EMA_DECAY).add_(p.data, alpha=1 - EMA_DECAY)
+                loss_sum += loss.item()
+                nb += 1
+            el = loss_sum / max(nb, 1)
+            epoch_losses.append(round(el, 6))
+            if epoch % max(epochs // 5, 1) == 0 or epoch == epochs - 1:
+                print(f"  epoch {epoch}/{epochs}: loss={el:.6f}")
+        results["epoch_losses"] = epoch_losses
+        dit_e = deepcopy(dit)
+        f_e = deepcopy(fourier)
+        with torch.no_grad():
+            for n, p in dit_e.named_parameters():
+                if n in ema:
+                    p.copy_(ema[n])
+            for n, p in f_e.named_parameters():
+                if n in ema:
+                    p.copy_(ema[n])
+        dit_e.eval()
+        f_e.eval()
+
+        def dit_predict(z_t_b, act_b):
+            return ddim_sample(dit_e, f_e, z_t_b, act_b, schedule, n_ddim_steps)
+
+        dit_res = evaluate(dit_predict, "DiT-vae-diffusion")
+        dit_res["n_params"] = n_dit
+        dit_res["n_ddim_steps"] = n_ddim_steps
+        results["dit"] = dit_res
+
+        if n_samples > 1:
+            k = n_samples
+            print(f"\n  Distributional eval: K={k}")
+            mean_sums = [0.0] * horizon
+            best_sums = [0.0] * horizon
+            div_sums = 0.0
+            total = 0
+            eval_batch = 8
+            with torch.no_grad():
+                for start in range(0, n_test, eval_batch):
+                    end = min(start + eval_batch, n_test)
+                    B = end - start
+                    z_t_b = norm_patches(z_t_test[start:end].to(device))
+                    act_b = act_test[start:end].to(device)
+                    zf_b = zf_test[start:end].to(device)
+                    samples = ddim_sample_multi(dit_e, f_e, z_t_b, act_b, schedule, k, n_ddim_steps)
+                    samples = denorm_tokens(samples).reshape(k, B, horizon, n_spatial, PATCH_DIM)
+                    for b in range(B):
+                        for step in range(horizon):
+                            gt = patchify(zf_b[:, step])
+                            cs_list = []
+                            for ki in range(k):
+                                pred = samples[ki, b, step]
+                                cs_list.append(F.cosine_similarity(pred, gt, dim=-1).mean().item())
+                            mean_sums[step] += sum(cs_list) / k
+                            best_sums[step] += max(cs_list)
+                        if k >= 2:
+                            flat = samples[:, b].reshape(k, -1)
+                            pw = torch.cdist(flat, flat, p=2)
+                            div_sums += pw[torch.triu(torch.ones(k, k, device=device), diagonal=1) == 1].mean().item()
+                    total += B
+            results["dit_distributional"] = {
+                "n_samples": k,
+                "mean_cossim": round(sum(mean_sums) / (total * horizon), 6),
+                "best_of_k_mean_cossim": round(sum(best_sums) / (total * horizon), 6),
+                "sample_diversity_l2": round(div_sums / total, 6) if k >= 2 else 0.0,
+            }
+            print(f"    best-of-K={results['dit_distributional']['best_of_k_mean_cossim']:.4f} "
+                  f"diversity={results['dit_distributional']['sample_diversity_l2']:.4f}")
+
+        if not smoke:
+            ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}"
+            os.makedirs(ckpt_dir, exist_ok=True)
+            torch.save({
+                "dit": dit.state_dict(),
+                "fourier": fourier.state_dict(),
+                "ema": ema,
+                "z_mean": z_mean.cpu(),
+                "z_std": z_std.cpu(),
+                "mode": "diffusion",
+            }, f"{ckpt_dir}/dit.pt")
+        results["g6"] = evaluate_g6(results)
+        print(f"\n  G6 outcome: {results['g6']['outcome']}")
+        vol.commit()
+        return results
+
+    # ---- Train DiT (direct) ----
     print(f"\n{'='*60}\nTraining VAE DiT-direct\n{'='*60}")
     dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
     fourier = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
@@ -525,14 +735,41 @@ def _modal_entrypoint_decorator(fn):
 
 
 @_modal_entrypoint_decorator
-def main(seed: int = 0, horizon: int = 16, epochs: int = 100, smoke: bool = False, mlp_hidden: int = 1024):
+def main(
+    seed: int = 0,
+    horizon: int = 16,
+    epochs: int = 100,
+    smoke: bool = False,
+    mlp_hidden: int = 1024,
+    mode: str = "direct",
+    n_samples: int = 1,
+):
     t0 = time.time()
-    print(f"VAE DiT training seed={seed} smoke={smoke}")
-    result = train_and_eval.remote(seed, horizon, epochs, smoke, mlp_hidden)
+    print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} n_samples={n_samples}")
+    result = train_and_eval.remote(seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples)
     print(json.dumps(result, indent=2))
-    tag = "smoke" if smoke else "result"
-    suffix = f"_mlpH{mlp_hidden}" if mlp_hidden != 1024 else ""
-    out = Path(f"artifacts/full/vae_dit_direct_{tag}_h{horizon}_s{seed}{suffix}.json")
+    if mode == "diffusion":
+        tag = "smoke" if smoke else "result"
+        out = Path(f"artifacts/full/vae_dit_diffusion_{tag}_h{horizon}_s{seed}.json")
+        if smoke and result:
+            losses = result.get("epoch_losses", [])
+            loss_ok = len(losses) >= 2 and losses[-1] < losses[0]
+            cs = float(result.get("dit", {}).get("mean_cossim", 0))
+            copy_bl = float(result.get("dit", {}).get("copy_by_step", [0])[-1] if result.get("dit") else 0)
+            smoke_pass = loss_ok and cs > 0.30 and cs == cs
+            result["smoke_gate"] = {
+                "pass": smoke_pass,
+                "loss_decreased": loss_ok,
+                "mean_cossim": cs,
+                "copy_stepN": copy_bl,
+            }
+            print(f"SMOKE GATE: {'PASS' if smoke_pass else 'FAIL'}")
+            if not smoke_pass:
+                print("Stopping: do not launch full diffusion run.")
+    else:
+        tag = "smoke" if smoke else "result"
+        suffix = f"_mlpH{mlp_hidden}" if mlp_hidden != 1024 else ""
+        out = Path(f"artifacts/full/vae_dit_direct_{tag}_h{horizon}_s{seed}{suffix}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
         json.dump(result, f, indent=2)
