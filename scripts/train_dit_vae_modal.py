@@ -86,49 +86,13 @@ def unpatchify(tokens, patch_size=PATCH_SIZE, channels=4, grid_h=GRID_H, grid_w=
     return x
 
 
-def _modal_function_decorator(fn):
-    if app is not None:
-        return app.function(
-            volumes={VOL_PATH: vol},
-            image=base_image,
-            gpu="A100",
-            timeout=14400,
-            memory=32768,
-        )(fn)
-    return fn
+def _modulate(x, shift, scale):
+    return x * (1.0 + scale) + shift
 
 
-@_modal_function_decorator
-def train_and_eval(
-    seed: int = 0,
-    horizon: int = 16,
-    epochs: int = 100,
-    smoke: bool = False,
-    mlp_hidden: int = 1024,
-):
-    import numpy as np
+def _define_vae_models():
     import torch
     import torch.nn as nn
-    import torch.nn.functional as F
-    from copy import deepcopy
-
-    max_train = max_test = None
-    if smoke:
-        epochs = 4
-        max_train = 2000
-        max_test = 256
-
-    mlp_epochs = max(epochs // 2, 10) if not smoke else 4
-
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    n_spatial = N_SPATIAL
-    token_dim = PATCH_DIM
-
-    print(f"[vae-dit] h{horizon}/s{seed} smoke={smoke} mlp_hidden={mlp_hidden} device={device}")
-
-    # ---- Models (inline, from spatial anchored script) ----
 
     class TimestepEmbedding(nn.Module):
         def __init__(self, cond_dim=MODEL_DIM):
@@ -146,9 +110,6 @@ def train_and_eval(
             args = timestep.float().unsqueeze(-1) * freqs.unsqueeze(0)
             emb = torch.cat([args.sin(), args.cos()], dim=-1)
             return self.mlp(emb)
-
-    def _modulate(x, shift, scale):
-        return x * (1.0 + scale) + shift
 
     class DiTBlock(nn.Module):
         def __init__(self, dim=MODEL_DIM, cond_dim=MODEL_DIM, n_heads=4, mlp_ratio=4.0, dropout=0.0):
@@ -171,8 +132,6 @@ def train_and_eval(
             return x
 
     class AnchoredVAEDiT(nn.Module):
-        """Project patch tokens 64->256, run DiT, project 256->64, anchor in patch space."""
-
         def __init__(self, horizon=16, n_spatial=64, patch_dim=64, model_dim=256, **dit_kw):
             super().__init__()
             self.horizon = horizon
@@ -230,6 +189,7 @@ def train_and_eval(
             )
 
         def forward(self, action):
+            import torch
             if action.dim() == 2:
                 action = action.unsqueeze(1)
             x = action.unsqueeze(-1) * self.freqs
@@ -249,6 +209,7 @@ def train_and_eval(
             )
 
         def forward(self, z_t_patch, a_embed):
+            import torch
             B, S, Pd = z_t_patch.shape
             H = self.horizon
             z_pool = z_t_patch.mean(dim=1)
@@ -259,6 +220,65 @@ def train_and_eval(
                 x = torch.cat([z_t_patch, z_pool_e, a_h], dim=-1)
                 outs.append(z_t_patch + self.net(x))
             return torch.stack(outs, dim=1).reshape(B, H * S, Pd)
+
+    return TimestepEmbedding, DiTBlock, AnchoredVAEDiT, FourierActionEmbedding, PatchMLPPredictor
+
+
+try:
+    import torch
+    (
+        TimestepEmbedding,
+        DiTBlock,
+        AnchoredVAEDiT,
+        FourierActionEmbedding,
+        PatchMLPPredictor,
+    ) = _define_vae_models()
+except ImportError:
+    TimestepEmbedding = DiTBlock = AnchoredVAEDiT = None
+    FourierActionEmbedding = PatchMLPPredictor = None
+
+
+def _modal_function_decorator(fn):
+    if app is not None:
+        return app.function(
+            volumes={VOL_PATH: vol},
+            image=base_image,
+            gpu="A100",
+            timeout=14400,
+            memory=32768,
+        )(fn)
+    return fn
+
+
+@_modal_function_decorator
+def train_and_eval(
+    seed: int = 0,
+    horizon: int = 16,
+    epochs: int = 100,
+    smoke: bool = False,
+    mlp_hidden: int = 1024,
+):
+    import numpy as np
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from copy import deepcopy
+
+    max_train = max_test = None
+    if smoke:
+        epochs = 4
+        max_train = 2000
+        max_test = 256
+
+    mlp_epochs = max(epochs // 2, 10) if not smoke else 4
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    n_spatial = N_SPATIAL
+    token_dim = PATCH_DIM
+
+    print(f"[vae-dit] h{horizon}/s{seed} smoke={smoke} mlp_hidden={mlp_hidden} device={device}")
 
     # ---- Load VAE latents ----
     if not os.path.exists(VAE_NPZ):

@@ -122,12 +122,13 @@ def run_visual_eval(n_windows: int = 20, seed: int = 0, horizon: int = 16):
             z_rep = z_t_n.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(1, horizon * N_SPATIAL, PATCH_DIM)
             t0 = torch.zeros(1, dtype=torch.long, device=device)
             pred_n = dit(z_rep, z_t_n, a_emb, t0)
-            pred_lat = unpatchify(pred_n * z_std + z_mean).clamp(-3, 3)
+            pred_tok = (pred_n * z_std + z_mean).reshape(1, horizon, N_SPATIAL, PATCH_DIM)
 
             fig, axes = plt.subplots(2, len(STEPS_SHOW), figsize=(3 * len(STEPS_SHOW), 6))
             for col, k in enumerate(STEPS_SHOW):
+                pred_lat_k = unpatchify(pred_tok[:, k]).clamp(-3, 3)
                 gt_dec = vae.decode(zf_gt[:, k] / SCALING).sample
-                pr_dec = vae.decode(pred_lat[:, k] / SCALING).sample
+                pr_dec = vae.decode(pred_lat_k / SCALING).sample
                 gt_img = ((gt_dec.clamp(-1, 1) + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
                 pr_img = ((pr_dec.clamp(-1, 1) + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
                 proxy_scores.append(1.0 - float(((gt_img - pr_img) ** 2).mean()))
