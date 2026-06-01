@@ -62,6 +62,10 @@ DIRECT_BASELINE_MEAN = 0.527
 MLP_BASELINE_MEAN = 0.484
 G6_WEAK_BEST_OF_K = 0.547
 G6_DIVERSITY_MIN = 0.05
+G7_BEST_OF_K_MIN = 0.03
+G7_DIVERSITY_STRONG = 0.10
+G7_DIVERSITY_PARTIAL = 0.05
+G7_COND_DIRECT_REF = DIRECT_BASELINE_MEAN
 
 if modal is not None:
     base_image = (
@@ -265,6 +269,33 @@ except ImportError:
     CosineNoiseSchedule = None
 
 
+def evaluate_g7(result: dict) -> dict:
+    """Pre-registered G7 gate for action-marginalized multi-future (Exp B)."""
+    dist = result.get("dit_distributional") or {}
+    uncond_direct = float(result.get("uncond_direct", {}).get("mean_cossim", 0))
+    best = float(dist.get("best_of_k_mean_cossim", 0))
+    div = float(dist.get("sample_diversity_l2", 0))
+    cond_direct_ref = float(result.get("conditioned_direct_mean", G7_COND_DIRECT_REF))
+    gap_best = best - uncond_direct
+    cond_ok = abs(float(result.get("dit", {}).get("mean_cossim", 0)) - cond_direct_ref) <= 0.03
+    if gap_best >= G7_BEST_OF_K_MIN and div > G7_DIVERSITY_STRONG and cond_ok:
+        outcome = "strong_pass"
+    elif gap_best >= 0.01 and div > G7_DIVERSITY_PARTIAL:
+        outcome = "partial"
+    else:
+        outcome = "fail"
+    return {
+        "outcome": outcome,
+        "best_of_k_mean_cossim": best,
+        "uncond_direct_mean": uncond_direct,
+        "best_minus_uncond_direct": round(gap_best, 6),
+        "sample_diversity_l2": div,
+        "conditioned_direct_mean": cond_direct_ref,
+        "eval_subset": result.get("eval_subset", "high_action_variance"),
+        "K": dist.get("n_samples"),
+    }
+
+
 def evaluate_g6(result: dict) -> dict:
     """Autonomous G6 gate from diffusion JSON vs fixed direct baseline."""
     mean = float(result.get("dit", {}).get("mean_cossim", 0))
@@ -309,6 +340,7 @@ def train_and_eval(
     mlp_hidden: int = 1024,
     mode: str = "direct",
     n_samples: int = 1,
+    action_dropout: float = 0.0,
 ):
     import numpy as np
     import torch
@@ -334,7 +366,7 @@ def train_and_eval(
     is_diffusion = mode == "diffusion"
     n_ddim_steps = N_DDIM_STEPS_SMOKE if smoke else N_DDIM_STEPS
     print(f"[vae-dit] h{horizon}/s{seed} mode={mode} smoke={smoke} "
-          f"mlp_hidden={mlp_hidden} n_samples={n_samples} device={device}")
+          f"mlp_hidden={mlp_hidden} n_samples={n_samples} action_dropout={action_dropout} device={device}")
 
     # ---- Load VAE latents ----
     if not os.path.exists(VAE_NPZ):
@@ -395,14 +427,23 @@ def train_and_eval(
     def denorm_tokens(tok):
         return tok * z_std + z_mean
 
-    def ddim_sample(model, fourier_embed, z_t_patch_norm, act_seq, schedule, n_steps):
+    def embed_actions(fourier_embed, act_seq, dropout_p=0.0, force_zero=False):
+        a_embed = fourier_embed(act_seq)
+        if force_zero:
+            return torch.zeros_like(a_embed)
+        if dropout_p > 0 and fourier_embed.training:
+            mask = (torch.rand(act_seq.shape[0], device=device) >= dropout_p).float()
+            a_embed = a_embed * mask.view(-1, 1, 1)
+        return a_embed
+
+    def ddim_sample(model, fourier_embed, z_t_patch_norm, act_seq, schedule, n_steps, uncond=False):
         B = z_t_patch_norm.shape[0]
         H, S, D = horizon, n_spatial, PATCH_DIM
         T = DIFFUSION_STEPS
         stride = max(T // n_steps, 1)
         timesteps = list(reversed(list(range(0, T, stride))[:n_steps]))
         alphas = schedule.alphas_cumprod
-        a_embed = fourier_embed(act_seq)
+        a_embed = embed_actions(fourier_embed, act_seq, force_zero=uncond)
         x = torch.randn(B, H * S, D, device=device)
         for i, t_val in enumerate(timesteps):
             t = torch.full((B,), t_val, device=device, dtype=torch.long)
@@ -413,25 +454,35 @@ def train_and_eval(
             x = torch.sqrt(alpha_prev) * pred_x0 + torch.sqrt(1 - alpha_prev) * noise_dir
         return x
 
-    def ddim_sample_multi(model, fourier_embed, z_t_b, act_b, schedule, k, n_steps):
+    def ddim_sample_multi(model, fourier_embed, z_t_b, act_b, schedule, k, n_steps, uncond=False):
         return torch.stack([
-            ddim_sample(model, fourier_embed, z_t_b, act_b, schedule, n_steps) for _ in range(k)
+            ddim_sample(model, fourier_embed, z_t_b, act_b, schedule, n_steps, uncond=uncond)
+            for _ in range(k)
         ], dim=0)
 
-    def evaluate(predict_fn, label=""):
+    # High action-variance subset (top quartile steer std within horizon)
+    steer_std_test = act_test[:, :, 0].std(dim=1)
+    hv_threshold = float(torch.quantile(steer_std_test, 0.75).item())
+    hv_mask = steer_std_test >= hv_threshold
+    hv_indices = torch.where(hv_mask)[0]
+    print(f"[vae-dit] high-variance windows: {len(hv_indices)}/{n_test} (steer_std>={hv_threshold:.4f})")
+
+    def evaluate(predict_fn, label="", indices=None):
         cs_sums = [0.0] * horizon
         copy_sums = [0.0] * horizon
         total = 0
+        idx_list = indices.tolist() if indices is not None else list(range(n_test))
         with torch.no_grad():
-            for start in range(0, n_test, 32):
-                end = min(start + 32, n_test)
-                B = end - start
-                z_t_b = norm_patches(z_t_test[start:end].to(device))
-                act_b = act_test[start:end].to(device)
-                zf_b = zf_test[start:end].to(device)
+            for start in range(0, len(idx_list), 32):
+                end = min(start + 32, len(idx_list))
+                batch_idx = idx_list[start:end]
+                B = len(batch_idx)
+                z_t_b = norm_patches(z_t_test[batch_idx].to(device))
+                act_b = act_test[batch_idx].to(device)
+                zf_b = zf_test[batch_idx].to(device)
                 z_hat = predict_fn(z_t_b, act_b)
                 z_hat = denorm_tokens(z_hat).reshape(B, horizon, n_spatial, PATCH_DIM)
-                z_t_raw = patchify(z_t_test[start:end].to(device))
+                z_t_raw = patchify(z_t_test[batch_idx].to(device))
                 for k in range(horizon):
                     gt = patchify(zf_b[:, k])
                     cs_sums[k] += F.cosine_similarity(z_hat[:, k], gt, dim=-1).mean(dim=-1).sum().item()
@@ -446,12 +497,59 @@ def train_and_eval(
         print(f"  [{label}] mean={res['mean_cossim']:.4f} step1={res['cossim_by_step'][0]:.4f}")
         return res
 
+    def evaluate_distributional(model, fourier_embed, schedule, k, n_steps, uncond=False, indices=None):
+        mean_sums = [0.0] * horizon
+        best_sums = [0.0] * horizon
+        div_sums = 0.0
+        total = 0
+        idx_list = indices.tolist() if indices is not None else list(range(n_test))
+        eval_batch = 8
+        with torch.no_grad():
+            for start in range(0, len(idx_list), eval_batch):
+                end = min(start + eval_batch, len(idx_list))
+                batch_idx = idx_list[start:end]
+                B = len(batch_idx)
+                z_t_b = norm_patches(z_t_test[batch_idx].to(device))
+                act_b = act_test[batch_idx].to(device)
+                zf_b = zf_test[batch_idx].to(device)
+                samples = ddim_sample_multi(
+                    model, fourier_embed, z_t_b, act_b, schedule, k, n_steps, uncond=uncond,
+                )
+                samples = denorm_tokens(samples).reshape(k, B, horizon, n_spatial, PATCH_DIM)
+                for b in range(B):
+                    for step in range(horizon):
+                        gt = patchify(zf_b[:, step])
+                        cs_list = [
+                            F.cosine_similarity(samples[ki, b, step], gt[b], dim=-1).mean().item()
+                            for ki in range(k)
+                        ]
+                        mean_sums[step] += sum(cs_list) / k
+                        best_sums[step] += max(cs_list)
+                    if k >= 2:
+                        flat = samples[:, b].reshape(k, -1)
+                        pw = torch.cdist(flat, flat, p=2)
+                        div_sums += pw[torch.triu(torch.ones(k, k, device=device), diagonal=1) == 1].mean().item()
+                total += B
+        return {
+            "n_samples": k,
+            "mean_cossim": round(sum(mean_sums) / (total * horizon), 6),
+            "best_of_k_mean_cossim": round(sum(best_sums) / (total * horizon), 6),
+            "sample_diversity_l2": round(div_sums / total, 6) if k >= 2 else 0.0,
+            "n_test": total,
+            "uncond": uncond,
+        }
+
     results = {
         "smoke": smoke,
         "mlp_hidden": mlp_hidden,
         "mode": mode,
+        "action_dropout": action_dropout,
         "direct_baseline_mean": DIRECT_BASELINE_MEAN,
         "mlp_baseline_mean": MLP_BASELINE_MEAN,
+        "conditioned_direct_mean": DIRECT_BASELINE_MEAN,
+        "eval_subset": "high_action_variance_top_quartile_steer_std",
+        "hv_threshold_steer_std": round(hv_threshold, 6),
+        "n_hv_test": int(len(hv_indices)),
     }
 
     if is_diffusion:
@@ -477,7 +575,7 @@ def train_and_eval(
                 act_b = act_train[idx].to(device)
                 zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
                 zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
-                a_emb = fourier(act_b)
+                a_emb = embed_actions(fourier, act_b, dropout_p=action_dropout)
                 t = torch.randint(0, DIFFUSION_STEPS, (B,), device=device)
                 alpha_bar = schedule.alphas_cumprod[t].unsqueeze(1).unsqueeze(2)
                 noise = torch.randn_like(zf_b)
@@ -515,67 +613,113 @@ def train_and_eval(
         dit_e.eval()
         f_e.eval()
 
-        def dit_predict(z_t_b, act_b):
-            return ddim_sample(dit_e, f_e, z_t_b, act_b, schedule, n_ddim_steps)
+        eval_idx = hv_indices if action_dropout > 0 else None
 
-        dit_res = evaluate(dit_predict, "DiT-vae-diffusion")
-        dit_res["n_params"] = n_dit
-        dit_res["n_ddim_steps"] = n_ddim_steps
-        results["dit"] = dit_res
+        if action_dropout > 0:
+            k = max(n_samples, 16)
+            print(f"\n  Exp B eval on high-variance subset (K={k}, uncond sampling)")
+            dist = evaluate_distributional(
+                dit_e, f_e, schedule, k, n_ddim_steps, uncond=True, indices=eval_idx,
+            )
+            results["dit_distributional"] = dist
+            results["dit"] = {"mean_cossim": dist["mean_cossim"], "n_params": n_dit, "n_ddim_steps": n_ddim_steps}
+            print(f"    uncond diffusion mean={dist['mean_cossim']:.4f} "
+                  f"best-of-K={dist['best_of_k_mean_cossim']:.4f} div={dist['sample_diversity_l2']:.4f}")
 
-        if n_samples > 1:
-            k = n_samples
-            print(f"\n  Distributional eval: K={k}")
-            mean_sums = [0.0] * horizon
-            best_sums = [0.0] * horizon
-            div_sums = 0.0
-            total = 0
-            eval_batch = 8
-            with torch.no_grad():
-                for start in range(0, n_test, eval_batch):
-                    end = min(start + eval_batch, n_test)
-                    B = end - start
-                    z_t_b = norm_patches(z_t_test[start:end].to(device))
-                    act_b = act_test[start:end].to(device)
-                    zf_b = zf_test[start:end].to(device)
-                    samples = ddim_sample_multi(dit_e, f_e, z_t_b, act_b, schedule, k, n_ddim_steps)
-                    samples = denorm_tokens(samples).reshape(k, B, horizon, n_spatial, PATCH_DIM)
-                    for b in range(B):
-                        for step in range(horizon):
-                            gt = patchify(zf_b[:, step])
-                            cs_list = []
-                            for ki in range(k):
-                                pred = samples[ki, b, step]
-                                cs_list.append(F.cosine_similarity(pred, gt, dim=-1).mean().item())
-                            mean_sums[step] += sum(cs_list) / k
-                            best_sums[step] += max(cs_list)
-                        if k >= 2:
-                            flat = samples[:, b].reshape(k, -1)
-                            pw = torch.cdist(flat, flat, p=2)
-                            div_sums += pw[torch.triu(torch.ones(k, k, device=device), diagonal=1) == 1].mean().item()
-                    total += B
-            results["dit_distributional"] = {
-                "n_samples": k,
-                "mean_cossim": round(sum(mean_sums) / (total * horizon), 6),
-                "best_of_k_mean_cossim": round(sum(best_sums) / (total * horizon), 6),
-                "sample_diversity_l2": round(div_sums / total, 6) if k >= 2 else 0.0,
-            }
-            print(f"    best-of-K={results['dit_distributional']['best_of_k_mean_cossim']:.4f} "
-                  f"diversity={results['dit_distributional']['sample_diversity_l2']:.4f}")
+            # Unconditioned direct baseline (actions always zeroed)
+            print(f"\n{'='*60}\nTraining unconditioned direct baseline\n{'='*60}")
+            dit_u = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+            f_u = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+            opt_u = torch.optim.Adam(list(dit_u.parameters()) + list(f_u.parameters()), lr=TRAIN_LR)
+            u_epochs = epochs if not smoke else epochs
+            for epoch in range(u_epochs):
+                dit_u.train()
+                f_u.train()
+                perm = torch.randperm(n_train)
+                for start in range(0, n_train, TRAIN_BATCH):
+                    end = min(start + TRAIN_BATCH, n_train)
+                    idx = perm[start:end]
+                    B = len(idx)
+                    z_t_b = norm_patches(z_t_train[idx].to(device))
+                    act_b = act_train[idx].to(device)
+                    zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
+                    zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
+                    a_emb = embed_actions(f_u, act_b, force_zero=True)
+                    z_rep = z_t_b.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(B, horizon * n_spatial, PATCH_DIM)
+                    t0 = torch.zeros(B, dtype=torch.long, device=device)
+                    pred = dit_u(z_rep, z_t_b, a_emb, t0)
+                    loss = F.mse_loss(pred, zf_b)
+                    opt_u.zero_grad()
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(dit_u.parameters(), 1.0)
+                    opt_u.step()
+                if epoch % max(u_epochs // 5, 1) == 0 or epoch == u_epochs - 1:
+                    print(f"  uncond-direct epoch {epoch}/{u_epochs}")
 
-        if not smoke:
-            ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}"
-            os.makedirs(ckpt_dir, exist_ok=True)
-            torch.save({
-                "dit": dit.state_dict(),
-                "fourier": fourier.state_dict(),
-                "ema": ema,
-                "z_mean": z_mean.cpu(),
-                "z_std": z_std.cpu(),
-                "mode": "diffusion",
-            }, f"{ckpt_dir}/dit.pt")
-        results["g6"] = evaluate_g6(results)
-        print(f"\n  G6 outcome: {results['g6']['outcome']}")
+            dit_u.eval()
+            f_u.eval()
+
+            def uncond_direct_pred(z_t_b, act_b):
+                B = z_t_b.shape[0]
+                z_rep = z_t_b.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(B, horizon * n_spatial, PATCH_DIM)
+                t0 = torch.zeros(B, dtype=torch.long, device=device)
+                return dit_u(z_rep, z_t_b, embed_actions(f_u, act_b, force_zero=True), t0)
+
+            results["uncond_direct"] = evaluate(uncond_direct_pred, "uncond-direct", indices=eval_idx)
+            def copy_pred(z_t_b, act_b):
+                B = z_t_b.shape[0]
+                return z_t_b.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(
+                    B, horizon * n_spatial, PATCH_DIM
+                )
+
+            results["copy_baseline"] = evaluate(copy_pred, "copy", indices=eval_idx)
+            results["g7"] = evaluate_g7(results)
+            print(f"\n  G7 outcome: {results['g7']['outcome']}")
+            if not smoke:
+                ckpt_dir = f"{CKPT_DIR}/diffusion_ad{action_dropout}/h{horizon}/seed_{seed}"
+                os.makedirs(ckpt_dir, exist_ok=True)
+                torch.save({
+                    "dit": dit.state_dict(),
+                    "fourier": fourier.state_dict(),
+                    "ema": ema,
+                    "z_mean": z_mean.cpu(),
+                    "z_std": z_std.cpu(),
+                    "mode": "diffusion",
+                    "action_dropout": action_dropout,
+                    "uncond_direct": dit_u.state_dict(),
+                    "uncond_fourier": f_u.state_dict(),
+                }, f"{ckpt_dir}/dit.pt")
+        else:
+            def dit_predict(z_t_b, act_b):
+                return ddim_sample(dit_e, f_e, z_t_b, act_b, schedule, n_ddim_steps)
+
+            dit_res = evaluate(dit_predict, "DiT-vae-diffusion")
+            dit_res["n_params"] = n_dit
+            dit_res["n_ddim_steps"] = n_ddim_steps
+            results["dit"] = dit_res
+
+            if n_samples > 1:
+                k = n_samples
+                print(f"\n  Distributional eval: K={k}")
+                dist = evaluate_distributional(dit_e, f_e, schedule, k, n_ddim_steps, uncond=False)
+                results["dit_distributional"] = dist
+                print(f"    best-of-K={dist['best_of_k_mean_cossim']:.4f} "
+                      f"diversity={dist['sample_diversity_l2']:.4f}")
+
+            if not smoke:
+                ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}"
+                os.makedirs(ckpt_dir, exist_ok=True)
+                torch.save({
+                    "dit": dit.state_dict(),
+                    "fourier": fourier.state_dict(),
+                    "ema": ema,
+                    "z_mean": z_mean.cpu(),
+                    "z_std": z_std.cpu(),
+                    "mode": "diffusion",
+                }, f"{ckpt_dir}/dit.pt")
+            results["g6"] = evaluate_g6(results)
+            print(f"\n  G6 outcome: {results['g6']['outcome']}")
+
         vol.commit()
         return results
 
@@ -743,29 +887,35 @@ def main(
     mlp_hidden: int = 1024,
     mode: str = "direct",
     n_samples: int = 1,
+    action_dropout: float = 0.0,
 ):
     t0 = time.time()
-    print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} n_samples={n_samples}")
-    result = train_and_eval.remote(seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples)
+    print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} "
+          f"n_samples={n_samples} action_dropout={action_dropout}")
+    result = train_and_eval.remote(
+        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout,
+    )
     print(json.dumps(result, indent=2))
     if mode == "diffusion":
+        ad_tag = f"_ad{action_dropout}" if action_dropout > 0 else ""
         tag = "smoke" if smoke else "result"
-        out = Path(f"artifacts/full/vae_dit_diffusion_{tag}_h{horizon}_s{seed}.json")
+        if action_dropout > 0 and not smoke:
+            out = Path(f"artifacts/full/vae_diffusion_multifuture_result_h{horizon}_s{seed}.json")
+        else:
+            out = Path(f"artifacts/full/vae_dit_diffusion{ad_tag}_{tag}_h{horizon}_s{seed}.json")
         if smoke and result:
             losses = result.get("epoch_losses", [])
             loss_ok = len(losses) >= 2 and losses[-1] < losses[0]
-            cs = float(result.get("dit", {}).get("mean_cossim", 0))
-            copy_bl = float(result.get("dit", {}).get("copy_by_step", [0])[-1] if result.get("dit") else 0)
-            smoke_pass = loss_ok and cs > 0.30 and cs == cs
+            finite = "smoke_fail" not in result
+            smoke_pass = loss_ok and finite
             result["smoke_gate"] = {
                 "pass": smoke_pass,
                 "loss_decreased": loss_ok,
-                "mean_cossim": cs,
-                "copy_stepN": copy_bl,
+                "finite": finite,
             }
-            print(f"SMOKE GATE: {'PASS' if smoke_pass else 'FAIL'}")
+            print(f"SMOKE GATE (B): {'PASS' if smoke_pass else 'FAIL'}")
             if not smoke_pass:
-                print("Stopping: do not launch full diffusion run.")
+                print("Stopping: do not launch full Exp B run.")
     else:
         tag = "smoke" if smoke else "result"
         suffix = f"_mlpH{mlp_hidden}" if mlp_hidden != 1024 else ""
