@@ -108,6 +108,8 @@ def train_and_eval(
     epochs: int = 100,
     smoke: bool = False,
     mlp_hidden: int = 512,           # MLP hidden dim (default 512 = ~1.3M; 2816 = ~12M param-matched)
+    objective: str = "x0",           # "x0" or "vpred" (diffusion only)
+    n_samples: int = 1,              # DDIM samples for distributional eval (K>1 for best-of-K)
 ):
     import numpy as np
     import torch
@@ -116,7 +118,9 @@ def train_and_eval(
     from copy import deepcopy
 
     assert mode in ("direct", "anchored_x0"), f"bad mode {mode}"
+    assert objective in ("x0", "vpred"), f"bad objective {objective}"
     is_diffusion = mode == "anchored_x0"
+    use_vpred = is_diffusion and objective == "vpred"
 
     # Smoke config: small + fast, just to validate the pipeline end-to-end.
     n_ddim_steps = N_DDIM_STEPS
@@ -223,7 +227,7 @@ def train_and_eval(
             nn.init.zeros_(self.final_linear.weight)
             nn.init.zeros_(self.final_linear.bias)
 
-        def forward(self, x_input, z_t_spatial, a_embed, timestep):
+        def forward(self, x_input, z_t_spatial, a_embed, timestep, anchor_output=True):
             B = x_input.shape[0]
             H, S, D = self.horizon, self.n_spatial, self.z_dim
             sp = self.spatial_pos.unsqueeze(1).expand(-1, H, -1, -1).reshape(1, H * S, D)
@@ -238,7 +242,8 @@ def train_and_eval(
             mod = self.final_adaln(cond)
             shift, scale, gate = mod.chunk(3, dim=-1)
             delta = gate * self.final_linear(_modulate(self.final_norm(x), shift, scale))
-            # Residual anchor: broadcast z_t over the horizon and add.
+            if not anchor_output:
+                return delta
             z_t_rep = z_t_spatial.unsqueeze(1).expand(-1, H, -1, -1).reshape(B, H * S, D)
             return z_t_rep + delta
 
@@ -350,7 +355,7 @@ def train_and_eval(
     def denormalize(x):
         return x * z_std + z_mean
 
-    def ddim_sample(model, fourier_embed, z_t_spatial_norm, act_seq, schedule):
+    def ddim_sample(model, fourier_embed, z_t_spatial_norm, act_seq, schedule, vpred=False, anchor_output=True):
         B = z_t_spatial_norm.shape[0]
         H, S, D = horizon, n_spatial, TARGET_DIM
         T = DIFFUSION_STEPS
@@ -363,13 +368,24 @@ def train_and_eval(
 
         for i, t_val in enumerate(timesteps):
             t = torch.full((B,), t_val, device=device, dtype=torch.long)
-            pred_x0 = model(x, z_t_spatial_norm, a_embed, t)
+            out = model(x, z_t_spatial_norm, a_embed, t, anchor_output=anchor_output)
             alpha_t = alphas[t_val]
+            if vpred:
+                pred_x0 = torch.sqrt(alpha_t) * x - torch.sqrt(1 - alpha_t + 1e-8) * out
+            else:
+                pred_x0 = out
             alpha_prev = alphas[timesteps[i + 1]] if i < len(timesteps) - 1 else torch.tensor(1.0, device=device)
             noise_dir = (x - torch.sqrt(alpha_t) * pred_x0) / torch.sqrt(1 - alpha_t + 1e-8)
             x = torch.sqrt(alpha_prev) * pred_x0 + torch.sqrt(1 - alpha_prev) * noise_dir
 
         return x
+
+    def ddim_sample_multi(model, fourier_embed, z_t_b, act_b, schedule, k, vpred=False, anchor_output=True):
+        """Sample K futures; return (K, B, H*S, D) tensor."""
+        samples = []
+        for _ in range(k):
+            samples.append(ddim_sample(model, fourier_embed, z_t_b, act_b, schedule, vpred=vpred, anchor_output=anchor_output))
+        return torch.stack(samples, dim=0)
 
     def evaluate_model(predict_fn, z_t_dev, act_dev, zf_dev, label=""):
         cossim_sums = [0.0] * horizon
@@ -410,7 +426,7 @@ def train_and_eval(
               f"stepN: {result['cossim_by_step'][-1]:.4f}")
         return result
 
-    results = {"mode": mode, "smoke": smoke}
+    results = {"mode": mode, "smoke": smoke, "objective": objective}
 
     # ==================================================================
     # Train anchored spatial DiT (direct OR anchored-x0 diffusion)
@@ -452,14 +468,20 @@ def train_and_eval(
                 alpha_bar = schedule.alphas_cumprod[t].unsqueeze(1).unsqueeze(2)
                 noise = torch.randn_like(zf_b)
                 x_noisy = torch.sqrt(alpha_bar) * zf_b + torch.sqrt(1 - alpha_bar) * noise
-                pred = dit(x_noisy, z_t_b, a_embed, t)
+                if use_vpred:
+                    v_target = torch.sqrt(alpha_bar) * noise - torch.sqrt(1 - alpha_bar) * zf_b
+                    pred = dit(x_noisy, z_t_b, a_embed, t, anchor_output=False)
+                    loss = F.mse_loss(pred, v_target)
+                else:
+                    pred = dit(x_noisy, z_t_b, a_embed, t, anchor_output=True)
+                    loss = F.mse_loss(pred, zf_b)
             else:
                 # Direct: input is z_t broadcast over horizon, timestep fixed to 0.
                 z_t_rep = z_t_b.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(B, horizon * n_spatial, TARGET_DIM)
                 t0 = torch.zeros((B,), device=device, dtype=torch.long)
                 pred = dit(z_t_rep, z_t_b, a_embed, t0)
+                loss = F.mse_loss(pred, zf_b)
 
-            loss = F.mse_loss(pred, zf_b)
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(dit.parameters(), 1.0)
@@ -490,9 +512,13 @@ def train_and_eval(
                 param.copy_(ema_params[name])
     dit_ema.eval(); fourier_ema.eval()
 
+    anchor_out = not use_vpred
     if is_diffusion:
         def dit_predict(z_t_b, act_b):
-            return ddim_sample(dit_ema, fourier_ema, z_t_b, act_b, schedule)
+            return ddim_sample(
+                dit_ema, fourier_ema, z_t_b, act_b, schedule,
+                vpred=use_vpred, anchor_output=anchor_out,
+            )
     else:
         def dit_predict(z_t_b, act_b):
             B = z_t_b.shape[0]
@@ -501,12 +527,61 @@ def train_and_eval(
             t0 = torch.zeros((B,), device=device, dtype=torch.long)
             return dit_ema(z_t_rep, z_t_b, a_embed, t0)
 
-    dit_label = "DiT-anchored-x0" if is_diffusion else "DiT-direct-anchored"
+    obj_tag = objective if is_diffusion else "direct"
+    dit_label = f"DiT-{mode}-{obj_tag}"
     dit_result = evaluate_model(dit_predict, z_t_test, act_test, zf_test, dit_label)
-    dit_result["model"] = f"dit_{mode}"
+    dit_result["model"] = f"dit_{mode}_{objective}" if is_diffusion else f"dit_{mode}"
     dit_result["train_time_s"] = round(train_time, 1)
     dit_result["n_params"] = n_params
+    dit_result["objective"] = objective
     results["dit"] = dit_result
+
+    # Distributional eval (diffusion, K>1 samples)
+    if is_diffusion and n_samples > 1:
+        print(f"\n  Distributional eval: K={n_samples} samples (best-of-K + diversity)")
+        k = n_samples
+        mean_sums = [0.0] * horizon
+        best_sums = [0.0] * horizon
+        div_sums = 0.0
+        total = 0
+        eval_batch = 8  # smaller batch when K>1
+        with torch.no_grad():
+            for start in range(0, len(z_t_test), eval_batch):
+                end = min(start + eval_batch, len(z_t_test))
+                B = end - start
+                z_t_b = normalize(z_t_test[start:end].to(device))
+                act_b = act_test[start:end].to(device)
+                zf_b = zf_test[start:end].to(device)
+                samples = ddim_sample_multi(
+                    dit_ema, fourier_ema, z_t_b, act_b, schedule, k,
+                    vpred=use_vpred, anchor_output=anchor_out,
+                )
+                samples = denormalize(samples).reshape(k, B, horizon, n_spatial, TARGET_DIM)
+                for b in range(B):
+                    for step in range(horizon):
+                        gt = zf_b[b, step]
+                        cs_list = []
+                        for ki in range(k):
+                            pred = samples[ki, b, step]
+                            cs_list.append(F.cosine_similarity(pred, gt, dim=-1).mean().item())
+                        mean_sums[step] += sum(cs_list) / k
+                        best_sums[step] += max(cs_list)
+                    if k >= 2:
+                        flat = samples[:, b].reshape(k, -1)
+                        pw = torch.cdist(flat, flat, p=2)
+                        div_sums += pw[torch.triu(torch.ones(k, k, device=device), diagonal=1) == 1].mean().item()
+                total += B
+        dist = {
+            "n_samples": k,
+            "mean_cossim_by_step": [round(s / total, 6) for s in mean_sums],
+            "best_of_k_cossim_by_step": [round(s / total, 6) for s in best_sums],
+            "mean_cossim": round(sum(mean_sums) / (total * horizon), 6),
+            "best_of_k_mean_cossim": round(sum(best_sums) / (total * horizon), 6),
+            "sample_diversity_l2": round(div_sums / total, 6) if k >= 2 else 0.0,
+        }
+        print(f"    mean CosSim: {dist['mean_cossim']:.4f}, best-of-K: {dist['best_of_k_mean_cossim']:.4f}, "
+              f"diversity: {dist['sample_diversity_l2']:.4f}")
+        results["dit_distributional"] = dist
 
     if not smoke:
         ckpt_dir = f"{CKPT_DIR}/{encoder_name}/{mode}/h{horizon}/seed_{seed}"
@@ -588,6 +663,7 @@ def train_and_eval(
     results["gap"] = round(gap, 6)
     results["dit_wins"] = gap > 0
     results["dit_step1_beats_copy"] = results["dit"]["cossim_by_step"][0] >= copy_step1
+    results["mlp_hidden"] = mlp_hidden
 
     vol.commit()
     return results
@@ -608,6 +684,8 @@ def main(
     epochs: int = 100,
     smoke: bool = False,
     mlp_hidden: int = 512,
+    objective: str = "x0",
+    n_samples: int = 1,
 ):
     if encoder not in SPATIAL_TOKENS:
         print(f"ERROR: encoder must be one of {list(SPATIAL_TOKENS.keys())}")
@@ -618,16 +696,24 @@ def main(
 
     t_start = time.time()
     print(f"\n{'='*60}\nAnchored Spatial DiT: {encoder} mode={mode} h{horizon} s{seed} "
-          f"epochs={epochs} smoke={smoke} mlp_hidden={mlp_hidden}\n{'='*60}")
+          f"epochs={epochs} smoke={smoke} mlp_hidden={mlp_hidden} objective={objective} "
+          f"n_samples={n_samples}\n{'='*60}")
 
-    result = train_and_eval.remote(encoder, seed, mode, horizon, epochs, smoke, mlp_hidden=mlp_hidden)
+    result = train_and_eval.remote(
+        encoder, seed, mode, horizon, epochs, smoke,
+        mlp_hidden=mlp_hidden, objective=objective, n_samples=n_samples,
+    )
     wall = time.time() - t_start
     print(f"\nDone in {wall:.0f}s")
     print(json.dumps(result, indent=2))
 
     tag = "smoke" if smoke else "result"
-    name = "spatial_dit_direct_residual" if mode == "direct" else "spatial_dit_anchored_x0"
-    out_path = Path(f"artifacts/full/{name}_{tag}_{encoder}_h{horizon}_s{seed}.json")
+    if mode == "direct":
+        name = "spatial_dit_direct_residual"
+    else:
+        name = f"spatial_dit_anchored_{objective}"
+    mlp_suffix = f"_mlpH{mlp_hidden}" if mlp_hidden != 512 else ""
+    out_path = Path(f"artifacts/full/{name}_{tag}_{encoder}_h{horizon}_s{seed}{mlp_suffix}.json")
     if not out_path.parent.exists():
         out_path = Path(f"code/latent-world-models-av/artifacts/full/{name}_{tag}_{encoder}_h{horizon}_s{seed}.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
