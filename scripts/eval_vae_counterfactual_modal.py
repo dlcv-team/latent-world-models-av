@@ -265,6 +265,9 @@ def run_counterfactual(
     def normalize(x):
         return (x - z_mean) / z_std
 
+    def denormalize(x):
+        return x * z_std + z_mean
+
     # ---- load DiT checkpoint ----
     dit_ckpt_path = f"{SPATIAL_CKPT}/{encoder_name}/direct/h{horizon}/seed_{seed}/dit_checkpoint.pt"
     if not os.path.exists(dit_ckpt_path):
@@ -360,10 +363,10 @@ def run_counterfactual(
                 perm_t = torch.randperm(horizon, device=device)
                 act_shuf = act_true[:, perm_t, :]
 
-                pred_true = predict_fn(z_t_b, act_true).reshape(1, horizon, n_spatial, TARGET_DIM)
-                pred_pert = predict_fn(z_t_b, act_pert).reshape(1, horizon, n_spatial, TARGET_DIM)
-                pred_shuf = predict_fn(z_t_b, act_shuf).reshape(1, horizon, n_spatial, TARGET_DIM)
-                gt = normalize(zf_test[i:i + 1].to(device))
+                pred_true = denormalize(predict_fn(z_t_b, act_true)).reshape(1, horizon, n_spatial, TARGET_DIM)
+                pred_pert = denormalize(predict_fn(z_t_b, act_pert)).reshape(1, horizon, n_spatial, TARGET_DIM)
+                pred_shuf = denormalize(predict_fn(z_t_b, act_shuf)).reshape(1, horizon, n_spatial, TARGET_DIM)
+                gt = zf_test[i:i + 1].to(device)
 
                 for k in range(horizon):
                     cs_pert = F.cosine_similarity(pred_true[:, k], pred_pert[:, k], dim=-1).mean().item()
@@ -463,13 +466,13 @@ def run_counterfactual(
             vae_dec = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device).eval()
             scaling = 0.18215
 
-            def vae_predict(z_grid, act_seq):
+            def vae_predict_tokens(z_grid, act_seq):
                 z_n = vnorm(z_grid)
                 B = z_n.shape[0]
                 z_rep = z_n.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(B, horizon * N_SPATIAL_V, PATCH_DIM)
                 t0 = torch.zeros(B, dtype=torch.long, device=device)
                 out = vdit(z_rep, z_n, vfourier(act_seq), t0)
-                return unpatchify(out * vz_std + vz_mean).clamp(-3, 3)
+                return (out * vz_std + vz_mean).reshape(B, horizon, N_SPATIAL_V, PATCH_DIM)
 
             test_vidx = np.where(v_splits == "test")[0]
             fig_dir = f"{SPATIAL_DIR}/counterfactual_figure"
@@ -491,12 +494,13 @@ def run_counterfactual(
                     act_right = act_base.clone()
                     act_left[:, :, 0] = p10
                     act_right[:, :, 0] = p90
-                    pred_l = vae_predict(z_t, act_left)
-                    pred_r = vae_predict(z_t, act_right)
+                    pred_l = vae_predict_tokens(z_t, act_left)
+                    pred_r = vae_predict_tokens(z_t, act_right)
                     fig, axes = plt.subplots(2, len(steps_show), figsize=(2.2 * len(steps_show), 4.5))
                     for col, k in enumerate(steps_show):
-                        for row, pred in enumerate([pred_l, pred_r]):
-                            img = vae_dec.decode(pred[:, k] / scaling).sample
+                        for row, pred_tok in enumerate([pred_l, pred_r]):
+                            pred_lat = unpatchify(pred_tok[:, k]).clamp(-3, 3)
+                            img = vae_dec.decode(pred_lat / scaling).sample
                             im = ((img.clamp(-1, 1) + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
                             axes[row, col].imshow(im)
                             axes[row, col].axis("off")
