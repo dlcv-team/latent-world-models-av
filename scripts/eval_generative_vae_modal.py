@@ -430,9 +430,14 @@ def make_figure(n_fig: int = 5, cfg_w: float = 1.0, steps_show: str = "0,4,8,12,
                         im = im.crop(((w - c) // 2, (h - c) // 2, (w - c) // 2 + c, (h - c) // 2 + c)).resize((256, 256))
                         rgb = TF.to_tensor(im).permute(1, 2, 0).numpy()
                 dd = to_img(decode(unpatchify(dpred[:, k])))
-                gd = to_img(decode(unpatchify(gpred[:, k])))
+                # diffusion: per-channel mean-match to the INPUT frame z_t channel stats
+                # (visualization calibration; corrects the systematic latent channel offset / tint)
+                gp_grid = unpatchify(gpred[:, k])
+                zt_ch = z_t.mean(dim=(2, 3)).view(1, 4, 1, 1)
+                gp_grid = gp_grid - gp_grid.mean(dim=(2, 3)).view(1, 4, 1, 1) + zt_ch
+                gd = to_img(decode(gp_grid))
                 for r, (img, title) in enumerate([(rgb, f"RGB t+{k}"), (gt_dec, f"VAE-GT t+{k}"),
-                                                   (dd, f"DiT-direct t+{k}"), (gd, f"DiT-diffusion t+{k}")]):
+                                                   (dd, f"DiT-direct t+{k}"), (gd, f"DiT-diffusion(cal) t+{k}")]):
                     ax[r, col].imshow(np.clip(img, 0, 1)); ax[r, col].set_title(title, fontsize=8); ax[r, col].axis("off")
             fig.tight_layout(); pp.savefig(fig); plt.close(fig)
     vol.commit()
@@ -719,9 +724,10 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         return
     if task == "fid":
         res = fid_eval.remote(n_windows, steps_eval, cfg_w, 0, diffusion_ckpt, wps)
-        out = Path("artifacts/full/fid_eval.json")
+        tag = diffusion_ckpt.strip("/").replace("/", "_") if "/" in diffusion_ckpt else diffusion_ckpt
+        out = Path(f"artifacts/full/fid_eval_{tag}.json")
         if not out.parent.exists():
-            out = Path("code/latent-world-models-av/artifacts/full/fid_eval.json")
+            out = Path(f"code/latent-world-models-av/artifacts/full/fid_eval_{tag}.json")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2))
         print(f"Saved {out}")
