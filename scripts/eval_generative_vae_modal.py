@@ -701,6 +701,99 @@ def fid_eval(n_windows: int = 300, horizons: str = "3", cfg_w: float = 1.0, seed
     return results
 
 
+@_decorator
+def motion_eval(n_windows: int = 200, seed: int = 0):
+    """Quantify temporal dynamics captured: mean decoded-frame change t+1->t+H for
+    GT vs direct vs diffusion. Honest scoping of the 'static across horizon' caveat."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from diffusers import AutoencoderKL
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    device = torch.device("cuda")
+    schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device)
+    alphas = schedule.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device).eval()
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    latents = data["vae_latents"].astype(np.float32)
+    scenes, splits = data["scene_names"], data["splits"]
+    steers, accels = data["steer_norms"].astype(np.float32), data["accel_norms"].astype(np.float32)
+    test_idx = np.where(splits == "test")[0]
+    picks = []
+    for sc in np.unique(scenes[test_idx]):
+        idx = test_idx[scenes[test_idx] == sc]
+        if len(idx) > HORIZON:
+            picks.append(int(idx[0]))
+        if len(picks) >= n_windows:
+            break
+
+    ck = torch.load(CKPT_PATHS["diffusion"], map_location=device, weights_only=False)
+    g_dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(device)
+    g_fou = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+    g_dit.load_state_dict(ck["dit"]); g_fou.load_state_dict(ck["fourier"])
+    if "ema" in ck and ck["ema"]:
+        for nm, p in g_dit.named_parameters():
+            if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+    g_dit.eval(); g_fou.eval(); gzm, gzs = ck["z_mean"].to(device), ck["z_std"].to(device)
+    ckd = torch.load(CKPT_PATHS["direct"], map_location=device, weights_only=False)
+    d_dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(device)
+    d_fou = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+    d_dit.load_state_dict(ckd["dit"]); d_fou.load_state_dict(ckd["fourier"]); d_dit.eval(); d_fou.eval()
+    dzm, dzs = ckd["z_mean"].to(device), ckd["z_std"].to(device)
+
+    def decode(grid):
+        return ((vae.decode(grid.clamp(-6, 6) / SCALING).sample.clamp(-1, 1)) + 1) / 2
+
+    def tchange(frames):  # frames: list of (1,3,256,256); mean consecutive L2
+        ds = [(frames[i + 1] - frames[i]).pow(2).mean().sqrt().item() for i in range(len(frames) - 1)]
+        return float(np.mean(ds))
+
+    show = [0, 4, 8, 12, 15]
+    gt_c, d_c, g_c = [], [], []
+    with torch.no_grad():
+        for fi in picks:
+            z_t = torch.tensor(latents[fi:fi + 1], device=device)
+            act = torch.stack([torch.tensor([steers[fi + kk], accels[fi + kk]], device=device)
+                               for kk in range(HORIZON)]).unsqueeze(0)
+            zf = torch.tensor(latents[fi + 1:fi + 1 + HORIZON], device=device).unsqueeze(0)
+            # direct
+            ztn = (patchify(z_t) - dzm) / dzs
+            zr = ztn.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(1, HORIZON * N_SPATIAL, PATCH_DIM)
+            dp = (d_dit(zr, ztn, d_fou(act), torch.zeros(1, dtype=torch.long, device=device)) * dzs + dzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+            # diffusion
+            ztng = (patchify(z_t) - gzm) / gzs; a_c = g_fou(act)
+            ns = 50; stride = max(DIFFUSION_STEPS // ns, 1); ts = list(reversed(list(range(0, DIFFUSION_STEPS, stride))[:ns]))
+            gen = torch.Generator(device=device).manual_seed(seed)
+            x = torch.randn(1, HORIZON * N_SPATIAL, PATCH_DIM, device=device, generator=gen)
+            for i, tv in enumerate(ts):
+                t = torch.full((1,), tv, device=device, dtype=torch.long); px0 = g_dit(x, ztng, a_c, t)
+                at = alphas[tv]; ap = alphas[ts[i + 1]] if i < len(ts) - 1 else torch.tensor(1.0, device=device)
+                nd = (x - torch.sqrt(at) * px0) / torch.sqrt(1 - at + 1e-8); x = torch.sqrt(ap) * px0 + torch.sqrt(1 - ap) * nd
+            gp = (x * gzs + gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+            gt_c.append(tchange([decode(zf[:, k]) for k in show]))
+            d_c.append(tchange([decode(unpatchify(dp[:, k])) for k in show]))
+            g_c.append(tchange([decode(unpatchify(gp[:, k])) for k in show]))
+    res = {"n_windows": len(picks), "steps": show,
+           "gt_temporal_change": round(float(np.mean(gt_c)), 4),
+           "direct_temporal_change": round(float(np.mean(d_c)), 4),
+           "diffusion_temporal_change": round(float(np.mean(g_c)), 4)}
+    res["diffusion_frac_of_gt"] = round(res["diffusion_temporal_change"] / (res["gt_temporal_change"] + 1e-9), 3)
+    res["direct_frac_of_gt"] = round(res["direct_temporal_change"] / (res["gt_temporal_change"] + 1e-9), 3)
+    print(f"[motion] GT={res['gt_temporal_change']} direct={res['direct_temporal_change']} "
+          f"diffusion={res['diffusion_temporal_change']} | diff_frac_gt={res['diffusion_frac_of_gt']}")
+    with open(f"{OUT_DIR}/motion_eval.json", "w") as f:
+        json.dump(res, f, indent=2)
+    vol.commit()
+    return res
+
+
 def _entry(fn):
     return app.local_entrypoint()(fn) if app is not None else fn
 
@@ -721,6 +814,14 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2))
         print(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "motion":
+        res = motion_eval.remote(n_windows)
+        out = Path("artifacts/full/motion_eval.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/motion_eval.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2)); print(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "fid":
         res = fid_eval.remote(n_windows, steps_eval, cfg_w, 0, diffusion_ckpt, wps)
