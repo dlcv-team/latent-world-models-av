@@ -110,6 +110,9 @@ def train_and_eval(
     mlp_hidden: int = 512,           # MLP hidden dim (default 512 = ~1.3M; 2816 = ~12M param-matched)
     objective: str = "x0",           # "x0" or "vpred" (diffusion only)
     n_samples: int = 1,              # DDIM samples for distributional eval (K>1 for best-of-K)
+    action_mode: str = "exact",      # "exact" | "coarse" (3-way mean-steer intent)
+    window_stride: int = 1,        # 1 = 2 Hz; 2 ≈ 1 Hz (one-shot fallback)
+    coarse_theta: float = 0.1,       # |mean future steer| threshold for straight
 ):
     import numpy as np
     import torch
@@ -119,6 +122,7 @@ def train_and_eval(
 
     assert mode in ("direct", "anchored_x0"), f"bad mode {mode}"
     assert objective in ("x0", "vpred"), f"bad objective {objective}"
+    assert action_mode in ("exact", "coarse"), f"bad action_mode {action_mode}"
     is_diffusion = mode == "anchored_x0"
     use_vpred = is_diffusion and objective == "vpred"
 
@@ -319,7 +323,7 @@ def train_and_eval(
         z_t_list, action_seq_list, z_future_list = [], [], []
         for scene in np.unique(scenes):
             idx = np.where(scenes == scene)[0]
-            for j in range(len(idx) - horizon):
+            for j in range(0, len(idx) - horizon, window_stride):
                 z_t_list.append(emb[idx[j]])
                 action_seq = np.stack([
                     np.array([steers[idx[j + k]], accels[idx[j + k]]])
@@ -334,8 +338,61 @@ def train_and_eval(
             torch.tensor(np.array(z_future_list), dtype=torch.float32),
         )
 
-    z_t_train, act_train, zf_train = build_windows("train")
-    z_t_test, act_test, zf_test = build_windows("test")
+    z_t_train, act_train_exact, zf_train = build_windows("train")
+    z_t_test, act_test_exact, zf_test = build_windows("test")
+
+    # HV mask from exact logged actions (before coarse surrogate).
+    steer_std_test = act_test_exact[:, :, 0].std(dim=1)
+    hv_threshold = float(torch.quantile(steer_std_test, 0.75).item())
+    hv_mask = steer_std_test >= hv_threshold
+    hv_indices = torch.where(hv_mask)[0]
+    print(f"[anchored] HV windows: {len(hv_indices)}/{len(act_test_exact)} "
+          f"(steer_std>={hv_threshold:.4f})")
+
+    coarse_meta = {"action_mode": action_mode, "coarse_theta": coarse_theta}
+    if action_mode == "coarse":
+        mean_steer_train = act_train_exact[:, :, 0].mean(dim=1)
+        left_center = float(torch.quantile(mean_steer_train, 0.10).item())
+        right_center = float(torch.quantile(mean_steer_train, 0.90).item())
+        theta = coarse_theta
+
+        def to_coarse(act_exact):
+            out = act_exact.clone()
+            mean_s = act_exact[:, :, 0].mean(dim=1)
+            for i in range(len(act_exact)):
+                m = mean_s[i].item()
+                if m < -theta:
+                    steer_val = left_center
+                elif m > theta:
+                    steer_val = right_center
+                else:
+                    steer_val = 0.0
+                out[i, :, 0] = steer_val
+                out[i, :, 1] = 0.0
+            return out
+
+        act_train = to_coarse(act_train_exact)
+        act_test = to_coarse(act_test_exact)
+        mean_test = act_test_exact[:, :, 0].mean(dim=1)
+        n_test_w = len(act_test)
+        n_left = int((mean_test < -theta).sum().item())
+        n_right = int((mean_test > theta).sum().item())
+        n_str = n_test_w - n_left - n_right
+        coarse_meta.update({
+            "left_center": round(left_center, 6),
+            "right_center": round(right_center, 6),
+            "coarse_balance_test": {
+                "left": n_left, "straight": n_str, "right": n_right,
+                "frac_left": round(n_left / n_test_w, 4),
+                "frac_straight": round(n_str / n_test_w, 4),
+                "frac_right": round(n_right / n_test_w, 4),
+            },
+        })
+        print(f"[anchored] coarse θ={theta} centers L/R={left_center:.3f}/{right_center:.3f} "
+              f"balance {coarse_meta['coarse_balance_test']}")
+    else:
+        act_train = act_train_exact
+        act_test = act_test_exact
 
     if max_train is not None and len(z_t_train) > max_train:
         z_t_train, act_train, zf_train = z_t_train[:max_train], act_train[:max_train], zf_train[:max_train]
@@ -387,25 +444,27 @@ def train_and_eval(
             samples.append(ddim_sample(model, fourier_embed, z_t_b, act_b, schedule, vpred=vpred, anchor_output=anchor_output))
         return torch.stack(samples, dim=0)
 
-    def evaluate_model(predict_fn, z_t_dev, act_dev, zf_dev, label=""):
+    def evaluate_model(predict_fn, z_t_dev, act_dev, zf_dev, label="", indices=None):
         cossim_sums = [0.0] * horizon
         copy_sums = [0.0] * horizon
         total = 0
         eval_batch = 32
+        idx_list = indices.tolist() if indices is not None else list(range(len(z_t_dev)))
 
         with torch.no_grad():
-            for start in range(0, len(z_t_dev), eval_batch):
-                end = min(start + eval_batch, len(z_t_dev))
-                B = end - start
+            for start in range(0, len(idx_list), eval_batch):
+                end = min(start + eval_batch, len(idx_list))
+                batch_idx = idx_list[start:end]
+                B = len(batch_idx)
 
-                z_t_b = normalize(z_t_dev[start:end].to(device))
-                act_b = act_dev[start:end].to(device)
-                zf_b = zf_dev[start:end].to(device)
+                z_t_b = normalize(z_t_dev[batch_idx].to(device))
+                act_b = act_dev[batch_idx].to(device)
+                zf_b = zf_dev[batch_idx].to(device)
 
                 z_hat_norm = predict_fn(z_t_b, act_b)
                 z_hat = denormalize(z_hat_norm).reshape(B, horizon, n_spatial, TARGET_DIM)
 
-                z_t_raw = z_t_dev[start:end].to(device)
+                z_t_raw = z_t_dev[batch_idx].to(device)
 
                 for k in range(horizon):
                     cs_per_token = F.cosine_similarity(z_hat[:, k], zf_b[:, k], dim=-1)
@@ -426,7 +485,16 @@ def train_and_eval(
               f"stepN: {result['cossim_by_step'][-1]:.4f}")
         return result
 
-    results = {"mode": mode, "smoke": smoke, "objective": objective}
+    results = {
+        "mode": mode,
+        "smoke": smoke,
+        "objective": objective,
+        "action_mode": action_mode,
+        "window_stride": window_stride,
+        "hv_threshold_steer_std": round(hv_threshold, 6),
+        "n_hv_test": int(len(hv_indices)),
+        **coarse_meta,
+    }
 
     # ==================================================================
     # Train anchored spatial DiT (direct OR anchored-x0 diffusion)
@@ -536,22 +604,23 @@ def train_and_eval(
     dit_result["objective"] = objective
     results["dit"] = dit_result
 
-    # Distributional eval (diffusion, K>1 samples)
-    if is_diffusion and n_samples > 1:
-        print(f"\n  Distributional eval: K={n_samples} samples (best-of-K + diversity)")
+    def evaluate_distributional(indices=None, label="all"):
+        """DDIM K-sample metrics; optional index subset (e.g. HV)."""
         k = n_samples
         mean_sums = [0.0] * horizon
         best_sums = [0.0] * horizon
         div_sums = 0.0
         total = 0
-        eval_batch = 8  # smaller batch when K>1
+        idx_list = indices.tolist() if indices is not None else list(range(n_test))
+        eval_batch = 8
         with torch.no_grad():
-            for start in range(0, len(z_t_test), eval_batch):
-                end = min(start + eval_batch, len(z_t_test))
-                B = end - start
-                z_t_b = normalize(z_t_test[start:end].to(device))
-                act_b = act_test[start:end].to(device)
-                zf_b = zf_test[start:end].to(device)
+            for start in range(0, len(idx_list), eval_batch):
+                end = min(start + eval_batch, len(idx_list))
+                batch_idx = idx_list[start:end]
+                B = len(batch_idx)
+                z_t_b = normalize(z_t_test[batch_idx].to(device))
+                act_b = act_test[batch_idx].to(device)
+                zf_b = zf_test[batch_idx].to(device)
                 samples = ddim_sample_multi(
                     dit_ema, fourier_ema, z_t_b, act_b, schedule, k,
                     vpred=use_vpred, anchor_output=anchor_out,
@@ -563,28 +632,152 @@ def train_and_eval(
                         cs_list = []
                         for ki in range(k):
                             pred = samples[ki, b, step]
-                            cs_list.append(F.cosine_similarity(pred, gt, dim=-1).mean().item())
+                            cs_list.append(
+                                F.cosine_similarity(pred, gt, dim=-1).mean().item()
+                            )
                         mean_sums[step] += sum(cs_list) / k
                         best_sums[step] += max(cs_list)
                     if k >= 2:
                         flat = samples[:, b].reshape(k, -1)
                         pw = torch.cdist(flat, flat, p=2)
-                        div_sums += pw[torch.triu(torch.ones(k, k, device=device), diagonal=1) == 1].mean().item()
+                        div_sums += pw[
+                            torch.triu(torch.ones(k, k, device=device), diagonal=1) == 1
+                        ].mean().item()
                 total += B
-        dist = {
+        if total == 0:
+            return {}
+        return {
             "n_samples": k,
+            "subset": label,
+            "n_test": total,
             "mean_cossim_by_step": [round(s / total, 6) for s in mean_sums],
             "best_of_k_cossim_by_step": [round(s / total, 6) for s in best_sums],
             "mean_cossim": round(sum(mean_sums) / (total * horizon), 6),
             "best_of_k_mean_cossim": round(sum(best_sums) / (total * horizon), 6),
             "sample_diversity_l2": round(div_sums / total, 6) if k >= 2 else 0.0,
         }
-        print(f"    mean CosSim: {dist['mean_cossim']:.4f}, best-of-K: {dist['best_of_k_mean_cossim']:.4f}, "
-              f"diversity: {dist['sample_diversity_l2']:.4f}")
+
+    def _load_direct_predictor():
+        """Load coarse/exact direct DiT checkpoint for matched-noise baseline."""
+        ckpt_path = (
+            f"{CKPT_DIR}/{encoder_name}/direct/h{horizon}/seed_{seed}"
+            f"/am_{action_mode}/dit_checkpoint.pt"
+        )
+        if not os.path.exists(ckpt_path):
+            print(f"  [matched-noise] no direct ckpt at {ckpt_path}")
+            return None
+        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        d_direct = AnchoredSpatialDiT(
+            **ckpt["config"], horizon=horizon, n_spatial=n_spatial
+        ).to(device)
+        f_direct = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+        d_direct.load_state_dict(ckpt["dit_state_dict"])
+        f_direct.load_state_dict(ckpt["fourier_state_dict"])
+        ema_d = ckpt.get("ema_params", {})
+        with torch.no_grad():
+            for name, param in d_direct.named_parameters():
+                if name in ema_d:
+                    param.copy_(ema_d[name])
+            for name, param in f_direct.named_parameters():
+                if name in ema_d:
+                    param.copy_(ema_d[name])
+        d_direct.eval()
+        f_direct.eval()
+
+        def direct_fn(z_t_b, act_b):
+            B = z_t_b.shape[0]
+            z_t_rep = z_t_b.unsqueeze(1).expand(-1, horizon, -1, -1).reshape(
+                B, horizon * n_spatial, TARGET_DIM
+            )
+            a_embed = f_direct(act_b)
+            t0 = torch.zeros((B,), device=device, dtype=torch.long)
+            return d_direct(z_t_rep, z_t_b, a_embed, t0)
+
+        return direct_fn
+
+    def evaluate_matched_noise_distributional(indices=None, direct_fn=None):
+        """Direct pred + K Gaussian perturbations with σ matched to diffusion spread."""
+        if direct_fn is None:
+            direct_fn = _load_direct_predictor()
+        if direct_fn is None:
+            return {}
+        k = n_samples
+        mean_sums = [0.0] * horizon
+        best_sums = [0.0] * horizon
+        div_sums = 0.0
+        total = 0
+        idx_list = indices.tolist() if indices is not None else list(range(n_test))
+        eval_batch = 8
+        with torch.no_grad():
+            for start in range(0, len(idx_list), eval_batch):
+                end = min(start + eval_batch, len(idx_list))
+                batch_idx = idx_list[start:end]
+                B = len(batch_idx)
+                z_t_b = normalize(z_t_test[batch_idx].to(device))
+                act_b = act_test[batch_idx].to(device)
+                zf_b = zf_test[batch_idx].to(device)
+                z_hat_norm = direct_fn(z_t_b, act_b)
+                z_hat = denormalize(z_hat_norm).reshape(B, horizon, n_spatial, TARGET_DIM)
+                # Diffusion samples to estimate per-window σ
+                diff_s = ddim_sample_multi(
+                    dit_ema, fourier_ema, z_t_b, act_b, schedule, k,
+                    vpred=use_vpred, anchor_output=anchor_out,
+                )
+                diff_s = denormalize(diff_s).reshape(k, B, horizon, n_spatial, TARGET_DIM)
+                for b in range(B):
+                    sigma = diff_s[:, b].reshape(k, -1).std(dim=0, unbiased=False).clamp(min=1e-6)
+                    flat_direct = z_hat[b].reshape(-1)
+                    matched = flat_direct.unsqueeze(0) + torch.randn(
+                        k, flat_direct.numel(), device=device
+                    ) * sigma.unsqueeze(0)
+                    matched = matched.reshape(k, horizon, n_spatial, TARGET_DIM)
+                    for step in range(horizon):
+                        gt = zf_b[b, step]
+                        cs_list = [
+                            F.cosine_similarity(matched[ki, step], gt, dim=-1).mean().item()
+                            for ki in range(k)
+                        ]
+                        mean_sums[step] += sum(cs_list) / k
+                        best_sums[step] += max(cs_list)
+                    if k >= 2:
+                        pw = torch.cdist(matched.reshape(k, -1), matched.reshape(k, -1), p=2)
+                        div_sums += pw[
+                            torch.triu(torch.ones(k, k, device=device), diagonal=1) == 1
+                        ].mean().item()
+                total += B
+        if total == 0:
+            return {}
+        return {
+            "n_samples": k,
+            "subset": "hv" if indices is not None else "all",
+            "n_test": total,
+            "mean_cossim": round(sum(mean_sums) / (total * horizon), 6),
+            "best_of_k_mean_cossim": round(sum(best_sums) / (total * horizon), 6),
+            "sample_diversity_l2": round(div_sums / total, 6) if k >= 2 else 0.0,
+        }
+
+    # Distributional eval (diffusion, K>1 samples)
+    if is_diffusion and n_samples > 1:
+        print(f"\n  Distributional eval: K={n_samples} (all + HV)")
+        dist = evaluate_distributional(label="all")
+        print(f"    [all] mean={dist['mean_cossim']:.4f} best-of-K={dist['best_of_k_mean_cossim']:.4f} "
+              f"div={dist['sample_diversity_l2']:.4f}")
         results["dit_distributional"] = dist
+        dist_hv = evaluate_distributional(indices=hv_indices, label="hv")
+        print(f"    [HV]  mean={dist_hv['mean_cossim']:.4f} best-of-K={dist_hv['best_of_k_mean_cossim']:.4f} "
+              f"div={dist_hv['sample_diversity_l2']:.4f}")
+        results["dit_distributional_hv"] = dist_hv
+        print("  Matched-noise control (σ from diffusion samples on HV)...")
+        mn_hv = evaluate_matched_noise_distributional(indices=hv_indices)
+        if mn_hv:
+            print(f"    [matched-noise HV] best-of-K={mn_hv['best_of_k_mean_cossim']:.4f} "
+                  f"mean={mn_hv['mean_cossim']:.4f}")
+        results["matched_noise_distributional_hv"] = mn_hv
 
     if not smoke:
-        ckpt_dir = f"{CKPT_DIR}/{encoder_name}/{mode}/h{horizon}/seed_{seed}"
+        ckpt_dir = (
+            f"{CKPT_DIR}/{encoder_name}/{mode}/h{horizon}/seed_{seed}/am_{action_mode}"
+        )
         os.makedirs(ckpt_dir, exist_ok=True)
         torch.save({
             "dit_state_dict": dit.state_dict(),
@@ -646,6 +839,16 @@ def train_and_eval(
     mlp_result["train_time_s"] = round(mlp_train_time, 1)
     mlp_result["n_params"] = n_params_mlp
     results["mlp"] = mlp_result
+    mlp_hv = evaluate_model(
+        mlp_predict, z_t_test, act_test, zf_test, "MLP-spatial-HV", indices=hv_indices,
+    )
+    results["mlp_hv"] = mlp_hv
+
+    if not is_diffusion:
+        dit_hv = evaluate_model(
+            dit_predict, z_t_test, act_test, zf_test, f"{dit_label}-HV", indices=hv_indices,
+        )
+        results["dit_hv"] = dit_hv
 
     # ==================================================================
     # Summary
@@ -686,6 +889,9 @@ def main(
     mlp_hidden: int = 512,
     objective: str = "x0",
     n_samples: int = 1,
+    action_mode: str = "exact",
+    window_stride: int = 1,
+    coarse_theta: float = 0.1,
 ):
     if encoder not in SPATIAL_TOKENS:
         print(f"ERROR: encoder must be one of {list(SPATIAL_TOKENS.keys())}")
@@ -697,11 +903,12 @@ def main(
     t_start = time.time()
     print(f"\n{'='*60}\nAnchored Spatial DiT: {encoder} mode={mode} h{horizon} s{seed} "
           f"epochs={epochs} smoke={smoke} mlp_hidden={mlp_hidden} objective={objective} "
-          f"n_samples={n_samples}\n{'='*60}")
+          f"n_samples={n_samples} action_mode={action_mode} stride={window_stride}\n{'='*60}")
 
     result = train_and_eval.remote(
         encoder, seed, mode, horizon, epochs, smoke,
         mlp_hidden=mlp_hidden, objective=objective, n_samples=n_samples,
+        action_mode=action_mode, window_stride=window_stride, coarse_theta=coarse_theta,
     )
     wall = time.time() - t_start
     print(f"\nDone in {wall:.0f}s")
@@ -713,7 +920,12 @@ def main(
     else:
         name = f"spatial_dit_anchored_{objective}"
     mlp_suffix = f"_mlpH{mlp_hidden}" if mlp_hidden != 512 else ""
-    out_path = Path(f"artifacts/full/{name}_{tag}_{encoder}_h{horizon}_s{seed}{mlp_suffix}.json")
+    am_suffix = "_coarse" if action_mode == "coarse" else ""
+    stride_suffix = f"_stride{window_stride}" if window_stride != 1 else ""
+    out_path = Path(
+        f"artifacts/full/{name}_{tag}_{encoder}_h{horizon}_s{seed}"
+        f"{am_suffix}{stride_suffix}{mlp_suffix}.json"
+    )
     if not out_path.parent.exists():
         out_path = Path(f"code/latent-world-models-av/artifacts/full/{name}_{tag}_{encoder}_h{horizon}_s{seed}.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
