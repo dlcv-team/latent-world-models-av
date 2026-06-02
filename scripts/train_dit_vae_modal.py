@@ -342,6 +342,7 @@ def train_and_eval(
     mode: str = "direct",
     n_samples: int = 1,
     action_dropout: float = 0.0,
+    cfg_dropout: float = 0.0,
 ):
     import numpy as np
     import torch
@@ -576,7 +577,7 @@ def train_and_eval(
                 act_b = act_train[idx].to(device)
                 zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
                 zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
-                a_emb = embed_actions(fourier, act_b, dropout_p=action_dropout)
+                a_emb = embed_actions(fourier, act_b, dropout_p=max(action_dropout, cfg_dropout))
                 t = torch.randint(0, DIFFUSION_STEPS, (B,), device=device)
                 alpha_bar = schedule.alphas_cumprod[t].unsqueeze(1).unsqueeze(2)
                 noise = torch.randn_like(zf_b)
@@ -717,6 +718,7 @@ def train_and_eval(
                     "z_mean": z_mean.cpu(),
                     "z_std": z_std.cpu(),
                     "mode": "diffusion",
+                    "cfg_dropout": cfg_dropout,
                 }, f"{ckpt_dir}/dit.pt")
             results["g6"] = evaluate_g6(results)
             print(f"\n  G6 outcome: {results['g6']['outcome']}")
@@ -889,16 +891,17 @@ def main(
     mode: str = "direct",
     n_samples: int = 1,
     action_dropout: float = 0.0,
+    cfg_dropout: float = 0.0,
 ):
     t0 = time.time()
     print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} "
-          f"n_samples={n_samples} action_dropout={action_dropout}")
+          f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout}")
     result = train_and_eval.remote(
-        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout,
+        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout,
     )
     print(json.dumps(result, indent=2))
     if mode == "diffusion":
-        ad_tag = f"_ad{action_dropout}" if action_dropout > 0 else ""
+        ad_tag = f"_ad{action_dropout}" if action_dropout > 0 else (f"_cfg{cfg_dropout}" if cfg_dropout > 0 else "")
         tag = "smoke" if smoke else "result"
         if action_dropout > 0 and not smoke:
             out = Path(f"artifacts/full/vae_diffusion_multifuture_result_h{horizon}_s{seed}.json")
