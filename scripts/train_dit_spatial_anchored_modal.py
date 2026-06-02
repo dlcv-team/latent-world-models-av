@@ -662,6 +662,8 @@ def train_and_eval(
 
     def _load_direct_predictor():
         """Load coarse/exact direct DiT checkpoint for matched-noise baseline."""
+        if vol is not None:
+            vol.reload()
         ckpt_path = (
             f"{CKPT_DIR}/{encoder_name}/direct/h{horizon}/seed_{seed}"
             f"/am_{action_mode}/dit_checkpoint.pt"
@@ -791,6 +793,8 @@ def train_and_eval(
             "config": {**DIT_CONFIG, "horizon": horizon, "n_spatial": n_spatial, "mode": mode},
         }, f"{ckpt_dir}/dit_checkpoint.pt")
         print(f"  Saved DiT checkpoint to {ckpt_dir}")
+        if vol is not None:
+            vol.commit()
 
     # ==================================================================
     # Train spatial MLP (anchored residual baseline -- identical to pilot)
