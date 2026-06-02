@@ -325,7 +325,7 @@ def _modal_function_decorator(fn):
         return app.function(
             volumes={VOL_PATH: vol},
             image=base_image,
-            gpu="A100",
+            gpu=os.environ.get("LWM_GPU", "A100"),
             timeout=14400,
             memory=32768,
         )(fn)
@@ -343,6 +343,7 @@ def train_and_eval(
     n_samples: int = 1,
     action_dropout: float = 0.0,
     cfg_dropout: float = 0.0,
+    skip_eval: bool = False,
 ):
     import numpy as np
     import torch
@@ -692,21 +693,24 @@ def train_and_eval(
                     "uncond_fourier": f_u.state_dict(),
                 }, f"{ckpt_dir}/dit.pt")
         else:
-            def dit_predict(z_t_b, act_b):
-                return ddim_sample(dit_e, f_e, z_t_b, act_b, schedule, n_ddim_steps)
+            if skip_eval:
+                results["dit"] = {"n_params": n_dit, "skipped_eval": True}
+            else:
+                def dit_predict(z_t_b, act_b):
+                    return ddim_sample(dit_e, f_e, z_t_b, act_b, schedule, n_ddim_steps)
 
-            dit_res = evaluate(dit_predict, "DiT-vae-diffusion")
-            dit_res["n_params"] = n_dit
-            dit_res["n_ddim_steps"] = n_ddim_steps
-            results["dit"] = dit_res
+                dit_res = evaluate(dit_predict, "DiT-vae-diffusion")
+                dit_res["n_params"] = n_dit
+                dit_res["n_ddim_steps"] = n_ddim_steps
+                results["dit"] = dit_res
 
-            if n_samples > 1:
-                k = n_samples
-                print(f"\n  Distributional eval: K={k}")
-                dist = evaluate_distributional(dit_e, f_e, schedule, k, n_ddim_steps, uncond=False)
-                results["dit_distributional"] = dist
-                print(f"    best-of-K={dist['best_of_k_mean_cossim']:.4f} "
-                      f"diversity={dist['sample_diversity_l2']:.4f}")
+                if n_samples > 1:
+                    k = n_samples
+                    print(f"\n  Distributional eval: K={k}")
+                    dist = evaluate_distributional(dit_e, f_e, schedule, k, n_ddim_steps, uncond=False)
+                    results["dit_distributional"] = dist
+                    print(f"    best-of-K={dist['best_of_k_mean_cossim']:.4f} "
+                          f"diversity={dist['sample_diversity_l2']:.4f}")
 
             if not smoke:
                 ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}"
@@ -720,8 +724,9 @@ def train_and_eval(
                     "mode": "diffusion",
                     "cfg_dropout": cfg_dropout,
                 }, f"{ckpt_dir}/dit.pt")
-            results["g6"] = evaluate_g6(results)
-            print(f"\n  G6 outcome: {results['g6']['outcome']}")
+            if not skip_eval:
+                results["g6"] = evaluate_g6(results)
+                print(f"\n  G6 outcome: {results['g6']['outcome']}")
 
         vol.commit()
         return results
@@ -892,12 +897,13 @@ def main(
     n_samples: int = 1,
     action_dropout: float = 0.0,
     cfg_dropout: float = 0.0,
+    skip_eval: bool = False,
 ):
     t0 = time.time()
     print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} "
-          f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout}")
+          f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout} skip_eval={skip_eval}")
     result = train_and_eval.remote(
-        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout,
+        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout, skip_eval,
     )
     print(json.dumps(result, indent=2))
     if mode == "diffusion":
