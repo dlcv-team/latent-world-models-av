@@ -1,0 +1,15 @@
+{
+  "n_windows": 150,
+  "steps": [
+    0,
+    4,
+    8,
+    12,
+    15
+  ],
+  "gt_temporal_change": 0.1394,
+  "direct_temporal_change": 0.0625,
+  "diffusion_temporal_change": 0.1051,
+  "diffusion_frac_of_gt": 0.754,
+  "direct_frac_of_gt": 0.448
+}
