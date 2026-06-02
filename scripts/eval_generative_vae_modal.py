@@ -43,7 +43,7 @@ if modal is not None:
         .pip_install(
             "torch==2.5.1", "numpy>=1.26", "Pillow>=10.0", "diffusers>=0.27",
             "matplotlib>=3.8", "accelerate", "transformers>=4.50", "torchvision>=0.20",
-            "lpips>=0.1.4", "torchmetrics>=1.2",
+            "lpips>=0.1.4", "torchmetrics>=1.2", "scipy>=1.11", "torch-fidelity>=0.3.0",
         )
         .add_local_file(str(TRAIN_SCRIPT), remote_path="/root/train_dit_vae_modal.py")
     )
@@ -524,13 +524,186 @@ def action_use(n_windows: int = 48, perturb: float = 0.3, seed: int = 0):
     return out
 
 
+@_decorator
+def fid_eval(n_windows: int = 300, horizons: str = "3", cfg_w: float = 1.0, seed: int = 0,
+            diffusion_ckpt: str = "diffusion", windows_per_scene: int = 1):
+    """FID + KID of decoded {direct, diffusion(raw+channel-calibrated), VAE-GT} vs real test RGB.
+    Held-out TEST scenes only. Records the frozen window manifest. Per-channel latent
+    diagnostic (diffusion vs real) drives the channel-calibration (= visualization calibration)."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from diffusers import AutoencoderKL
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    from torchmetrics.image.kid import KernelInceptionDistance
+    from PIL import Image
+    import torchvision.transforms.functional as TF
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    device = torch.device("cuda")
+    hs = [int(x) for x in horizons.split(",")]
+    schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device)
+    alphas = schedule.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device).eval()
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    latents = data["vae_latents"].astype(np.float32)
+    scenes, splits = data["scene_names"], data["splits"]
+    steers, accels = data["steer_norms"].astype(np.float32), data["accel_norms"].astype(np.float32)
+    image_paths = data["image_paths"] if "image_paths" in data else None
+    test_idx = np.where(splits == "test")[0]
+
+    # frozen manifest: up to windows_per_scene per held-out test scene, RGB must exist
+    picks = []
+    for sc in np.unique(scenes[test_idx]):
+        idx = test_idx[scenes[test_idx] == sc]
+        cnt = 0
+        for j in range(len(idx) - HORIZON):
+            fi = int(idx[j])
+            ok = image_paths is not None and all(
+                fi + 1 + h < len(image_paths) and
+                os.path.exists(f"{VOL_PATH}/nuscenes/{image_paths[fi + 1 + h]}") for h in hs)
+            if ok:
+                picks.append(fi); cnt += 1
+                if cnt >= windows_per_scene:
+                    break
+        if len(picks) >= n_windows:
+            break
+    picks = picks[:n_windows]
+    print(f"[fid] frozen manifest: {len(picks)} windows (held-out test), horizons={hs}")
+
+    def load(tag):
+        ck = torch.load(CKPT_PATHS.get(tag, tag), map_location=device, weights_only=False)
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(device)
+        fou = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+        dit.load_state_dict(ck["dit"]); fou.load_state_dict(ck["fourier"])
+        if "ema" in ck and ck["ema"]:
+            for nm, p in dit.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+            for nm, p in fou.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+        dit.eval(); fou.eval()
+        return dit, fou, ck["z_mean"].to(device), ck["z_std"].to(device)
+
+    d_dit, d_fou, dzm, dzs = load("direct")
+    g_dit, g_fou, gzm, gzs = load(diffusion_ckpt)
+
+    def decode(grid):
+        return ((vae.decode(grid.clamp(-6, 6) / SCALING).sample.clamp(-1, 1)) + 1) / 2  # ->[0,1]
+
+    def load_rgb(fi, h):
+        im = Image.open(f"{VOL_PATH}/nuscenes/{image_paths[fi + 1 + h]}").convert("RGB")
+        w, hh = im.size; c = min(w, hh)
+        im = im.crop(((w - c) // 2, (hh - c) // 2, (w - c) // 2 + c, (hh - c) // 2 + c)).resize((256, 256))
+        return TF.to_tensor(im).unsqueeze(0).to(device)
+
+    def direct_pred(z_t):
+        ztn = (patchify(z_t) - dzm) / dzs
+        zr = ztn.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(z_t.shape[0], HORIZON * N_SPATIAL, PATCH_DIM)
+        t0 = torch.zeros(z_t.shape[0], dtype=torch.long, device=device)
+        return (d_dit(zr, ztn, d_fou(act_h["a"]), t0) * dzs + dzm).reshape(z_t.shape[0], HORIZON, N_SPATIAL, PATCH_DIM)
+
+    def diff_pred(z_t, gseed):
+        ztn = (patchify(z_t) - gzm) / gzs
+        a_c = g_fou(act_h["a"]); B = z_t.shape[0]
+        n_steps = 50; stride = max(DIFFUSION_STEPS // n_steps, 1)
+        ts = list(reversed(list(range(0, DIFFUSION_STEPS, stride))[:n_steps]))
+        gen = torch.Generator(device=device).manual_seed(gseed)
+        x = torch.randn(B, HORIZON * N_SPATIAL, PATCH_DIM, device=device, generator=gen)
+        for i, tv in enumerate(ts):
+            t = torch.full((B,), tv, device=device, dtype=torch.long)
+            px0 = g_dit(x, ztn, a_c, t)
+            if cfg_w != 1.0:
+                pu = g_dit(x, ztn, torch.zeros_like(a_c), t); px0 = pu + cfg_w * (px0 - pu)
+            at = alphas[tv]; ap = alphas[ts[i + 1]] if i < len(ts) - 1 else torch.tensor(1.0, device=device)
+            nd = (x - torch.sqrt(at) * px0) / torch.sqrt(1 - at + 1e-8)
+            x = torch.sqrt(ap) * px0 + torch.sqrt(1 - ap) * nd
+        return (x * gzs + gzm).reshape(B, HORIZON, N_SPATIAL, PATCH_DIM)
+
+    # ---- channel diagnostic + calibration stats (diffusion vs real GT latents) over the manifold ----
+    z_t_all = torch.tensor(np.stack([latents[i] for i in picks]), device=device)
+    act_h = {"a": torch.tensor(np.stack([
+        np.stack([[steers[i + kk], accels[i + kk]] for kk in range(HORIZON)]) for i in picks
+    ]), dtype=torch.float32, device=device)}
+    results = {"n_windows": len(picks), "horizons": hs, "cfg_w": cfg_w,
+               "diffusion_ckpt": diffusion_ckpt, "window_manifest": picks, "by_horizon": {}}
+
+    methods = ["direct", "diffusion_raw", "diffusion_calib", "vae_gt"]
+    for h in hs:
+        fids = {m: FrechetInceptionDistance(normalize=True).to(device) for m in methods}
+        kids = {m: KernelInceptionDistance(normalize=True, subset_size=min(50, len(picks))).to(device) for m in methods}
+        # channel-calibration stats for this horizon: per-channel (4) mean/std of diffusion-pred vs real-GT latents
+        gt_lat = torch.tensor(np.stack([latents[i + 1 + h] for i in picks]), device=device)  # (W,4,32,32)
+        # compute diffusion preds in batches; collect latents for calibration + images for FID
+        ch_real_mean = gt_lat.mean(dim=(0, 2, 3)); ch_real_std = gt_lat.std(dim=(0, 2, 3))
+        diff_lat_list = []
+        bs = 8
+        with torch.no_grad():
+            for b in range(0, len(picks), bs):
+                zt = z_t_all[b:b + bs]
+                act_h["a"] = torch.tensor(np.stack([
+                    np.stack([[steers[i + kk], accels[i + kk]] for kk in range(HORIZON)]) for i in picks[b:b + bs]
+                ]), dtype=torch.float32, device=device)
+                gp = unpatchify(diff_pred(zt, 1000 + b)[:, h])  # (b,4,32,32)
+                diff_lat_list.append(gp)
+            diff_lat = torch.cat(diff_lat_list, 0)
+        ch_diff_mean = diff_lat.mean(dim=(0, 2, 3)); ch_diff_std = diff_lat.std(dim=(0, 2, 3))
+        results["by_horizon"][str(h)] = {
+            "ch_real_mean": [round(x, 4) for x in ch_real_mean.tolist()],
+            "ch_diff_mean": [round(x, 4) for x in ch_diff_mean.tolist()],
+            "ch_real_std": [round(x, 4) for x in ch_real_std.tolist()],
+            "ch_diff_std": [round(x, 4) for x in ch_diff_std.tolist()],
+        }
+        def calibrate(lat):  # per-channel match diffusion -> real GT channel stats (visualization calibration)
+            m = ch_diff_mean.view(1, 4, 1, 1); s = ch_diff_std.view(1, 4, 1, 1)
+            rm = ch_real_mean.view(1, 4, 1, 1); rs = ch_real_std.view(1, 4, 1, 1)
+            return (lat - m) / (s + 1e-6) * rs + rm
+        # accumulate FID/KID
+        with torch.no_grad():
+            for b in range(0, len(picks), bs):
+                idxs = picks[b:b + bs]
+                zt = z_t_all[b:b + bs]
+                act_h["a"] = torch.tensor(np.stack([
+                    np.stack([[steers[i + kk], accels[i + kk]] for kk in range(HORIZON)]) for i in idxs
+                ]), dtype=torch.float32, device=device)
+                real = torch.cat([load_rgb(i, h) for i in idxs], 0)
+                gt_img = decode(torch.tensor(np.stack([latents[i + 1 + h] for i in idxs]), device=device))
+                d_img = decode(unpatchify(direct_pred(zt)[:, h]))
+                g_lat = unpatchify(diff_pred(zt, 1000 + b)[:, h])
+                g_img = decode(g_lat); gc_img = decode(calibrate(g_lat))
+                for m, fake in [("direct", d_img), ("diffusion_raw", g_img),
+                                ("diffusion_calib", gc_img), ("vae_gt", gt_img)]:
+                    fids[m].update(real, real=True); fids[m].update(fake.clamp(0, 1), real=False)
+                    kids[m].update(real, real=True); kids[m].update(fake.clamp(0, 1), real=False)
+        rec = results["by_horizon"][str(h)]
+        for m in methods:
+            kmean, kstd = kids[m].compute()
+            rec[m] = {"fid": round(float(fids[m].compute()), 3),
+                      "kid_mean": round(float(kmean), 5), "kid_std": round(float(kstd), 5)}
+        print(f"[fid] h={h}: " + " | ".join(f"{m} FID={rec[m]['fid']} KID={rec[m]['kid_mean']}" for m in methods))
+
+    with open(f"{OUT_DIR}/fid_eval_{diffusion_ckpt.replace('/', '_')}.json", "w") as f:
+        json.dump(results, f, indent=2)
+    vol.commit()
+    print(json.dumps(results, indent=2))
+    return results
+
+
 def _entry(fn):
     return app.local_entrypoint()(fn) if app is not None else fn
 
 
 @_entry
 def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights: str = "1.0",
-         n_windows: int = 48, steps_eval: str = "3,15", n_fig: int = 5, cfg_w: float = 1.0):
+         n_windows: int = 48, steps_eval: str = "3,15", n_fig: int = 5, cfg_w: float = 1.0,
+         wps: int = 1, diffusion_ckpt: str = "diffusion"):
     if task == "figure":
         res = make_figure.remote(n_fig, cfg_w)
         print(json.dumps(res, indent=2))
@@ -543,6 +716,15 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2))
         print(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "fid":
+        res = fid_eval.remote(n_windows, steps_eval, cfg_w, 0, diffusion_ckpt, wps)
+        out = Path("artifacts/full/fid_eval.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/fid_eval.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2))
+        print(f"Saved {out}")
         return
     res = gen_eval.remote(models, k, cfg_weights, n_windows, steps_eval, n_fig)
     tag = models.replace(",", "_")
