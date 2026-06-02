@@ -778,7 +778,8 @@ def train_and_eval(
                   f"mean={mn_hv['mean_cossim']:.4f}")
         results["matched_noise_distributional_hv"] = mn_hv
 
-    if not smoke:
+    save_ckpt = (not smoke) or (smoke and mode == "direct" and action_mode == "coarse")
+    if save_ckpt:
         ckpt_dir = (
             f"{CKPT_DIR}/{encoder_name}/{mode}/h{horizon}/seed_{seed}/am_{action_mode}"
         )
