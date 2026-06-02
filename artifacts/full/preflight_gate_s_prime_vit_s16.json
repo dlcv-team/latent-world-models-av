@@ -1,0 +1,33 @@
+{
+  "encoder": "vit_s16",
+  "horizon": 16,
+  "theta": 0.08,
+  "left_center": -0.13699805736541748,
+  "right_center": 0.08092266321182251,
+  "hv_threshold_steer_std": 0.07287357747554779,
+  "n_test": 3619,
+  "n_hv": 905,
+  "coarse_balance_test": {
+    "left": 363,
+    "right": 290,
+    "straight": 2966
+  },
+  "peak_abs_steer_by_class": {
+    "left": 1.0,
+    "straight": 1.0,
+    "right": 1.0
+  },
+  "coarse_spread_hv": {
+    "mean_l2": 0.9337704748908678,
+    "mean_1_minus_cossim": 0.4397918039560318,
+    "n_groups": 3
+  },
+  "fine_spread_hv": {
+    "mean_l2": 0.9115803643212838,
+    "mean_1_minus_cossim": 0.4222807827710785,
+    "n_groups": 111
+  },
+  "ratio_l2_coarse_over_fine": 1.0243,
+  "ratio_1_minus_cossim_coarse_over_fine": 1.0415,
+  "gate_s_prime_pass": false
+}

@@ -671,8 +671,9 @@ def train_and_eval(
             print(f"  [matched-noise] no direct ckpt at {ckpt_path}")
             return None
         ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        cfg = {k: v for k, v in ckpt["config"].items() if k not in ("mode", "horizon", "n_spatial")}
         d_direct = AnchoredSpatialDiT(
-            **ckpt["config"], horizon=horizon, n_spatial=n_spatial
+            **cfg, horizon=horizon, n_spatial=n_spatial
         ).to(device)
         f_direct = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
         d_direct.load_state_dict(ckpt["dit_state_dict"])
