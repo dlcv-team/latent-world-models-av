@@ -328,13 +328,129 @@ def gen_eval(models: str = "diffusion", k: int = 8, cfg_weights: str = "1.0",
     return results
 
 
+@_decorator
+def make_figure(n_fig: int = 5, cfg_w: float = 1.0, steps_show: str = "0,4,8,12,15", seed: int = 0):
+    """4-row figure: RGB / VAE-GT / DiT-direct (blur) / DiT-diffusion (sharp)."""
+    import numpy as np
+    import torch
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+    from diffusers import AutoencoderKL
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    device = torch.device("cuda")
+    disp = [int(s) for s in steps_show.split(",")]
+    os.makedirs(OUT_DIR, exist_ok=True)
+    schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device)
+    alphas = schedule.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device).eval()
+
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    latents = data["vae_latents"].astype(np.float32)
+    scenes, splits = data["scene_names"], data["splits"]
+    steers, accels = data["steer_norms"].astype(np.float32), data["accel_norms"].astype(np.float32)
+    image_paths = data["image_paths"] if "image_paths" in data else None
+    test_idx = np.where(splits == "test")[0]
+    picks = []
+    for sc in np.unique(scenes[test_idx]):
+        idx = test_idx[scenes[test_idx] == sc]
+        if len(idx) > HORIZON:
+            picks.append(int(idx[0]))
+    picks = picks[:n_fig]
+
+    def load(ckpt_path):
+        ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(device)
+        fou = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+        dit.load_state_dict(ck["dit"]); fou.load_state_dict(ck["fourier"])
+        if "ema" in ck and ck["ema"]:
+            for nm, p in dit.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+            for nm, p in fou.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+        dit.eval(); fou.eval()
+        return dit, fou, ck["z_mean"].to(device), ck["z_std"].to(device)
+
+    d_dit, d_fou, dzm, dzs = load(CKPT_PATHS["direct"])
+    g_dit, g_fou, gzm, gzs = load(CKPT_PATHS["diffusion"])
+
+    def decode(grid):
+        return vae.decode(grid.clamp(-6, 6) / SCALING).sample.clamp(-1, 1)
+
+    def to_img(t):
+        return ((t + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
+
+    pdf = f"{OUT_DIR}/vae_4row_demo.pdf"
+    with PdfPages(pdf) as pp:
+        for wi, fi in enumerate(picks):
+            z_t = torch.tensor(latents[fi:fi + 1], device=device)
+            act = torch.stack([torch.tensor([steers[fi + kk], accels[fi + kk]], device=device)
+                               for kk in range(HORIZON)]).unsqueeze(0)
+            zf = torch.tensor(latents[fi + 1:fi + 1 + HORIZON], device=device).unsqueeze(0)
+            with torch.no_grad():
+                zt_n = (patchify(z_t) - dzm) / dzs
+                zr = zt_n.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(1, HORIZON * N_SPATIAL, PATCH_DIM)
+                t0 = torch.zeros(1, dtype=torch.long, device=device)
+                dpred = (d_dit(zr, zt_n, d_fou(act), t0) * dzs + dzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+                ztn_g = (patchify(z_t) - gzm) / gzs
+                a_c = g_fou(act); a_z = torch.zeros_like(a_c)
+                n_steps = 50; stride = max(DIFFUSION_STEPS // n_steps, 1)
+                ts = list(reversed(list(range(0, DIFFUSION_STEPS, stride))[:n_steps]))
+                gen = torch.Generator(device=device).manual_seed(seed)
+                x = torch.randn(1, HORIZON * N_SPATIAL, PATCH_DIM, device=device, generator=gen)
+                for i, tv in enumerate(ts):
+                    t = torch.full((1,), tv, device=device, dtype=torch.long)
+                    px0 = g_dit(x, ztn_g, a_c, t)
+                    if cfg_w != 1.0:
+                        pu = g_dit(x, ztn_g, a_z, t); px0 = pu + cfg_w * (px0 - pu)
+                    at = alphas[tv]; ap = alphas[ts[i + 1]] if i < len(ts) - 1 else torch.tensor(1.0, device=device)
+                    nd = (x - torch.sqrt(at) * px0) / torch.sqrt(1 - at + 1e-8)
+                    x = torch.sqrt(ap) * px0 + torch.sqrt(1 - ap) * nd
+                gpred = (x * gzs + gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+
+            fig, ax = plt.subplots(4, len(disp), figsize=(3 * len(disp), 12))
+            for col, k in enumerate(disp):
+                gt_dec = to_img(decode(zf[:, k]))
+                rgb = gt_dec
+                if image_paths is not None and fi + 1 + k < len(image_paths):
+                    ip = f"{VOL_PATH}/nuscenes/{image_paths[fi + 1 + k]}"
+                    if os.path.exists(ip):
+                        from PIL import Image
+                        import torchvision.transforms.functional as TF
+                        im = Image.open(ip).convert("RGB"); w, h = im.size
+                        c = min(w, h)
+                        im = im.crop(((w - c) // 2, (h - c) // 2, (w - c) // 2 + c, (h - c) // 2 + c)).resize((256, 256))
+                        rgb = TF.to_tensor(im).permute(1, 2, 0).numpy()
+                dd = to_img(decode(unpatchify(dpred[:, k])))
+                gd = to_img(decode(unpatchify(gpred[:, k])))
+                for r, (img, title) in enumerate([(rgb, f"RGB t+{k}"), (gt_dec, f"VAE-GT t+{k}"),
+                                                   (dd, f"DiT-direct t+{k}"), (gd, f"DiT-diffusion t+{k}")]):
+                    ax[r, col].imshow(np.clip(img, 0, 1)); ax[r, col].set_title(title, fontsize=8); ax[r, col].axis("off")
+            fig.tight_layout(); pp.savefig(fig); plt.close(fig)
+    vol.commit()
+    print(f"[figure] saved {pdf} ({len(picks)} windows, cfg_w={cfg_w})")
+    return {"pdf": pdf, "n": len(picks), "cfg_w": cfg_w}
+
+
 def _entry(fn):
     return app.local_entrypoint()(fn) if app is not None else fn
 
 
 @_entry
-def main(models: str = "diffusion", k: int = 8, cfg_weights: str = "1.0",
-         n_windows: int = 48, steps_eval: str = "3,15", n_fig: int = 5):
+def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights: str = "1.0",
+         n_windows: int = 48, steps_eval: str = "3,15", n_fig: int = 5, cfg_w: float = 1.0):
+    if task == "figure":
+        res = make_figure.remote(n_fig, cfg_w)
+        print(json.dumps(res, indent=2))
+        return
     res = gen_eval.remote(models, k, cfg_weights, n_windows, steps_eval, n_fig)
     tag = models.replace(",", "_")
     out = Path(f"artifacts/full/gen_eval_{tag}.json")
