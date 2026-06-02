@@ -386,7 +386,7 @@ def make_figure(n_fig: int = 5, cfg_w: float = 1.0, steps_show: str = "0,4,8,12,
         return vae.decode(grid.clamp(-6, 6) / SCALING).sample.clamp(-1, 1)
 
     def to_img(t):
-        return ((t + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
+        return ((t + 1) / 2)[0].permute(1, 2, 0).detach().cpu().numpy()
 
     pdf = f"{OUT_DIR}/vae_4row_demo.pdf"
     with PdfPages(pdf) as pp:
@@ -440,6 +440,90 @@ def make_figure(n_fig: int = 5, cfg_w: float = 1.0, steps_show: str = "0,4,8,12,
     return {"pdf": pdf, "n": len(picks), "cfg_w": cfg_w}
 
 
+@_decorator
+def action_use(n_windows: int = 48, perturb: float = 0.3, seed: int = 0):
+    """Does the VAE diffusion model USE actions? Same x_T; true vs +perturb-steer vs
+    time-shuffled action sequences. perturb_sens > shuffle_sens => uses structured actions."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify = mod.patchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    device = torch.device("cuda")
+    schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device)
+    alphas = schedule.alphas_cumprod
+
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    latents = data["vae_latents"].astype(np.float32)
+    scenes, splits = data["scene_names"], data["splits"]
+    steers, accels = data["steer_norms"].astype(np.float32), data["accel_norms"].astype(np.float32)
+    test_idx = np.where(splits == "test")[0]
+    picks = []
+    for sc in np.unique(scenes[test_idx]):
+        idx = test_idx[scenes[test_idx] == sc]
+        if len(idx) > HORIZON:
+            picks.append(int(idx[0]))
+    picks = picks[:n_windows]
+    W = len(picks)
+
+    ck = torch.load(CKPT_PATHS["diffusion"], map_location=device, weights_only=False)
+    dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(device)
+    fou = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+    dit.load_state_dict(ck["dit"]); fou.load_state_dict(ck["fourier"])
+    if "ema" in ck and ck["ema"]:
+        for nm, p in dit.named_parameters():
+            if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+        for nm, p in fou.named_parameters():
+            if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+    dit.eval(); fou.eval()
+    zm, zs = ck["z_mean"].to(device), ck["z_std"].to(device)
+
+    z_t = torch.tensor(np.stack([latents[i] for i in picks]), device=device)
+    act = torch.tensor(np.stack([
+        np.stack([[steers[i + kk], accels[i + kk]] for kk in range(HORIZON)]) for i in picks
+    ]), dtype=torch.float32, device=device)                       # (W,H,2)
+    act_pert = act.clone(); act_pert[:, :, 0] = (act_pert[:, :, 0] + perturb).clamp(-1, 1)
+    g = torch.Generator(device=device).manual_seed(123)
+    perm = torch.stack([torch.randperm(HORIZON, generator=g, device=device) for _ in range(W)])
+    act_shuf = torch.stack([act[w, perm[w]] for w in range(W)])
+
+    ztn = (patchify(z_t) - zm) / zs
+
+    def sample(a_seq, gseed):
+        a = fou(a_seq)
+        n_steps = 50; stride = max(DIFFUSION_STEPS // n_steps, 1)
+        ts = list(reversed(list(range(0, DIFFUSION_STEPS, stride))[:n_steps]))
+        gen = torch.Generator(device=device).manual_seed(gseed)
+        x = torch.randn(W, HORIZON * N_SPATIAL, PATCH_DIM, device=device, generator=gen)
+        for i, tv in enumerate(ts):
+            t = torch.full((W,), tv, device=device, dtype=torch.long)
+            px0 = dit(x, ztn, a, t)
+            at = alphas[tv]; ap = alphas[ts[i + 1]] if i < len(ts) - 1 else torch.tensor(1.0, device=device)
+            nd = (x - torch.sqrt(at) * px0) / torch.sqrt(1 - at + 1e-8)
+            x = torch.sqrt(ap) * px0 + torch.sqrt(1 - ap) * nd
+        return x.reshape(W, HORIZON, N_SPATIAL, PATCH_DIM)
+
+    with torch.no_grad():
+        base = sample(act, 7)            # same x_T (gseed) across conditions
+        pert = sample(act_pert, 7)
+        shuf = sample(act_shuf, 7)
+        out = {"perturb": perturb, "n_windows": W, "perturb_sens_by_step": {}, "shuffle_sens_by_step": {}}
+        for st in [3, 15]:
+            ps = (1 - F.cosine_similarity(base[:, st], pert[:, st], dim=-1)).mean().item()
+            ss = (1 - F.cosine_similarity(base[:, st], shuf[:, st], dim=-1)).mean().item()
+            out["perturb_sens_by_step"][str(st)] = round(ps, 4)
+            out["shuffle_sens_by_step"][str(st)] = round(ss, 4)
+    out["uses_actions"] = out["perturb_sens_by_step"]["15"] > 0.01
+    print(f"[action-use] perturb_sens={out['perturb_sens_by_step']} shuffle_sens={out['shuffle_sens_by_step']}")
+    return out
+
+
 def _entry(fn):
     return app.local_entrypoint()(fn) if app is not None else fn
 
@@ -450,6 +534,15 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
     if task == "figure":
         res = make_figure.remote(n_fig, cfg_w)
         print(json.dumps(res, indent=2))
+        return
+    if task == "action_use":
+        res = action_use.remote(n_windows)
+        out = Path("artifacts/full/gen_eval_action_use.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/gen_eval_action_use.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2))
+        print(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     res = gen_eval.remote(models, k, cfg_weights, n_windows, steps_eval, n_fig)
     tag = models.replace(",", "_")
