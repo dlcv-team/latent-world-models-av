@@ -340,7 +340,16 @@ def train_and_eval(
     z_t_train, act_train_exact, zf_train = build_windows("train")
     z_t_test, act_test_exact, zf_test = build_windows("test")
 
-    # HV mask from exact logged actions (before coarse surrogate).
+    if max_train is not None and len(z_t_train) > max_train:
+        z_t_train, act_train_exact, zf_train = (
+            z_t_train[:max_train], act_train_exact[:max_train], zf_train[:max_train],
+        )
+    if max_test is not None and len(z_t_test) > max_test:
+        z_t_test, act_test_exact, zf_test = (
+            z_t_test[:max_test], act_test_exact[:max_test], zf_test[:max_test],
+        )
+
+    # HV mask from exact logged actions (after any smoke subsample).
     steer_std_test = act_test_exact[:, :, 0].std(dim=1)
     hv_threshold = float(torch.quantile(steer_std_test, 0.75).item())
     hv_mask = steer_std_test >= hv_threshold
@@ -392,11 +401,6 @@ def train_and_eval(
     else:
         act_train = act_train_exact
         act_test = act_test_exact
-
-    if max_train is not None and len(z_t_train) > max_train:
-        z_t_train, act_train, zf_train = z_t_train[:max_train], act_train[:max_train], zf_train[:max_train]
-    if max_test is not None and len(z_t_test) > max_test:
-        z_t_test, act_test, zf_test = z_t_test[:max_test], act_test[:max_test], zf_test[:max_test]
 
     n_train, n_test = len(z_t_train), len(z_t_test)
     print(f"[anchored] Train: {n_train} windows, Test: {n_test} windows")
