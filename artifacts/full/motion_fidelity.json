@@ -1,0 +1,68 @@
+{
+  "n_scenes": 40,
+  "blur_kernel": 31,
+  "blur_sigma": 8.0,
+  "steps": "all 16 (t+1..t+16)",
+  "all_scenes": {
+    "n": 40,
+    "gt": {
+      "low": 0.0536,
+      "high": 0.0832
+    },
+    "direct": {
+      "low": 0.0302,
+      "high": 0.011,
+      "lowfreq_frac_of_gt": 0.564,
+      "highfreq_frac_of_gt": 0.133,
+      "disp_mag_frac_of_gt": 0.622,
+      "disp_dir_corr_vs_gt": 0.223,
+      "residual_t15": 0.6709,
+      "legacy_total_frac_of_gt": 0.317
+    },
+    "diffusion": {
+      "low": 0.0235,
+      "high": 0.0816,
+      "lowfreq_frac_of_gt": 0.439,
+      "highfreq_frac_of_gt": 0.98,
+      "disp_mag_frac_of_gt": 0.0,
+      "disp_dir_corr_vs_gt": 0.0,
+      "residual_t15": 1.3609,
+      "legacy_total_frac_of_gt": 0.81
+    },
+    "gt_residual_t15": 0.848
+  },
+  "high_motion_quartile": {
+    "n": 10,
+    "gt": {
+      "low": 0.0883,
+      "high": 0.1001
+    },
+    "direct": {
+      "low": 0.0415,
+      "high": 0.0125,
+      "lowfreq_frac_of_gt": 0.47,
+      "highfreq_frac_of_gt": 0.125,
+      "disp_mag_frac_of_gt": 0.601,
+      "disp_dir_corr_vs_gt": 0.293,
+      "residual_t15": 0.7281,
+      "legacy_total_frac_of_gt": 0.311
+    },
+    "diffusion": {
+      "low": 0.0275,
+      "high": 0.0829,
+      "lowfreq_frac_of_gt": 0.312,
+      "highfreq_frac_of_gt": 0.829,
+      "disp_mag_frac_of_gt": 0.0,
+      "disp_dir_corr_vs_gt": 0.0,
+      "residual_t15": 1.4673,
+      "legacy_total_frac_of_gt": 0.618
+    },
+    "gt_residual_t15": 0.9437
+  },
+  "artifact_flag": {
+    "proxy": "low-freq L2(diffusion,GT) @t+1",
+    "p75": 0.1002,
+    "n_flagged_gt_p75": 10
+  },
+  "note": "low-freq=coherent scene motion; high-freq=texture. legacy_total recomputed on 16-step grid."
+}
