@@ -343,6 +343,7 @@ def train_and_eval(
     action_dropout: float = 0.0,
     cfg_dropout: float = 0.0,
     skip_eval: bool = False,
+    n_blocks: int = 4,
 ):
     import numpy as np
     import torch
@@ -366,6 +367,7 @@ def train_and_eval(
 
     assert mode in ("direct", "diffusion"), f"bad mode {mode}"
     is_diffusion = mode == "diffusion"
+    dit_cfg = {**DIT_CONFIG, "n_blocks": n_blocks}  # P1: capacity (depth) override
     n_ddim_steps = N_DDIM_STEPS_SMOKE if smoke else N_DDIM_STEPS
     print(f"[vae-dit] h{horizon}/s{seed} mode={mode} smoke={smoke} "
           f"mlp_hidden={mlp_hidden} n_samples={n_samples} action_dropout={action_dropout} device={device}")
@@ -557,7 +559,7 @@ def train_and_eval(
     if is_diffusion:
         schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device)
         print(f"\n{'='*60}\nTraining VAE DiT-diffusion (DDIM steps={n_ddim_steps})\n{'='*60}")
-        dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+        dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **dit_cfg).to(device)
         fourier = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
         n_dit = sum(p.numel() for p in dit.parameters()) + sum(p.numel() for p in fourier.parameters())
         print(f"  DiT params: {n_dit:,}")
@@ -630,7 +632,7 @@ def train_and_eval(
 
             # Unconditioned direct baseline (actions always zeroed)
             print(f"\n{'='*60}\nTraining unconditioned direct baseline\n{'='*60}")
-            dit_u = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+            dit_u = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **dit_cfg).to(device)
             f_u = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
             opt_u = torch.optim.Adam(list(dit_u.parameters()) + list(f_u.parameters()), lr=TRAIN_LR)
             u_epochs = epochs if not smoke else epochs
@@ -712,7 +714,8 @@ def train_and_eval(
                           f"diversity={dist['sample_diversity_l2']:.4f}")
 
             if not smoke:
-                ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}"
+                nb_suffix = "" if n_blocks == 4 else f"_nb{n_blocks}"
+                ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}{nb_suffix}"
                 os.makedirs(ckpt_dir, exist_ok=True)
                 torch.save({
                     "dit": dit.state_dict(),
@@ -722,6 +725,8 @@ def train_and_eval(
                     "z_std": z_std.cpu(),
                     "mode": "diffusion",
                     "cfg_dropout": cfg_dropout,
+                    "n_blocks": n_blocks,
+                    "n_params": n_dit,
                 }, f"{ckpt_dir}/dit.pt")
             if not skip_eval:
                 results["g6"] = evaluate_g6(results)
@@ -732,7 +737,7 @@ def train_and_eval(
 
     # ---- Train DiT (direct) ----
     print(f"\n{'='*60}\nTraining VAE DiT-direct\n{'='*60}")
-    dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+    dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **dit_cfg).to(device)
     fourier = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
     n_dit = sum(p.numel() for p in dit.parameters()) + sum(p.numel() for p in fourier.parameters())
     print(f"  DiT params: {n_dit:,}")
@@ -897,16 +902,18 @@ def main(
     action_dropout: float = 0.0,
     cfg_dropout: float = 0.0,
     skip_eval: bool = False,
+    n_blocks: int = 4,
 ):
     t0 = time.time()
     print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} "
-          f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout} skip_eval={skip_eval}")
+          f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout} skip_eval={skip_eval} n_blocks={n_blocks}")
     result = train_and_eval.remote(
-        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout, skip_eval,
+        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout, skip_eval, n_blocks,
     )
     print(json.dumps(result, indent=2))
     if mode == "diffusion":
         ad_tag = f"_ad{action_dropout}" if action_dropout > 0 else (f"_cfg{cfg_dropout}" if cfg_dropout > 0 else "")
+        ad_tag += "" if n_blocks == 4 else f"_nb{n_blocks}"
         tag = "smoke" if smoke else "result"
         if action_dropout > 0 and not smoke:
             out = Path(f"artifacts/full/vae_diffusion_multifuture_result_h{horizon}_s{seed}.json")
