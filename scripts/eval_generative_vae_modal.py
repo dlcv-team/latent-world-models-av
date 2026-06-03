@@ -1163,11 +1163,15 @@ def planning_probe(n_scenes: int = 30, horizon_step: int = 15, seed: int = 0):
 
 
 @_decorator
-def rollout_eval(n_windows: int = 30, seed: int = 0):
-    """P2: 2-chunk autoregressive rollout. Chunk1: z_t -> z_{t+1..t+16}. Chunk2: feed predicted z_{t+16}
+def rollout_eval(n_windows: int = 30, seed: int = 0, feedback_mode: str = "both", diffusion_ckpt: str = "diffusion"):
+    """P2/P7: 2-chunk autoregressive rollout. Chunk1: z_t -> z_{t+1..t+16}. Chunk2: feed predicted z_{t+16}
     back as z_t -> z_{t+17..t+32}, using the REAL GT actions a_{t+16:t+32} (critical). Per chunk endpoint
-    (t+16, t+32) report FID vs real RGB + CosSim-to-GT + sharpness, for diffusion vs direct. Tests whether
-    diffusion stays on-manifold over rollout while regression compounds blur. Models trained single-pass all-H."""
+    (t+16, t+32) report FID vs real RGB + CosSim-to-GT + sharpness + dFID, for diffusion vs direct.
+    P7 (test-time stabilization): feedback_mode in {raw, vae_reproject, both}. vae_reproject snaps the fed-back
+    z_{t+16} back onto the VAE natural-image manifold (encode(decode(z16))) BEFORE re-conditioning chunk-2 -- a
+    deployable, training-free fix for off-manifold autoregressive drift. Runs the full 2x2 {direct,diffusion} x
+    {raw,vae_reproject} on the SAME windows, baseline recomputed in-run (FID is sample-sensitive). diffusion_ckpt
+    can be a CKPT_PATHS key or a full volume path (P6 _rollaug variant)."""
     import numpy as np
     import torch
     import torch.nn.functional as F
@@ -1206,15 +1210,18 @@ def rollout_eval(n_windows: int = 30, seed: int = 0):
     print(f"[rollout] {len(picks)} windows (need t+32 in-scene + RGB)")
 
     def load(tag):
-        ck = torch.load(CKPT_PATHS[tag], map_location=dev, weights_only=False)
-        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(dev)
+        ck = torch.load(CKPT_PATHS.get(tag, tag), map_location=dev, weights_only=False)
+        nb = int(ck.get("n_blocks", DIT_CONFIG["n_blocks"]))
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **{**DIT_CONFIG, "n_blocks": nb}).to(dev)
         fo = FourierActionEmbedding(**FOURIER_CONFIG).to(dev)
         dit.load_state_dict(ck["dit"]); fo.load_state_dict(ck["fourier"])
         if "ema" in ck and ck["ema"]:
             for nm, p in dit.named_parameters():
                 if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
+            for nm, p in fo.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
         dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(dev), ck["z_std"].to(dev)
-    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load("diffusion")
+    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load(diffusion_ckpt)
 
     def aseq(fi0):  # real actions a_{fi0 .. fi0+15}
         return torch.tensor(np.stack([[steers[fi0 + k], accels[fi0 + k]] for k in range(HORIZON)]),
@@ -1247,31 +1254,41 @@ def rollout_eval(n_windows: int = 30, seed: int = 0):
             tok = (x*gzs+gzm).reshape(1,HORIZON,N_SPATIAL,PATCH_DIM)[0]
         return torch.stack([unpatchify(tok[k:k+1])[0] for k in range(HORIZON)], 0)  # (H,4,32,32)
 
-    res = {"n_windows": len(picks), "chunks": ["t+16", "t+32"], "models": {}}
+    modes = ["raw", "vae_reproject"] if feedback_mode == "both" else [feedback_mode]
+    def reproject(zlat):  # (4,32,32) raw latent -> VAE natural-image-manifold-projected latent (test-time fix)
+        img = decode(zlat.unsqueeze(0))                                 # [0,1] RGB
+        return (vae.encode(img * 2 - 1).latent_dist.mean * SCALING)[0]  # back to scaled latent space
+    res = {"n_windows": len(picks), "chunks": ["t+16", "t+32"], "diffusion_ckpt": diffusion_ckpt,
+           "feedback_modes": modes, "cells": {}}
     for kind in ["direct", "diffusion"]:
-        fid16 = FrechetInceptionDistance(normalize=True).to(dev); fid32 = FrechetInceptionDistance(normalize=True).to(dev)
-        cs = {"t+16": [], "t+32": []}; sh = {"t+16": [], "t+32": []}
+        fids = {fm: (FrechetInceptionDistance(normalize=True).to(dev),
+                     FrechetInceptionDistance(normalize=True).to(dev)) for fm in modes}
+        cs = {fm: {"t+16": [], "t+32": []} for fm in modes}
+        sh = {fm: {"t+16": [], "t+32": []} for fm in modes}
         with torch.no_grad():
             for fi in picks:
                 zt = torch.tensor(lat[fi], device=dev)
-                ch1 = predict_full(kind, zt, fi)                 # z_{t+1..t+16}, actions a_{fi..fi+15}
-                z16 = ch1[15]
-                ch2 = predict_full(kind, z16, fi + 16)           # z_{t+17..t+32}, REAL actions a_{fi+16..fi+31}
-                z32 = ch2[15]
-                for tag, zp, gt_n in [("t+16", z16, fi+16), ("t+32", z32, fi+32)]:
-                    img = decode(zp.unsqueeze(0)).clamp(0,1); real = rgb(gt_n)
-                    (fid16 if tag=="t+16" else fid32).update(real, real=True)
-                    (fid16 if tag=="t+16" else fid32).update(img, real=False)
-                    gt = torch.tensor(lat[gt_n], device=dev)
-                    cs[tag].append(F.cosine_similarity(patchify(zp.unsqueeze(0)), patchify(gt.unsqueeze(0)), dim=-1).mean().item())
-                    sh[tag].append(sharp(img).item())
-        res["models"][kind] = {
-            "fid": {"t+16": round(float(fid16.compute()),2), "t+32": round(float(fid32.compute()),2)},
-            "cossim": {t: round(float(np.mean(cs[t])),4) for t in cs},
-            "sharpness": {t: round(float(np.mean(sh[t])),4) for t in sh}}
-        m = res["models"][kind]
-        print(f"[rollout] {kind}: FID t+16={m['fid']['t+16']} t+32={m['fid']['t+32']} | CosSim {m['cossim']} | sharp {m['sharpness']}")
-    with open(f"{OUT_DIR}/rollout_eval.json", "w") as f: json.dump(res, f, indent=2)
+                z16 = predict_full(kind, zt, fi)[15]                    # chunk-1 (shared across feedback modes)
+                for fm in modes:
+                    z16_fb = reproject(z16) if fm == "vae_reproject" else z16
+                    z32 = predict_full(kind, z16_fb, fi + 16)[15]       # chunk-2 input processed per mode
+                    f16, f32 = fids[fm]
+                    for tag, zp, gt_n, fid in [("t+16", z16, fi+16, f16), ("t+32", z32, fi+32, f32)]:
+                        img = decode(zp.unsqueeze(0)).clamp(0,1); real = rgb(gt_n)
+                        fid.update(real, real=True); fid.update(img, real=False)
+                        gt = torch.tensor(lat[gt_n], device=dev)
+                        cs[fm][tag].append(F.cosine_similarity(patchify(zp.unsqueeze(0)), patchify(gt.unsqueeze(0)), dim=-1).mean().item())
+                        sh[fm][tag].append(sharp(img).item())
+        for fm in modes:
+            f16, f32 = fids[fm]; F16 = round(float(f16.compute()),2); F32 = round(float(f32.compute()),2)
+            cell = {"fid": {"t+16": F16, "t+32": F32}, "dFID_t32_minus_t16": round(F32 - F16, 2),
+                    "cossim": {t: round(float(np.mean(cs[fm][t])),4) for t in cs[fm]},
+                    "sharpness": {t: round(float(np.mean(sh[fm][t])),4) for t in sh[fm]}}
+            res["cells"][f"{kind}_{fm}"] = cell
+            print(f"[rollout] {kind}/{fm}: FID t+16={F16} t+32={F32} dFID={cell['dFID_t32_minus_t16']} | "
+                  f"CosSim {cell['cossim']} | sharp {cell['sharpness']}")
+    ftag = "" if diffusion_ckpt == "diffusion" else "_" + diffusion_ckpt.strip("/").replace("/", "_")
+    with open(f"{OUT_DIR}/rollout_eval_feedback{ftag}.json", "w") as f: json.dump(res, f, indent=2)
     vol.commit(); print(json.dumps(res, indent=2)); return res
 
 
@@ -1339,7 +1356,7 @@ def _entry(fn):
 @_entry
 def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights: str = "1.0",
          n_windows: int = 48, steps_eval: str = "3,15", n_fig: int = 5, cfg_w: float = 1.0,
-         wps: int = 1, diffusion_ckpt: str = "diffusion"):
+         wps: int = 1, diffusion_ckpt: str = "diffusion", feedback_mode: str = "both"):
     if task == "figure":
         res = make_figure.remote(n_fig, cfg_w)
         print(json.dumps(res, indent=2))
@@ -1354,12 +1371,14 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         print(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "rollout":
-        res = rollout_eval.remote(n_windows)
-        out = Path("artifacts/full/rollout_eval.json")
+        res = rollout_eval.remote(n_windows, 0, feedback_mode, diffusion_ckpt)
+        ftag = "" if diffusion_ckpt == "diffusion" else "_" + diffusion_ckpt.strip("/").replace("/", "_")
+        fname = "rollout_eval.json" if feedback_mode == "raw" and diffusion_ckpt == "diffusion" else f"rollout_eval_feedback{ftag}.json"
+        out = Path(f"artifacts/full/{fname}")
         if not out.parent.exists():
-            out = Path("code/latent-world-models-av/artifacts/full/rollout_eval.json")
+            out = Path(f"code/latent-world-models-av/artifacts/full/{fname}")
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
+        out.write_text(json.dumps(res, indent=2)); print(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "framerate":
         res = framerate_preflight.remote(n_windows)
