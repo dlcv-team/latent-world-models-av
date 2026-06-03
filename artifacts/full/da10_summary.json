@@ -1,0 +1,83 @@
+{
+  "experiment": "DA10",
+  "title": "Critical Validation of DA9 Conclusions",
+  "date": "2026-05-29",
+  "status": "complete",
+  "v0_ema": {
+    "status": "complete",
+    "finding": "EMA improves DiT-x0 on ALL 6 encoders (every delta positive). Mean improvement +0.0037. Largest on dino (+0.0072), vit (+0.0068), clip (+0.0047). Gate G1 PASSES (3/6 encoders improve >0.002).",
+    "gate_g1": "PASS",
+    "improving_encoders": 3,
+    "mean_delta": 0.003739,
+    "caveat": "MLP was NOT EMA-trained. Advantage may reflect regularization, not diffusion. Report as sensitivity analysis with asterisk.",
+    "per_encoder_delta": {
+      "clip_b32": 0.004736,
+      "dino_vits14": 0.0072,
+      "vit_s16": 0.006846,
+      "vjepa2_rep1": 0.001454,
+      "vjepa2_rep64": 0.000887,
+      "vq_track": 0.001309
+    },
+    "csv": "artifacts/full/da10_ema_eval.csv"
+  },
+  "v1_stat_validation": {
+    "status": "complete",
+    "finding": "Both pre-registered primary targets are HIGHLY SIGNIFICANT at scene level with FDR correction. DiT-x0 (EMA) beats MLP-residual on hardest scenarios (Q1/h4) for 3 encoders.",
+    "gate_g2": "PASS (EMA-confounded)",
+    "primary_targets": {
+      "dino_vits14_Q1_h4": {
+        "gap": 0.0066,
+        "fdr_p_fisher": 9e-06,
+        "cohens_d": 0.247,
+        "significant": true,
+        "note": "Fisher p assumes seed independence (overstates significance). Effect size d=0.25 is the more honest metric."
+      },
+      "clip_b32_Q1_h4": {
+        "gap": 0.0036,
+        "fdr_p_fisher": 5e-06,
+        "cohens_d": 0.25,
+        "significant": true,
+        "note": "Gap (+0.0036) overlaps EMA gain for clip (+0.0047); may be entirely EMA regularization."
+      }
+    },
+    "exploratory_significant": {
+      "dino_vits14_Q2_h4": {
+        "gap": 0.0035,
+        "fdr_p": 0.0016
+      },
+      "vit_s16_Q1_h4": {
+        "gap": 0.0029,
+        "fdr_p": 0.0115
+      }
+    },
+    "method": "Per-scene paired t-test (N~130 scenes per quartile). Primary: pooled scene-level test (average per-scene gaps across seeds, then one t-test). Secondary: Fisher combined p across 3 seeds with BH FDR correction (overstates significance due to shared test set across seeds).",
+    "caveat": "DiT used EMA weights; MLP did not. EMA alone buys +0.0037 mean (up to +0.0072 dino), which overlaps or exceeds the reported gaps. Effect sizes are small (d=0.12-0.25). Fisher p-values assume seed independence but seeds share the test set.",
+    "csv": "artifacts/full/da10_stat_validation.csv"
+  },
+  "v2_difficulty_diagnostics": {
+    "status": "complete",
+    "finding": "Copy-baseline quartiles are well-spread and monotonic on all encoders. Difficulty axis is valid. Q1 ranges from 0.73 (vit_s16 h4) to 0.97 (vq_track h4).",
+    "csv": "artifacts/full/da10_difficulty_diagnostics.csv"
+  },
+  "v3_action_variance": {
+    "status": "complete",
+    "finding": "dino_vits14 shows positive DiT gap (+0.0098) in highest action-variance quartile (AV-Q4). This is consistent: DiT helps when actions change dynamically. Other encoders show DiT gap closer to zero in AV-Q4 but not positive.",
+    "notable": "dino_vits14 AV-Q4 h4: gap=+0.0098 (DiT wins on most dynamic scenes)"
+  },
+  "m4_perstep_horizon": {
+    "status": "complete",
+    "finding": "MLP-residual wins at EVERY SINGLE STEP in h=8/h=16 across all encoders. No hidden near-step DiT advantage. The gap is largest at step 1 and shrinks toward the last step.",
+    "gate_g3": "FAIL",
+    "csv": "artifacts/full/da10_horizon_perstep.csv"
+  },
+  "gate_g4_decision": {
+    "g1_ema": "PASS",
+    "g2_stat": "PASS (EMA-confounded)",
+    "g3_perstep": "FAIL",
+    "decision": "G2 passes nominally but is confounded by EMA asymmetry (DiT used EMA, MLP did not). The reported gaps overlap EMA regularization gains, and Fisher p-values overstate significance due to shared test sets across seeds. G3 failed. The DiT signal is at best narrow (Q1/h4 only) and may be partially or fully attributable to EMA. Lead with the negative result.",
+    "h3_skipped": true
+  },
+  "overall_finding": "MLP-residual dominates DiT-x0 on aggregate CosSim across all encoders, all quartiles except Q1/h4, and all longer horizons. A narrow positive signal for DiT appears on the hardest scenarios (Q1/h4) for 3 encoders (dino +0.0066, clip +0.0036, vit +0.0029), but this signal is confounded: (1) DiT used EMA while MLP did not, and EMA alone buys +0.0037 mean (up to +0.0072 dino), overlapping the reported gaps; (2) Fisher p-values overstate significance because seeds share the test set; (3) effect sizes are small (Cohen d = 0.12-0.25). The Q1/h4 signal motivates a hypothesis that diffusion may help on high-uncertainty scenes, but is not sufficient to claim an established advantage.",
+  "report_framing": "Scenario B -- negative result with EMA-confounded narrow positive signal as hypothesis",
+  "total_cost_usd": 3.0
+}
