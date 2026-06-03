@@ -26,6 +26,9 @@ UPLOADS = [
      CHECKPOINTS_REPO, "vae_latent/diffusion_cfg0.1/h16/seed_1/dit.pt", "model"),
     (f"{VOL_PATH}/dits/vae_latent/diffusion/h16/seed_2/dit.pt",
      CHECKPOINTS_REPO, "vae_latent/diffusion_cfg0.1/h16/seed_2/dit.pt", "model"),
+    # P1 scaling probe: 3.0M (n_blocks=2) diffusion ckpt (Future-Work, low-end capacity point)
+    (f"{VOL_PATH}/dits/vae_latent/diffusion/h16/seed_0_nb2/dit.pt",
+     CHECKPOINTS_REPO, "vae_latent/diffusion_cfg0.1/h16/seed_0_nb2_3.0M/dit.pt", "model"),
     (f"{VOL_PATH}/embeddings/spatial/gen_eval/vae_4row_demo.pdf",
      EMBEDDINGS_REPO, "gen_eval/vae_4row_demo.pdf", "dataset"),
     (f"{VOL_PATH}/embeddings/spatial/gen_eval/fid_eval_diffusion.json",
