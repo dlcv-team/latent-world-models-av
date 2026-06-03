@@ -237,7 +237,32 @@ def s7(profile):
     return S.savefig(fig, "fig_framerate", profile)
 
 
-REG = {"F6": f6, "F7": f7, "F8": f8, "S1": s1, "S2": s2, "S3": s3, "S4": s4, "S5": s5, "S6": s6, "S7": s7}
+def smf(profile):
+    """Motion-fidelity (honest): low-freq coherent scene-motion vs high-freq texture, fraction of GT.
+    The headline correction to the old 'more dynamic than the blur' claim."""
+    S.apply(profile)
+    d = S.load("motion_fidelity.json")
+    groups = ["all_scenes", "high_motion_quartile"]; glab = ["All scenes", "High-motion\nquartile"]
+    dlow = [d[g]["direct"]["lowfreq_frac_of_gt"] for g in groups]
+    glow = [d[g]["diffusion"]["lowfreq_frac_of_gt"] for g in groups]
+    ghigh = [d[g]["diffusion"]["highfreq_frac_of_gt"] for g in groups]
+    x = np.arange(2); w = 0.26
+    fig, ax = plt.subplots(figsize=S.figsize(profile, 3.8, 3.0))
+    ax.bar(x - w, dlow, w, color=S.C["direct"], edgecolor="white", label="Direct: scene-motion (low-freq)")
+    ax.bar(x, glow, w, color=S.C["diffusion"], edgecolor="white", label="Diffusion: scene-motion (low-freq)")
+    ax.bar(x + w, ghigh, w, color=S.C["diffusion"], alpha=0.4, hatch="//", edgecolor="white", label="Diffusion: texture (high-freq)")
+    ax.axhline(1.0, ls="--", color=S.C["ceiling"], lw=1.0); ax.text(1.48, 1.0, "GT", va="center", color=S.C["ceiling"])
+    for xi, v in zip(x - w, dlow): ax.text(xi, v + 0.02, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
+    for xi, v in zip(x, glow): ax.text(xi, v + 0.02, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
+    for xi, v in zip(x + w, ghigh): ax.text(xi, v + 0.02, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
+    ax.set_xticks(x); ax.set_xticklabels(glab); ax.set_ylim(0, 1.15)
+    ax.set_ylabel("fraction of GT frame-to-frame change")
+    ax.legend(frameon=False, loc="upper center", fontsize=plt.rcParams["legend.fontsize"]-1)
+    ax.set_title("Diffusion reproduces GT texture (0.98) but little coherent motion;\nthe blurry mean captures MORE scene motion (40 scenes)")
+    return S.savefig(fig, "fig_motion_fidelity", profile)
+
+
+REG = {"F6": f6, "F7": f7, "F8": f8, "S1": s1, "S2": s2, "S3": s3, "S4": s4, "S5": s5, "S6": s6, "S7": s7, "SMF": smf}
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
