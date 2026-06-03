@@ -1025,6 +1025,119 @@ def controllability(n_scenes: int = 40, horizon_step: int = 15, seed: int = 0):
 
 
 @_decorator
+def rollout_eval(n_windows: int = 30, seed: int = 0):
+    """P2: 2-chunk autoregressive rollout. Chunk1: z_t -> z_{t+1..t+16}. Chunk2: feed predicted z_{t+16}
+    back as z_t -> z_{t+17..t+32}, using the REAL GT actions a_{t+16:t+32} (critical). Per chunk endpoint
+    (t+16, t+32) report FID vs real RGB + CosSim-to-GT + sharpness, for diffusion vs direct. Tests whether
+    diffusion stays on-manifold over rollout while regression compounds blur. Models trained single-pass all-H."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from diffusers import AutoencoderKL
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    from PIL import Image
+    import torchvision.transforms.functional as TF
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    dev = torch.device("cuda")
+    sch = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(dev); alphas = sch.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
+    os.makedirs(OUT_DIR, exist_ok=True)
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    lat = data["vae_latents"].astype(np.float32); scenes = data["scene_names"]; splits = data["splits"]
+    steers = data["steer_norms"].astype(np.float32); accels = data["accel_norms"].astype(np.float32)
+    ipaths = data["image_paths"] if "image_paths" in data else None
+    te = np.where(splits == "test")[0]
+
+    picks = []
+    for sc in np.unique(scenes[te]):
+        idx = te[scenes[te] == sc]
+        for j in range(len(idx)):
+            fi = int(idx[j])
+            need = [fi + 16, fi + 32]
+            if fi + 32 < int(idx[-1]) + 1 and ipaths is not None and all(
+                    n < len(ipaths) and os.path.exists(f"{VOL_PATH}/nuscenes/{ipaths[n]}") for n in need):
+                picks.append(fi); break
+        if len(picks) >= n_windows: break
+    print(f"[rollout] {len(picks)} windows (need t+32 in-scene + RGB)")
+
+    def load(tag):
+        ck = torch.load(CKPT_PATHS[tag], map_location=dev, weights_only=False)
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(dev)
+        fo = FourierActionEmbedding(**FOURIER_CONFIG).to(dev)
+        dit.load_state_dict(ck["dit"]); fo.load_state_dict(ck["fourier"])
+        if "ema" in ck and ck["ema"]:
+            for nm, p in dit.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
+        dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(dev), ck["z_std"].to(dev)
+    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load("diffusion")
+
+    def aseq(fi0):  # real actions a_{fi0 .. fi0+15}
+        return torch.tensor(np.stack([[steers[fi0 + k], accels[fi0 + k]] for k in range(HORIZON)]),
+                            dtype=torch.float32, device=dev).unsqueeze(0)
+    def decode(g): return ((vae.decode(g.clamp(-6, 6) / SCALING).sample.clamp(-1, 1)) + 1) / 2
+    def sharp(img01):
+        gray = img01.mean(1, keepdim=True)
+        ker = torch.tensor([[0,1,0],[1,-4,1],[0,1,0]], dtype=torch.float32, device=dev).view(1,1,3,3)
+        return F.conv2d(gray, ker, padding=1).view(img01.shape[0], -1).var(dim=1)
+    def rgb(n):
+        im = Image.open(f"{VOL_PATH}/nuscenes/{ipaths[n]}").convert("RGB"); w0,h0 = im.size; c = min(w0,h0)
+        im = im.crop(((w0-c)//2,(h0-c)//2,(w0-c)//2+c,(h0-c)//2+c)).resize((256,256))
+        return TF.to_tensor(im).unsqueeze(0).to(dev)
+
+    def predict_full(kind, z_grid, fi0):  # returns (H,4,32,32) predicted latents from z_grid + real actions a_{fi0..}
+        zt = z_grid.unsqueeze(0)
+        if kind == "direct":
+            ztn = (patchify(zt)-dzm)/dzs
+            zr = ztn.unsqueeze(1).expand(-1,HORIZON,-1,-1).reshape(1,HORIZON*N_SPATIAL,PATCH_DIM)
+            t0 = torch.zeros(1,dtype=torch.long,device=dev)
+            tok = (d_dit(zr, ztn, d_fo(aseq(fi0)), t0)*dzs+dzm).reshape(1,HORIZON,N_SPATIAL,PATCH_DIM)[0]
+        else:
+            ztn = (patchify(zt)-gzm)/gzs; a = g_fo(aseq(fi0)); ns=50; st=max(DIFFUSION_STEPS//ns,1)
+            ts = list(reversed(list(range(0,DIFFUSION_STEPS,st))[:ns]))
+            gen = torch.Generator(device=dev).manual_seed(seed); x = torch.randn(1,HORIZON*N_SPATIAL,PATCH_DIM,device=dev,generator=gen)
+            for i,tv in enumerate(ts):
+                t = torch.full((1,),tv,device=dev,dtype=torch.long); px0 = g_dit(x,ztn,a,t)
+                at=alphas[tv]; ap=alphas[ts[i+1]] if i<len(ts)-1 else torch.tensor(1.0,device=dev)
+                nd=(x-torch.sqrt(at)*px0)/torch.sqrt(1-at+1e-8); x=torch.sqrt(ap)*px0+torch.sqrt(1-ap)*nd
+            tok = (x*gzs+gzm).reshape(1,HORIZON,N_SPATIAL,PATCH_DIM)[0]
+        return torch.stack([unpatchify(tok[k:k+1])[0] for k in range(HORIZON)], 0)  # (H,4,32,32)
+
+    res = {"n_windows": len(picks), "chunks": ["t+16", "t+32"], "models": {}}
+    for kind in ["direct", "diffusion"]:
+        fid16 = FrechetInceptionDistance(normalize=True).to(dev); fid32 = FrechetInceptionDistance(normalize=True).to(dev)
+        cs = {"t+16": [], "t+32": []}; sh = {"t+16": [], "t+32": []}
+        with torch.no_grad():
+            for fi in picks:
+                zt = torch.tensor(lat[fi], device=dev)
+                ch1 = predict_full(kind, zt, fi)                 # z_{t+1..t+16}, actions a_{fi..fi+15}
+                z16 = ch1[15]
+                ch2 = predict_full(kind, z16, fi + 16)           # z_{t+17..t+32}, REAL actions a_{fi+16..fi+31}
+                z32 = ch2[15]
+                for tag, zp, gt_n in [("t+16", z16, fi+16), ("t+32", z32, fi+32)]:
+                    img = decode(zp.unsqueeze(0)).clamp(0,1); real = rgb(gt_n)
+                    (fid16 if tag=="t+16" else fid32).update(real, real=True)
+                    (fid16 if tag=="t+16" else fid32).update(img, real=False)
+                    gt = torch.tensor(lat[gt_n], device=dev)
+                    cs[tag].append(F.cosine_similarity(patchify(zp.unsqueeze(0)), patchify(gt.unsqueeze(0)), dim=-1).mean().item())
+                    sh[tag].append(sharp(img).item())
+        res["models"][kind] = {
+            "fid": {"t+16": round(float(fid16.compute()),2), "t+32": round(float(fid32.compute()),2)},
+            "cossim": {t: round(float(np.mean(cs[t])),4) for t in cs},
+            "sharpness": {t: round(float(np.mean(sh[t])),4) for t in sh}}
+        m = res["models"][kind]
+        print(f"[rollout] {kind}: FID t+16={m['fid']['t+16']} t+32={m['fid']['t+32']} | CosSim {m['cossim']} | sharp {m['sharpness']}")
+    with open(f"{OUT_DIR}/rollout_eval.json", "w") as f: json.dump(res, f, indent=2)
+    vol.commit(); print(json.dumps(res, indent=2)); return res
+
+
+@_decorator
 def framerate_preflight(n_windows: int = 600, k_nn: int = 12, seed: int = 0):
     """P3 (data-only): does conditional multimodality grow at lower effective frame rate?
     TRUE within-horizon temporal subsampling on VAE latents: future = z_{t+s}, z_{t+2s}, ..., z_{t+H*s}
@@ -1101,6 +1214,14 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2))
         print(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "rollout":
+        res = rollout_eval.remote(n_windows)
+        out = Path("artifacts/full/rollout_eval.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/rollout_eval.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "framerate":
         res = framerate_preflight.remote(n_windows)
