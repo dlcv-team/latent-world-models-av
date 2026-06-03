@@ -344,6 +344,8 @@ def train_and_eval(
     cfg_dropout: float = 0.0,
     skip_eval: bool = False,
     n_blocks: int = 4,
+    cond_aug_sigma: float = 0.0,
+    init_ckpt: str = "",
 ):
     import numpy as np
     import torch
@@ -565,6 +567,15 @@ def train_and_eval(
         print(f"  DiT params: {n_dit:,}")
         opt = torch.optim.Adam(list(dit.parameters()) + list(fourier.parameters()), lr=TRAIN_LR)
         ema = {n: p.data.clone() for n, p in list(dit.named_parameters()) + list(fourier.named_parameters())}
+        if init_ckpt:  # P6 EMA warm-start: load EMA weights into params AND re-seed the new EMA buffer from them
+            ick = torch.load(init_ckpt, map_location=device, weights_only=False)
+            src = ick.get("ema") or {}
+            nload = 0
+            for nm, p in list(dit.named_parameters()) + list(fourier.named_parameters()):
+                if nm in src:
+                    p.data.copy_(src[nm].to(device)); nload += 1
+            ema = {n: p.data.clone() for n, p in list(dit.named_parameters()) + list(fourier.named_parameters())}
+            print(f"  [warm-start] loaded {nload} EMA tensors from {init_ckpt}; re-seeded EMA buffer")
         epoch_losses = []
         for epoch in range(epochs):
             dit.train()
@@ -576,6 +587,12 @@ def train_and_eval(
                 idx = perm[start:end]
                 B = len(idx)
                 z_t_b = norm_patches(z_t_train[idx].to(device))
+                if cond_aug_sigma > 0:  # P6 conditioning augmentation: robustness to imperfect (rolled-back) z_t
+                    s = cond_aug_sigma * torch.rand(B, 1, 1, device=device)
+                    if epoch == 0 and nb == 0:
+                        print(f"  [cond-aug] sigma_max={cond_aug_sigma} mean_s={float(s.mean()):.4f} "
+                              f"z_t_b.std={float(z_t_b.std()):.4f} (injected noise std≈mean_s)")
+                    z_t_b = z_t_b + s * torch.randn_like(z_t_b)
                 act_b = act_train[idx].to(device)
                 zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
                 zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
@@ -715,7 +732,8 @@ def train_and_eval(
 
             if not smoke:
                 nb_suffix = "" if n_blocks == 4 else f"_nb{n_blocks}"
-                ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}{nb_suffix}"
+                ra_suffix = "_rollaug" if cond_aug_sigma > 0 else ""
+                ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}{nb_suffix}{ra_suffix}"
                 os.makedirs(ckpt_dir, exist_ok=True)
                 torch.save({
                     "dit": dit.state_dict(),
@@ -725,6 +743,8 @@ def train_and_eval(
                     "z_std": z_std.cpu(),
                     "mode": "diffusion",
                     "cfg_dropout": cfg_dropout,
+                    "cond_aug_sigma": cond_aug_sigma,
+                    "init_ckpt": init_ckpt,
                     "n_blocks": n_blocks,
                     "n_params": n_dit,
                 }, f"{ckpt_dir}/dit.pt")
@@ -903,12 +923,15 @@ def main(
     cfg_dropout: float = 0.0,
     skip_eval: bool = False,
     n_blocks: int = 4,
+    cond_aug_sigma: float = 0.0,
+    init_ckpt: str = "",
 ):
     t0 = time.time()
     print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} "
           f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout} skip_eval={skip_eval} n_blocks={n_blocks}")
     result = train_and_eval.remote(
         seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout, skip_eval, n_blocks,
+        cond_aug_sigma, init_ckpt,
     )
     print(json.dumps(result, indent=2))
     if mode == "diffusion":

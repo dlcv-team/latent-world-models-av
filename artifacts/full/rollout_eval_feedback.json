@@ -1,0 +1,74 @@
+{
+  "n_windows": 120,
+  "chunks": [
+    "t+16",
+    "t+32"
+  ],
+  "diffusion_ckpt": "diffusion",
+  "feedback_modes": [
+    "raw",
+    "vae_reproject"
+  ],
+  "cells": {
+    "direct_raw": {
+      "fid": {
+        "t+16": 373.32,
+        "t+32": 409.02
+      },
+      "dFID_t32_minus_t16": 35.7,
+      "cossim": {
+        "t+16": 0.46,
+        "t+32": 0.4107
+      },
+      "sharpness": {
+        "t+16": 0.0051,
+        "t+32": 0.0053
+      }
+    },
+    "direct_vae_reproject": {
+      "fid": {
+        "t+16": 373.32,
+        "t+32": 391.33
+      },
+      "dFID_t32_minus_t16": 18.01,
+      "cossim": {
+        "t+16": 0.46,
+        "t+32": 0.4088
+      },
+      "sharpness": {
+        "t+16": 0.0051,
+        "t+32": 0.0052
+      }
+    },
+    "diffusion_raw": {
+      "fid": {
+        "t+16": 345.22,
+        "t+32": 442.91
+      },
+      "dFID_t32_minus_t16": 97.69,
+      "cossim": {
+        "t+16": 0.2457,
+        "t+32": 0.1492
+      },
+      "sharpness": {
+        "t+16": 0.0213,
+        "t+32": 0.0269
+      }
+    },
+    "diffusion_vae_reproject": {
+      "fid": {
+        "t+16": 345.22,
+        "t+32": 451.51
+      },
+      "dFID_t32_minus_t16": 106.29,
+      "cossim": {
+        "t+16": 0.2457,
+        "t+32": 0.1445
+      },
+      "sharpness": {
+        "t+16": 0.0213,
+        "t+32": 0.0257
+      }
+    }
+  }
+}
