@@ -1,0 +1,43 @@
+{
+  "n_windows": 120,
+  "chunks": [
+    "t+16",
+    "t+32"
+  ],
+  "diffusion_ckpt": "/vol/dits/vae_latent/diffusion/h16/seed_0_rollaug/dit.pt",
+  "feedback_modes": [
+    "raw"
+  ],
+  "cells": {
+    "direct_raw": {
+      "fid": {
+        "t+16": 373.32,
+        "t+32": 409.02
+      },
+      "dFID_t32_minus_t16": 35.7,
+      "cossim": {
+        "t+16": 0.46,
+        "t+32": 0.4107
+      },
+      "sharpness": {
+        "t+16": 0.0051,
+        "t+32": 0.0053
+      }
+    },
+    "diffusion_raw": {
+      "fid": {
+        "t+16": 345.87,
+        "t+32": 443.15
+      },
+      "dFID_t32_minus_t16": 97.28,
+      "cossim": {
+        "t+16": 0.2441,
+        "t+32": 0.1476
+      },
+      "sharpness": {
+        "t+16": 0.0218,
+        "t+32": 0.0275
+      }
+    }
+  }
+}
