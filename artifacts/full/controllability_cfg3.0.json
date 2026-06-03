@@ -1,0 +1,24 @@
+{
+  "n_scenes": 40,
+  "horizon_step": 15,
+  "cfg_w": 3.0,
+  "steer_sweep": [
+    -0.2853,
+    -0.1604,
+    -0.0355,
+    0.0895,
+    0.2144
+  ],
+  "train_p5": -0.2853,
+  "train_p95": 0.2144,
+  "direct": {
+    "mean_spearman_steer_to_shift": -0.1806,
+    "n_valid": 39,
+    "frac_monotone_correct": 0.359
+  },
+  "diffusion": {
+    "mean_spearman_steer_to_shift": 0.4632,
+    "n_valid": 39,
+    "frac_monotone_correct": 0.821
+  }
+}
