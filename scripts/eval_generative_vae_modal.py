@@ -795,6 +795,151 @@ def motion_eval(n_windows: int = 200, seed: int = 0):
 
 
 @_decorator
+def motion_fidelity(n_scenes: int = 40, seed: int = 0):
+    """MOTION-FIDELITY DIAGNOSTIC (gates 'forward motion' / 'Scene Prediction' claims).
+    Decodes ALL 16 predicted steps and separates COHERENT scene motion (low-freq) from TEXTURE churn (high-freq),
+    which the legacy total-L2 'temporal change' metric conflated. Reports, for GT/direct/diffusion:
+      (1) low- vs high-freq consecutive-frame L2; primary = diffusion low-freq change / GT low-freq change;
+      (2) per-step H+V profile displacement vs GT (APPROX image-motion proxy, not ego-motion): magnitude ratio +
+          direction-correlation; (3) predicted-residual growth ||z_pred_k - z_present|| vs GT (flat=>static/anchor).
+    Stratified over all scenes AND the top-quartile GT-motion subset; decode-artifact proxy flagged separately;
+    legacy total-L2 recomputed on the 16-step protocol for an apples-to-apples 'inflated by X' statement."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    import torchvision.transforms.functional as TF
+    from diffusers import AutoencoderKL
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    device = torch.device("cuda")
+    schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device); alphas = schedule.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device).eval()
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    latents = data["vae_latents"].astype(np.float32)
+    scenes, splits = data["scene_names"], data["splits"]
+    steers, accels = data["steer_norms"].astype(np.float32), data["accel_norms"].astype(np.float32)
+    test_idx = np.where(splits == "test")[0]
+    picks = []
+    for sc in np.unique(scenes[test_idx]):
+        idx = test_idx[scenes[test_idx] == sc]
+        if len(idx) > HORIZON: picks.append(int(idx[0]))
+        if len(picks) >= n_scenes: break
+
+    def load(tag):
+        ck = torch.load(CKPT_PATHS.get(tag, tag), map_location=device, weights_only=False)
+        nb = int(ck.get("n_blocks", DIT_CONFIG["n_blocks"]))
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **{**DIT_CONFIG, "n_blocks": nb}).to(device)
+        fo = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
+        dit.load_state_dict(ck["dit"]); fo.load_state_dict(ck["fourier"])
+        if "ema" in ck and ck["ema"]:
+            for nm, p in dit.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+            for nm, p in fo.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
+        dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(device), ck["z_std"].to(device)
+    g_dit, g_fou, gzm, gzs = load("diffusion"); d_dit, d_fou, dzm, dzs = load("direct")
+
+    BLUR_KS, BLUR_SIGMA = 31, 8.0
+    def decode(grid): return ((vae.decode(grid.clamp(-6, 6) / SCALING).sample.clamp(-1, 1)) + 1) / 2
+    def lowhigh(img):  # (1,3,256,256) -> (low, high)
+        low = TF.gaussian_blur(img, BLUR_KS, [BLUR_SIGMA, BLUR_SIGMA]); return low, img - low
+    def rms(a): return float(a.pow(2).mean().sqrt().item())
+    def seq_lowhigh(frames):  # mean consecutive low/high L2
+        lows = [lowhigh(f)[0] for f in frames]; highs = [frames[i] - lows[i] for i in range(len(frames))]
+        lo = float(np.mean([rms(lows[i+1]-lows[i]) for i in range(len(frames)-1)]))
+        hi = float(np.mean([rms(highs[i+1]-highs[i]) for i in range(len(frames)-1)]))
+        return lo, hi
+    def hprof(img): return img[0].mean(dim=(0, 1)).detach().cpu().numpy()  # horizontal (256,)
+    def vprof(img): return img[0].mean(dim=(0, 2)).detach().cpu().numpy()  # vertical (256,)
+    def sh(p, ref):
+        a = p - p.mean(); b = ref - ref.mean(); cc = np.correlate(a, b, "full"); return int(cc.argmax() - (len(p) - 1))
+    def disp_seq(frames):  # per-step (dx,dy) via H+V profile cross-corr
+        return [(sh(hprof(frames[i+1]), hprof(frames[i])), sh(vprof(frames[i+1]), vprof(frames[i])))
+                for i in range(len(frames) - 1)]
+    def legacy_tot(frames): return float(np.mean([rms(frames[i+1]-frames[i]) for i in range(len(frames)-1)]))
+
+    rec = []  # per-scene records
+    with torch.no_grad():
+        for fi in picks:
+            z_t = torch.tensor(latents[fi:fi + 1], device=device)
+            act = torch.stack([torch.tensor([steers[fi + kk], accels[fi + kk]], device=device)
+                               for kk in range(HORIZON)]).unsqueeze(0)
+            zf = torch.tensor(latents[fi + 1:fi + 1 + HORIZON], device=device).unsqueeze(0)  # (1,H,4,32,32)
+            ztn = (patchify(z_t) - dzm) / dzs
+            zr = ztn.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(1, HORIZON * N_SPATIAL, PATCH_DIM)
+            dp = (d_dit(zr, ztn, d_fou(act), torch.zeros(1, dtype=torch.long, device=device)) * dzs + dzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+            ztng = (patchify(z_t) - gzm) / gzs; a_c = g_fou(act)
+            ns = 50; stride = max(DIFFUSION_STEPS // ns, 1); ts = list(reversed(list(range(0, DIFFUSION_STEPS, stride))[:ns]))
+            gen = torch.Generator(device=device).manual_seed(seed)
+            x = torch.randn(1, HORIZON * N_SPATIAL, PATCH_DIM, device=device, generator=gen)
+            for i, tv in enumerate(ts):
+                t = torch.full((1,), tv, device=device, dtype=torch.long); px0 = g_dit(x, ztng, a_c, t)
+                at = alphas[tv]; ap = alphas[ts[i + 1]] if i < len(ts) - 1 else torch.tensor(1.0, device=device)
+                nd = (x - torch.sqrt(at) * px0) / torch.sqrt(1 - at + 1e-8); x = torch.sqrt(ap) * px0 + torch.sqrt(1 - ap) * nd
+            gp = (x * gzs + gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+            gtf = [decode(zf[:, k]) for k in range(HORIZON)]
+            df = [decode(unpatchify(dp[:, k])) for k in range(HORIZON)]
+            gf = [decode(unpatchify(gp[:, k])) for k in range(HORIZON)]
+            gt_lo, gt_hi = seq_lowhigh(gtf); d_lo, d_hi = seq_lowhigh(df); g_lo, g_hi = seq_lowhigh(gf)
+            # residual growth (raw-latent RMS from present); endpoint t+15
+            res_gt = rms(zf[:, HORIZON-1] - z_t); res_d = rms(unpatchify(dp[:, HORIZON-1]) - z_t); res_g = rms(unpatchify(gp[:, HORIZON-1]) - z_t)
+            rec.append(dict(gt_lo=gt_lo, gt_hi=gt_hi, d_lo=d_lo, d_hi=d_hi, g_lo=g_lo, g_hi=g_hi,
+                            gt_disp=disp_seq(gtf), d_disp=disp_seq(df), g_disp=disp_seq(gf),
+                            res_gt=res_gt, res_d=res_d, res_g=res_g,
+                            gt_tot=legacy_tot(gtf), d_tot=legacy_tot(df), g_tot=legacy_tot(gf),
+                            artifact=rms(lowhigh(gf[0])[0] - lowhigh(gtf[0])[0])))  # low-freq mismatch diff vs GT @t+1
+    rec = [r for r in rec if r["gt_lo"] > 0]
+
+    def dir_corr(pred, gt):  # mean cos of per-step 2-D displacement, over steps with GT motion
+        cs = []
+        for (px, py), (gx, gy) in zip(pred, gt):
+            ng = (gx*gx + gy*gy) ** 0.5; npred = (px*px + py*py) ** 0.5
+            if ng > 0 and npred > 0: cs.append((px*gx + py*gy) / (ng * npred))
+        return float(np.mean(cs)) if cs else 0.0
+    def disp_mag(seq): return float(np.mean([(dx*dx + dy*dy) ** 0.5 for dx, dy in seq]))
+
+    def agg(rs):
+        gt_lo = np.mean([r["gt_lo"] for r in rs]); gt_hi = np.mean([r["gt_hi"] for r in rs])
+        out = {"n": len(rs), "gt": {"low": round(gt_lo, 4), "high": round(gt_hi, 4)}}
+        for key, dl, dh, dd, dr, dt in [("direct", "d_lo", "d_hi", "d_disp", "res_d", "d_tot"),
+                                        ("diffusion", "g_lo", "g_hi", "g_disp", "res_g", "g_tot")]:
+            lo = np.mean([r[dl] for r in rs]); hi = np.mean([r[dh] for r in rs])
+            gtmag = np.mean([disp_mag(r["gt_disp"]) for r in rs]); pmag = np.mean([disp_mag(r[dd]) for r in rs])
+            out[key] = {"low": round(float(lo), 4), "high": round(float(hi), 4),
+                        "lowfreq_frac_of_gt": round(float(lo / (gt_lo + 1e-9)), 3),
+                        "highfreq_frac_of_gt": round(float(hi / (gt_hi + 1e-9)), 3),
+                        "disp_mag_frac_of_gt": round(float(pmag / (gtmag + 1e-9)), 3),
+                        "disp_dir_corr_vs_gt": round(float(np.mean([dir_corr(r[dd], r["gt_disp"]) for r in rs])), 3),
+                        "residual_t15": round(float(np.mean([r[dr] for r in rs])), 4),
+                        "legacy_total_frac_of_gt": round(float(np.mean([r[dt] for r in rs]) / (np.mean([r["gt_tot"] for r in rs]) + 1e-9)), 3)}
+        out["gt_residual_t15"] = round(float(np.mean([r["res_gt"] for r in rs])), 4)
+        return out
+
+    order = sorted(rec, key=lambda r: r["gt_lo"], reverse=True)
+    topq = order[:max(1, len(order) // 4)]
+    art_thr = float(np.percentile([r["artifact"] for r in rec], 75))
+    res = {"n_scenes": len(rec), "blur_kernel": BLUR_KS, "blur_sigma": BLUR_SIGMA, "steps": "all 16 (t+1..t+16)",
+           "all_scenes": agg(rec), "high_motion_quartile": agg(topq),
+           "artifact_flag": {"proxy": "low-freq L2(diffusion,GT) @t+1", "p75": round(art_thr, 4),
+                             "n_flagged_gt_p75": int(sum(r["artifact"] > art_thr for r in rec))},
+           "note": "low-freq=coherent scene motion; high-freq=texture. legacy_total recomputed on 16-step grid."}
+    print(f"[motion_fid] ALL: diffusion lowfreq_frac_gt={res['all_scenes']['diffusion']['lowfreq_frac_of_gt']} "
+          f"dir_corr={res['all_scenes']['diffusion']['disp_dir_corr_vs_gt']} "
+          f"legacy_total_frac={res['all_scenes']['diffusion']['legacy_total_frac_of_gt']} | "
+          f"residual t15 diff={res['all_scenes']['diffusion']['residual_t15']} gt={res['all_scenes']['gt_residual_t15']}")
+    print(f"[motion_fid] HIGH-MOTION Q: diffusion lowfreq_frac_gt={res['high_motion_quartile']['diffusion']['lowfreq_frac_of_gt']} "
+          f"dir_corr={res['high_motion_quartile']['diffusion']['disp_dir_corr_vs_gt']}")
+    with open(f"{OUT_DIR}/motion_fidelity.json", "w") as f: json.dump(res, f, indent=2)
+    vol.commit(); print(json.dumps(res, indent=2)); return res
+
+
+@_decorator
 def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 200, seed: int = 0,
                   diffusion_ckpt: str = "diffusion"):
     """A1+B1: empirical distortion–perception curve over real operating points + a DEPLOYABLE
@@ -1421,6 +1566,14 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
             out = Path("code/latent-world-models-av/artifacts/full/motion_eval.json")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2)); print(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "motion_fidelity":
+        res = motion_fidelity.remote(n_windows)
+        out = Path("artifacts/full/motion_fidelity.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/motion_fidelity.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "fid":
         res = fid_eval.remote(n_windows, steps_eval, cfg_w, 0, diffusion_ckpt, wps)
