@@ -1024,6 +1024,63 @@ def controllability(n_scenes: int = 40, horizon_step: int = 15, seed: int = 0):
     vol.commit(); print(json.dumps(out, indent=2)); return out
 
 
+@_decorator
+def framerate_preflight(n_windows: int = 600, k_nn: int = 12, seed: int = 0):
+    """P3 (data-only): does conditional multimodality grow at lower effective frame rate?
+    TRUE within-horizon temporal subsampling on VAE latents: future = z_{t+s}, z_{t+2s}, ..., z_{t+H*s}
+    for stride s in {1,2,4} (H=16 -> spans 16/32/64 keyframes ≈ 8/16/32 s). Scene-controlled spread of the
+    farthest future z_{t+H*s} among pooled-z_t nearest-neighbors. Gate: spread(s=4)/spread(s=1) > 1.2×."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+
+    dev = torch.device("cuda")
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    lat = data["vae_latents"].astype(np.float32); scenes = data["scene_names"]; splits = data["splits"]
+    steers = data["steer_norms"].astype(np.float32)
+    te = np.where(splits == "test")[0]
+    rng = np.random.default_rng(seed)
+
+    def l2n(x): return x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-8)
+    out = {"strides": {}, "k_nn": k_nn}
+    for s in [1, 2, 4]:
+        z_t, z_last, steer_std = [], [], []
+        for sc in np.unique(scenes[te]):
+            idx = te[scenes[te] == sc]
+            for j in range(len(idx)):
+                fut = idx[j + s: j + s * (HORIZON + 1): s]   # within-horizon subsample (the fix)
+                if len(fut) < HORIZON: break
+                z_t.append(lat[idx[j]]); z_last.append(lat[fut[-1]])
+                steer_std.append(float(steers[fut].std()))
+        if len(z_t) < 100:
+            print(f"[framerate] stride={s}: too few windows ({len(z_t)}), skip"); continue
+        zt = np.stack(z_t).reshape(len(z_t), -1); zl = np.stack(z_last).reshape(len(z_last), -1)
+        ss = np.array(steer_std)
+        if n_windows and len(zt) > n_windows:
+            sel = rng.choice(len(zt), n_windows, replace=False); zt, zl, ss = zt[sel], zl[sel], ss[sel]
+        pool = torch.tensor(l2n(zt), device=dev); fut = torch.tensor(l2n(zl), device=dev)
+        hv = np.where(ss >= np.quantile(ss, 0.75))[0]
+        sims = pool[hv] @ pool.T
+        spreads, copies = [], []
+        for r, a in enumerate(hv):
+            row = sims[r].clone(); row[a] = -2
+            nn = torch.topk(row, k_nn).indices
+            spreads.append((1 - (fut[nn] @ fut[a])).mean().item())          # future spread among scene-NN
+            copies.append((1 - F.cosine_similarity(pool[a:a+1], fut[a:a+1])).item())  # 1-cos(z_t,z_last) proxy
+        out["strides"][str(s)] = {"seconds_ahead": round(HORIZON * s * 0.5, 1), "n_windows": len(zt),
+                                  "n_hv": len(hv), "sigma_scene_future": round(float(np.mean(spreads)), 4),
+                                  "copy_1_minus_cos": round(float(np.mean(copies)), 4)}
+        print(f"[framerate] s={s} ({out['strides'][str(s)]['seconds_ahead']}s): "
+              f"sigma_scene_future={out['strides'][str(s)]['sigma_scene_future']} "
+              f"copy(1-cos)={out['strides'][str(s)]['copy_1_minus_cos']}")
+    if "1" in out["strides"] and "4" in out["strides"]:
+        r = out["strides"]["4"]["sigma_scene_future"] / (out["strides"]["1"]["sigma_scene_future"] + 1e-9)
+        out["spread_ratio_s4_over_s1"] = round(r, 3); out["gate_pass_emerging"] = bool(r > 1.2)
+        print(f"[framerate] spread ratio s4/s1 = {r:.3f} -> emerging={out['gate_pass_emerging']}")
+    with open(f"{OUT_DIR}/framerate_preflight.json", "w") as f: json.dump(out, f, indent=2)
+    vol.commit(); print(json.dumps(out, indent=2)); return out
+
+
 def _entry(fn):
     return app.local_entrypoint()(fn) if app is not None else fn
 
@@ -1044,6 +1101,14 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2))
         print(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "framerate":
+        res = framerate_preflight.remote(n_windows)
+        out = Path("artifacts/full/framerate_preflight.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/framerate_preflight.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "controllability":
         res = controllability.remote(n_windows)
