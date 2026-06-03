@@ -22,10 +22,16 @@ EMBEDDINGS_REPO = "surlac/lwm-av-embeddings"
 UPLOADS = [
     (f"{VOL_PATH}/dits/vae_latent/diffusion/h16/seed_0/dit.pt",
      CHECKPOINTS_REPO, "vae_latent/diffusion_cfg0.1/h16/seed_0/dit.pt", "model"),
+    (f"{VOL_PATH}/dits/vae_latent/diffusion/h16/seed_1/dit.pt",
+     CHECKPOINTS_REPO, "vae_latent/diffusion_cfg0.1/h16/seed_1/dit.pt", "model"),
+    (f"{VOL_PATH}/dits/vae_latent/diffusion/h16/seed_2/dit.pt",
+     CHECKPOINTS_REPO, "vae_latent/diffusion_cfg0.1/h16/seed_2/dit.pt", "model"),
     (f"{VOL_PATH}/embeddings/spatial/gen_eval/vae_4row_demo.pdf",
      EMBEDDINGS_REPO, "gen_eval/vae_4row_demo.pdf", "dataset"),
-    (f"{VOL_PATH}/embeddings/spatial/gen_eval/metrics_direct_diffusion.json",
-     EMBEDDINGS_REPO, "gen_eval/metrics_direct_diffusion.json", "dataset"),
+    (f"{VOL_PATH}/embeddings/spatial/gen_eval/fid_eval_diffusion.json",
+     EMBEDDINGS_REPO, "gen_eval/fid_eval_full600.json", "dataset"),
+    (f"{VOL_PATH}/embeddings/spatial/gen_eval/motion_eval.json",
+     EMBEDDINGS_REPO, "gen_eval/motion_eval.json", "dataset"),
 ]
 
 if modal is not None:
