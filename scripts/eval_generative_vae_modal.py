@@ -934,10 +934,12 @@ def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 2
 
 
 @_decorator
-def controllability(n_scenes: int = 40, horizon_step: int = 15, seed: int = 0):
+def controllability(n_scenes: int = 40, horizon_step: int = 15, seed: int = 0, cfg_w: float = 1.0):
     """A2: does the generated future move WITH the conditioned steering? In-distribution steer
     sweep (train 5th/95th pct), fixed noise + scene; measure horizontal scene shift (1-D profile
-    cross-correlation) vs the median-steer prediction; Spearman(steer, shift), diffusion vs direct."""
+    cross-correlation) vs the median-steer prediction; Spearman(steer, shift), diffusion vs direct.
+    P4: cfg_w>1 applies classifier-free guidance in the diffusion sampler (uncond = zeroed action
+    embedding, matching training force_zero) so we can trace rho(steer->shift) vs guidance scale."""
     import numpy as np
     import torch
     from scipy.stats import spearmanr
@@ -1004,12 +1006,15 @@ def controllability(n_scenes: int = 40, horizon_step: int = 15, seed: int = 0):
             x = torch.randn(1, HORIZON*N_SPATIAL, PATCH_DIM, device=dev, generator=gen)
             for i, tv in enumerate(ts):
                 t = torch.full((1,), tv, device=dev, dtype=torch.long); px0 = g_dit(x, ztn, a, t)
+                if cfg_w != 1.0:
+                    pu = g_dit(x, ztn, torch.zeros_like(a), t); px0 = pu + cfg_w * (px0 - pu)
                 at = alphas[tv]; ap = alphas[ts[i+1]] if i < len(ts)-1 else torch.tensor(1.0, device=dev)
                 nd = (x - torch.sqrt(at)*px0)/torch.sqrt(1-at+1e-8); x = torch.sqrt(ap)*px0 + torch.sqrt(1-ap)*nd
             gl = unpatchify((x*gzs+gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)[:, h])
         return decode(gl)
 
-    out = {"n_scenes": len(picks), "horizon_step": h, "steer_sweep": [round(x,4) for x in sweep.tolist()],
+    out = {"n_scenes": len(picks), "horizon_step": h, "cfg_w": cfg_w,
+           "steer_sweep": [round(x,4) for x in sweep.tolist()],
            "train_p5": round(p5,4), "train_p95": round(p95,4)}
     with torch.no_grad():
         for kind in ["direct", "diffusion"]:
@@ -1025,7 +1030,135 @@ def controllability(n_scenes: int = 40, horizon_step: int = 15, seed: int = 0):
                          "frac_monotone_correct": round(float(np.mean([r > 0 for r in rhos])),3) if rhos else None}
             print(f"[ctrl] {kind}: mean Spearman(steer,shift)={out[kind]['mean_spearman_steer_to_shift']} "
                   f"(n={out[kind]['n_valid']}, frac_positive={out[kind]['frac_monotone_correct']})")
-    with open(f"{OUT_DIR}/controllability.json", "w") as f: json.dump(out, f, indent=2)
+    ctag = "" if cfg_w == 1.0 else f"_cfg{cfg_w}"
+    with open(f"{OUT_DIR}/controllability{ctag}.json", "w") as f: json.dump(out, f, indent=2)
+    vol.commit(); print(json.dumps(out, indent=2)); return out
+
+
+@_decorator
+def planning_probe(n_scenes: int = 30, horizon_step: int = 15, seed: int = 0):
+    """P5 (Future Work; NON-CIRCULAR): inverse-control / planning-primitive diagnostic.
+    (a) Inverse-control on HELD-OUT targets: build a steer->shift grid (noise seed A); targets are the
+        shifts at interpolated steers s* NOT in the grid, generated with a DIFFERENT noise seed B; invert
+        the grid (linear fit) to pick s_hat; selection MAE=|s_hat-s*|. Run for diffusion AND direct on the
+        SAME scenes -- the CONTRAST (invertible for the monotone diffusion model, ~chance for direct) is the
+        non-circular signal; held-out s* + cross-seed target prevent the 'recover-what-you-put-in' tautology.
+    NOTE: we measure inverse-control on the model's OWN counterfactual shifts, NOT pixel-fidelity to a single
+    logged future. A 'reproduce-the-exact-GT-future' metric is ill-posed for a diffusion world model whose
+    value is DISTRIBUTIONAL realism (CosSim~0.26 by design), not per-pixel MSE to one future -- it would favor
+    the blurry conditional mean (the same perception-distortion trap). Preliminary (N=n_scenes); a planning
+    PRIMITIVE diagnostic, not closed-loop planning accuracy."""
+    import numpy as np
+    import torch
+    from scipy.stats import spearmanr
+    from diffusers import AutoencoderKL
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    dev = torch.device("cuda"); h = horizon_step
+    sch = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(dev); alphas = sch.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
+    os.makedirs(OUT_DIR, exist_ok=True)
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    lat = data["vae_latents"].astype(np.float32); scenes = data["scene_names"]; splits = data["splits"]
+    steers = data["steer_norms"].astype(np.float32); accels = data["accel_norms"].astype(np.float32)
+
+    tr = np.where(splits == "train")[0]
+    p5, p95 = float(np.percentile(steers[tr], 5)), float(np.percentile(steers[tr], 95))
+    grid = np.linspace(p5, p95, 5)                  # the steer grid used to build the inversion map
+    targets = (grid[:-1] + grid[1:]) / 2.0          # HELD-OUT interpolated steers (midpoints), 4 values
+    rng = np.random.default_rng(seed)
+    chance_mae = float(np.mean([np.mean(np.abs(rng.uniform(p5, p95, 4000) - s)) for s in targets]))  # random-pick baseline
+    print(f"[plan] grid={[round(x,3) for x in grid]} held-out targets={[round(x,3) for x in targets]} chance_MAE={chance_mae:.3f}")
+
+    te = np.where(splits == "test")[0]; picks = []
+    for sc in np.unique(scenes[te]):
+        idx = te[scenes[te] == sc]
+        if len(idx) > HORIZON: picks.append(int(idx[0]))
+        if len(picks) >= n_scenes: break
+
+    def load(tag):
+        ck = torch.load(CKPT_PATHS[tag], map_location=dev, weights_only=False)
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(dev)
+        fo = FourierActionEmbedding(**FOURIER_CONFIG).to(dev)
+        dit.load_state_dict(ck["dit"]); fo.load_state_dict(ck["fourier"])
+        if "ema" in ck and ck["ema"]:
+            for nm, p in dit.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
+        dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(dev), ck["z_std"].to(dev)
+    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load("diffusion")
+    MODELS = {"direct": (d_dit, d_fo, dzm, dzs), "diffusion": (g_dit, g_fo, gzm, gzs)}
+
+    def decode(g): return ((vae.decode(g.clamp(-6,6)/SCALING).sample.clamp(-1,1))+1)/2
+    def hprofile(img): return img[0].mean(dim=(0,1)).detach().cpu().numpy()
+    def hshift(prof, ref):
+        a = prof - prof.mean(); b = ref - ref.mean()
+        cc = np.correlate(a, b, mode="full"); return int(cc.argmax() - (len(prof)-1))
+
+    def seq_const(fi, steer_val):   # constant-steer sequence (real per-step accel)
+        a = np.stack([[steer_val, accels[fi+k]] for k in range(HORIZON)])
+        return torch.tensor(a, dtype=torch.float32, device=dev).unsqueeze(0)
+
+    def predict(kind, fi, act_t, noise_seed):
+        dit, fo, zm, zs = MODELS[kind]
+        zt = torch.tensor(lat[fi:fi+1], device=dev); ztn = (patchify(zt)-zm)/zs; a = fo(act_t)
+        if kind == "direct":
+            zr = ztn.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(1, HORIZON*N_SPATIAL, PATCH_DIM)
+            t0 = torch.zeros(1, dtype=torch.long, device=dev)
+            gl = unpatchify((dit(zr, ztn, a, t0)*zs+zm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)[:, h])
+        else:
+            ns = 50; st = max(DIFFUSION_STEPS//ns, 1); ts = list(reversed(list(range(0, DIFFUSION_STEPS, st))[:ns]))
+            gen = torch.Generator(device=dev).manual_seed(noise_seed)
+            x = torch.randn(1, HORIZON*N_SPATIAL, PATCH_DIM, device=dev, generator=gen)
+            for i, tv in enumerate(ts):
+                t = torch.full((1,), tv, device=dev, dtype=torch.long); px0 = dit(x, ztn, a, t)
+                at = alphas[tv]; ap = alphas[ts[i+1]] if i < len(ts)-1 else torch.tensor(1.0, device=dev)
+                nd = (x - torch.sqrt(at)*px0)/torch.sqrt(1-at+1e-8); x = torch.sqrt(ap)*px0 + torch.sqrt(1-ap)*nd
+            gl = unpatchify((x*gzs+gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)[:, h])
+        return decode(gl)
+
+    out = {"n_scenes": len(picks), "horizon_step": h,
+           "steer_grid": [round(x,4) for x in grid.tolist()],
+           "heldout_targets": [round(x,4) for x in targets.tolist()],
+           "inverse_control_chance_mae": round(chance_mae,4),
+           "note": "PRELIMINARY Future-Work probe; planning-primitive diagnostic, not closed-loop planning."}
+    with torch.no_grad():
+        for kind in ["direct", "diffusion"]:
+            inv_maes, inv_r2s, inv_rhos = [], [], []
+            for fi in picks:
+                # --- (a) inverse-control on held-out targets ---
+                ref = hprofile(predict(kind, fi, seq_const(fi, float(grid[len(grid)//2])), seed))  # grid ref, seed A
+                gshift = np.array([hshift(hprofile(predict(kind, fi, seq_const(fi, float(s)), seed)), ref) for s in grid], float)
+                if np.std(gshift) > 0:
+                    rho, _ = spearmanr(grid, gshift); inv_rhos.append(rho)
+                    A = np.vstack([grid, np.ones_like(grid)]).T
+                    slope, intercept = np.linalg.lstsq(A, gshift, rcond=None)[0]
+                    pred = slope*grid + intercept; ss_res = np.sum((gshift-pred)**2); ss_tot = np.sum((gshift-gshift.mean())**2)
+                    inv_r2s.append(float(1 - ss_res/ss_tot) if ss_tot > 0 else 0.0)
+                    if abs(slope) > 1e-6:
+                        errs = []
+                        for s_star in targets:
+                            dstar = hshift(hprofile(predict(kind, fi, seq_const(fi, float(s_star)), seed+1)), ref)  # seed B
+                            s_hat = float(np.clip((dstar - intercept)/slope, p5, p95))
+                            errs.append(abs(s_hat - s_star))
+                        inv_maes.append(float(np.mean(errs)))
+            out[kind] = {
+                "inverse_control": {
+                    "mae_steer": round(float(np.mean(inv_maes)),4) if inv_maes else None,
+                    "mae_vs_chance_ratio": round(float(np.mean(inv_maes))/chance_mae,3) if inv_maes else None,
+                    "mean_grid_R2": round(float(np.mean(inv_r2s)),3) if inv_r2s else None,
+                    "mean_grid_spearman": round(float(np.mean(inv_rhos)),3) if inv_rhos else None,
+                    "n_valid": len(inv_maes),
+                    "metric": "held-out interpolated target steers + cross-seed; s_hat via linear inversion of the steer->shift grid; MAE=|s_hat-s*| vs random-pick chance"}}
+            ic = out[kind]["inverse_control"]
+            print(f"[plan] {kind}: inv-ctrl MAE={ic['mae_steer']} (chance={chance_mae:.3f}, ratio={ic['mae_vs_chance_ratio']}, "
+                  f"R2={ic['mean_grid_R2']}, rho={ic['mean_grid_spearman']}, n_valid={ic['n_valid']})")
+    with open(f"{OUT_DIR}/planning_probe.json", "w") as f: json.dump(out, f, indent=2)
     vol.commit(); print(json.dumps(out, indent=2)); return out
 
 
@@ -1237,12 +1370,21 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "controllability":
-        res = controllability.remote(n_windows)
-        out = Path("artifacts/full/controllability.json")
+        res = controllability.remote(n_windows, 15, 0, cfg_w)
+        ctag = "" if cfg_w == 1.0 else f"_cfg{cfg_w}"
+        out = Path(f"artifacts/full/controllability{ctag}.json")
         if not out.parent.exists():
-            out = Path("code/latent-world-models-av/artifacts/full/controllability.json")
+            out = Path(f"code/latent-world-models-av/artifacts/full/controllability{ctag}.json")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "planning":
+        res = planning_probe.remote(n_windows)
+        out = Path("artifacts/full/planning_probe.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/planning_probe.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2)); print(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "frontier":
         res = frontier_eval.remote(n_windows, 15, 200, 0, diffusion_ckpt)

@@ -1,0 +1,44 @@
+{
+  "n_windows": 150,
+  "horizon_step": 15,
+  "n_calib": 200,
+  "caltrain_shift": [
+    -0.0227,
+    0.0216,
+    0.0048,
+    -0.0819
+  ],
+  "points": {
+    "direct": {
+      "cossim": 0.4708,
+      "fid": 370.77,
+      "kid_mean": 0.37468,
+      "kid_std": 0.01849
+    },
+    "diff_w1": {
+      "cossim": 0.2201,
+      "fid": 353.32,
+      "kid_mean": 0.31098,
+      "kid_std": 0.01686
+    },
+    "diff_w2": {
+      "cossim": 0.1913,
+      "fid": 394.51,
+      "kid_mean": 0.37912,
+      "kid_std": 0.01952
+    },
+    "diff_caltrain": {
+      "cossim": 0.2475,
+      "fid": 172.85,
+      "kid_mean": 0.08908,
+      "kid_std": 0.01094
+    },
+    "interp_0.5": {
+      "cossim": 0.3079,
+      "fid": 174.92,
+      "kid_mean": 0.09183,
+      "kid_std": 0.00914
+    }
+  },
+  "diffusion_ckpt": "/vol/dits/vae_latent/diffusion/h16/seed_0_nb2/dit.pt"
+}
