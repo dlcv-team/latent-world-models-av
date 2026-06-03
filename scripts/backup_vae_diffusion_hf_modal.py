@@ -32,6 +32,8 @@ UPLOADS = [
      EMBEDDINGS_REPO, "gen_eval/fid_eval_full600.json", "dataset"),
     (f"{VOL_PATH}/embeddings/spatial/gen_eval/motion_eval.json",
      EMBEDDINGS_REPO, "gen_eval/motion_eval.json", "dataset"),
+    (f"{VOL_PATH}/da_analysis/t0_perwindow_results.csv",
+     EMBEDDINGS_REPO, "da_analysis/t0_perwindow_results.csv", "dataset"),
 ]
 
 if modal is not None:
