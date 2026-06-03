@@ -48,3 +48,6 @@ wandb/
 
 # PRD documentation
 docs/prd/
+
+# Large per-window analysis CSVs (kept on HuggingFace, not git)
+artifacts/full/*perwindow*.csv
