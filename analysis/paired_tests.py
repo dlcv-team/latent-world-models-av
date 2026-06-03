@@ -38,6 +38,7 @@ import pandas as pd
 from scipy import stats
 
 from config import CanonicalConfig, load_canonical
+from evaluation.metrics import bootstrap_mean_ci
 
 
 SUPPORTED_METRICS = ("steer_rmse", "accel_rmse")
@@ -187,28 +188,6 @@ def compute_paired_tests(
 # ---------------------------------------------------------------------------
 # Bootstrap CI
 # ---------------------------------------------------------------------------
-
-
-def bootstrap_mean_ci(
-    values: np.ndarray,
-    n_resamples: int,
-    seed: int,
-    confidence_level: float,
-) -> tuple[float, float, float]:
-    """Return ``(mean, ci_lo, ci_hi)`` via nonparametric bootstrap of the mean."""
-    values = np.asarray(values, dtype=float)
-    rng = np.random.default_rng(seed)
-    n = values.shape[0]
-    if n == 0:
-        raise ValueError("bootstrap_mean_ci received zero-length input")
-    boot_means = np.empty(n_resamples, dtype=float)
-    for i in range(n_resamples):
-        sample = rng.choice(values, size=n, replace=True)
-        boot_means[i] = sample.mean()
-    alpha = 1.0 - confidence_level
-    ci_lo = float(np.percentile(boot_means, 100 * alpha / 2))
-    ci_hi = float(np.percentile(boot_means, 100 * (1 - alpha / 2)))
-    return float(values.mean()), ci_lo, ci_hi
 
 
 def compute_encoder_summary_with_ci(
