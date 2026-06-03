@@ -795,10 +795,12 @@ def motion_eval(n_windows: int = 200, seed: int = 0):
 
 
 @_decorator
-def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 200, seed: int = 0):
+def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 200, seed: int = 0,
+                  diffusion_ckpt: str = "diffusion"):
     """A1+B1: empirical distortion–perception curve over real operating points + a DEPLOYABLE
     per-channel calibration (estimated on TRAIN, not future-GT) + labeled post-hoc interpolation.
-    Each point reports distortion (per-token CosSim↑ to GT) and perception (FID/KID↓ vs real RGB)."""
+    Each point reports distortion (per-token CosSim↑ to GT) and perception (FID/KID↓ vs real RGB).
+    diffusion_ckpt can be a CKPT_PATHS key or a full volume path (P1 capacity variants)."""
     import numpy as np
     import torch
     import torch.nn.functional as F
@@ -839,7 +841,8 @@ def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 2
 
     def load(tag):
         ck = torch.load(CKPT_PATHS.get(tag, tag), map_location=dev, weights_only=False)
-        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(dev)
+        nb = int(ck.get("n_blocks", DIT_CONFIG["n_blocks"]))  # P1: rebuild at the ckpt's depth
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **{**DIT_CONFIG, "n_blocks": nb}).to(dev)
         fo = FourierActionEmbedding(**FOURIER_CONFIG).to(dev)
         dit.load_state_dict(ck["dit"]); fo.load_state_dict(ck["fourier"])
         if "ema" in ck and ck["ema"]:
@@ -849,7 +852,7 @@ def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 2
                 if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
         dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(dev), ck["z_std"].to(dev)
 
-    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load("diffusion")
+    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load(diffusion_ckpt)
 
     def act_of(fis):
         return torch.tensor(np.stack([np.stack([[steers[i+k], accels[i+k]] for k in range(HORIZON)]) for i in fis]),
@@ -924,7 +927,9 @@ def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 2
         res["points"][o] = {"cossim": round(float(np.mean(cs[o])),4), "fid": round(float(fids[o].compute()),2),
                             "kid_mean": round(float(km),5), "kid_std": round(float(ks),5)}
         print(f"[frontier] {o:14s} CosSim={res['points'][o]['cossim']:.4f}  FID={res['points'][o]['fid']:.1f}  KID={res['points'][o]['kid_mean']:.4f}")
-    with open(f"{OUT_DIR}/frontier_eval.json", "w") as f: json.dump(res, f, indent=2)
+    res["diffusion_ckpt"] = diffusion_ckpt
+    ftag = "" if diffusion_ckpt == "diffusion" else "_" + diffusion_ckpt.strip("/").replace("/", "_")
+    with open(f"{OUT_DIR}/frontier_eval{ftag}.json", "w") as f: json.dump(res, f, indent=2)
     vol.commit(); print(json.dumps(res, indent=2)); return res
 
 
@@ -1240,10 +1245,11 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "frontier":
-        res = frontier_eval.remote(n_windows)
-        out = Path("artifacts/full/frontier_eval.json")
+        res = frontier_eval.remote(n_windows, 15, 200, 0, diffusion_ckpt)
+        ftag = "" if diffusion_ckpt == "diffusion" else "_" + diffusion_ckpt.strip("/").replace("/", "_")
+        out = Path(f"artifacts/full/frontier_eval{ftag}.json")
         if not out.parent.exists():
-            out = Path("code/latent-world-models-av/artifacts/full/frontier_eval.json")
+            out = Path(f"code/latent-world-models-av/artifacts/full/frontier_eval{ftag}.json")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
