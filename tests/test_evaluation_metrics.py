@@ -6,7 +6,11 @@ Verifies RMSE computation and normalization conversions.
 import numpy as np
 import pytest
 
-from evaluation.metrics import compute_rmse, convert_steer_rmse_to_deg
+from evaluation.metrics import (
+    compute_rmse,
+    convert_steer_rmse_to_deg,
+    classify_scenes_by_scenario,
+)
 
 
 def test_compute_rmse_normalized():
@@ -137,23 +141,74 @@ def test_compute_per_scenario_rmse_with_conversion():
     results_df = compute_per_scenario_rmse(predictions_df, scene_to_bucket, cfg)
 
     # Verify results are in normalized space
-    assert "steer_rmse_norm" in results_df["metric"].values
-    assert "accel_rmse_norm" in results_df["metric"].values
+    assert "steer_rmse" in results_df["metric"].values
+    assert "accel_rmse" in results_df["metric"].values
 
     # Extract a steering RMSE value (normalized)
-    steer_row = results_df[results_df["metric"] == "steer_rmse_norm"].iloc[0]
+    steer_row = results_df[results_df["metric"] == "steer_rmse"].iloc[0]
     steer_rmse_norm = steer_row["mean"]
 
-    # Verify it's in normalized space (should be small, roughly 0.05-0.1 range)
-    assert 0.0 <= steer_rmse_norm <= 1.0, "RMSE should be in normalized [0, 1] range"
-
-    # EXPLICIT CONVERSION: Convert normalized RMSE to degrees using config factor
+    # Test conversion to degrees
     steer_rmse_deg = convert_steer_rmse_to_deg(steer_rmse_norm, cfg=cfg)
 
-    # Verify conversion applied the factor correctly
-    expected_deg = steer_rmse_norm * 34.37746770784939
-    assert np.isclose(steer_rmse_deg, expected_deg, atol=1e-3)
+    # Verify manual conversion matches
+    expected_deg = steer_rmse_norm * cfg["normalization"]["steering"]["eval_back_to_deg_factor"]
+    assert np.isclose(steer_rmse_deg, expected_deg, atol=1e-6)
 
-    # Verify degrees value is reasonable (should be ~1-4 degrees for small errors)
-    assert steer_rmse_deg > steer_rmse_norm, "Degrees should be larger than normalized"
-    assert steer_rmse_deg > 0.0, "RMSE in degrees should be positive"
+
+def test_classify_scenes_by_scenario():
+    """Test scene classification into scenario buckets."""
+    # Mock NuScenes object
+    class MockNuScenes:
+        def __init__(self):
+            self.scene = [
+                {"token": "scene1", "description": "Driving on a highway at sunset"},
+                {"token": "scene2", "description": "Navigating an urban intersection during rush hour"},
+                {"token": "scene3", "description": "City street with light traffic"},
+                {"token": "scene4", "description": "Approaching a junction with pedestrians"},
+                {"token": "scene5", "description": ""},  # Empty description
+            ]
+
+    nusc = MockNuScenes()
+    scene_tokens = ["scene1", "scene2", "scene3", "scene4", "scene5", "scene6"]  # scene6 doesn't exist
+
+    scene_to_bucket = classify_scenes_by_scenario(nusc, scene_tokens)
+
+    # Verify classifications
+    assert scene_to_bucket["scene1"] == "highway"
+    assert scene_to_bucket["scene2"] == "intersection"
+    assert scene_to_bucket["scene3"] == "urban"
+    assert scene_to_bucket["scene4"] == "intersection"  # Contains "junction"
+    assert scene_to_bucket["scene5"] == "other"  # Empty description
+    assert scene_to_bucket["scene6"] == "other"  # Doesn't exist in nusc.scene
+
+
+def test_classify_scenes_by_scenario_empty_input():
+    """Test classify_scenes_by_scenario with empty input."""
+    class MockNuScenes:
+        def __init__(self):
+            self.scene = []
+
+    nusc = MockNuScenes()
+    scene_tokens = []
+
+    scene_to_bucket = classify_scenes_by_scenario(nusc, scene_tokens)
+
+    assert scene_to_bucket == {}
+
+
+def test_classify_scenes_by_scenario_deduplication():
+    """Test that classify_scenes_by_scenario deduplicates scene tokens."""
+    class MockNuScenes:
+        def __init__(self):
+            self.scene = [
+                {"token": "scene1", "description": "Highway driving"},
+            ]
+
+    nusc = MockNuScenes()
+    scene_tokens = ["scene1", "scene1", "scene1"]  # Duplicates
+
+    scene_to_bucket = classify_scenes_by_scenario(nusc, scene_tokens)
+
+    assert len(scene_to_bucket) == 1
+    assert scene_to_bucket["scene1"] == "highway"

@@ -162,6 +162,7 @@ class NuScenesFrameDataset(Dataset):
             "dropped_missing_can": 0,
             "dropped_no_camera": 0,
             "dropped_can_alignment": 0,
+            "blacklisted_scene_ids": [],  # Track actual scene names that were blacklisted
         }
 
         # Get drop policy from config
@@ -180,6 +181,7 @@ class NuScenesFrameDataset(Dataset):
             # Check CAN blacklist (only if config flag is True)
             if scene_name in can_blacklist_scenes:
                 stats["dropped_blacklist"] += 1
+                stats["blacklisted_scene_ids"].append(scene_name)
                 continue
 
             # Check if CAN data exists (required for action labels)
@@ -325,8 +327,13 @@ class NuScenesFrameDataset(Dataset):
                 (clip_frames, 3, 224, 224) if mode="clip"
             actions : torch.Tensor, shape (2,)
             sample_token : str
+            scene_token : str
             scene_name : str
             timestamp_us : int
+
+        Note: keys are listed in insertion order for reference only.
+        Always use dict access (e.g., `batch["image"]`), never
+        positional unpacking.
         """
         record = self.samples[idx]
         cam_token = record["cam_token"]
@@ -347,6 +354,7 @@ class NuScenesFrameDataset(Dataset):
             "image": image,
             "actions": actions,
             "sample_token": record["sample_token"],
+            "scene_token": record["scene_token"],
             "scene_name": record["scene_name"],
             "timestamp_us": record["timestamp_us"],
         }

@@ -70,6 +70,7 @@ class _LinearLabelDataset(Dataset):
                 "image": self.embeddings[idx],
                 "actions": self.actions[idx],
                 "sample_token": f"tok-{idx:04d}",
+                "scene_token": f"scene-tok-{idx % 2:04d}",
             }
         return self.embeddings[idx], self.actions[idx]
 

@@ -54,6 +54,7 @@ class _FakeSingleFrameDataset(torch.utils.data.Dataset):
             "image": self.images[idx],
             "actions": self.actions[idx],
             "sample_token": self.tokens[idx],
+            "scene_token": f"scene-tok-{idx % len(self.scene_names):04d}",
             "scene_name": self.scene_names[idx],
             "timestamp_us": 0,
         }
@@ -329,7 +330,7 @@ def test_main_smoke_with_pretrained_false_synthetic_data(
     Parametrized across three encoders that exercise distinct CLI paths:
 
     * ``vits16`` — single-frame baseline, no adapter, no fallback.
-    * ``vqvae`` — triggers the FR-08 DINOv2 fallback; checks
+    * ``vqvae`` — may trigger FR-08 DINOv2 fallback if checkpoint unavailable; checks
       ``fallback_caveat`` persistence into provenance.
     * ``vjepa2`` — runs in ``mode="clip"`` (5-D ``(B, T, 3, H, W)``
       batches); exercises the V-JEPA-specific dataset stub path.
