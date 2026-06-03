@@ -928,6 +928,102 @@ def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 2
     vol.commit(); print(json.dumps(res, indent=2)); return res
 
 
+@_decorator
+def controllability(n_scenes: int = 40, horizon_step: int = 15, seed: int = 0):
+    """A2: does the generated future move WITH the conditioned steering? In-distribution steer
+    sweep (train 5th/95th pct), fixed noise + scene; measure horizontal scene shift (1-D profile
+    cross-correlation) vs the median-steer prediction; Spearman(steer, shift), diffusion vs direct."""
+    import numpy as np
+    import torch
+    from scipy.stats import spearmanr
+    from diffusers import AutoencoderKL
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    dev = torch.device("cuda"); h = horizon_step
+    sch = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(dev); alphas = sch.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
+    os.makedirs(OUT_DIR, exist_ok=True)
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    lat = data["vae_latents"].astype(np.float32); scenes = data["scene_names"]; splits = data["splits"]
+    steers = data["steer_norms"].astype(np.float32); accels = data["accel_norms"].astype(np.float32)
+
+    tr = np.where(splits == "train")[0]
+    p5, p95 = float(np.percentile(steers[tr], 5)), float(np.percentile(steers[tr], 95))
+    sweep = np.linspace(p5, p95, 5)
+    print(f"[ctrl] in-distribution steer sweep (train p5..p95): {[round(x,3) for x in sweep]}")
+
+    te = np.where(splits == "test")[0]; picks = []
+    for sc in np.unique(scenes[te]):
+        idx = te[scenes[te] == sc]
+        if len(idx) > HORIZON: picks.append(int(idx[0]))
+        if len(picks) >= n_scenes: break
+
+    def load(tag):
+        ck = torch.load(CKPT_PATHS[tag], map_location=dev, weights_only=False)
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(dev)
+        fo = FourierActionEmbedding(**FOURIER_CONFIG).to(dev)
+        dit.load_state_dict(ck["dit"]); fo.load_state_dict(ck["fourier"])
+        if "ema" in ck and ck["ema"]:
+            for nm, p in dit.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
+        dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(dev), ck["z_std"].to(dev)
+    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load("diffusion")
+
+    def act_seq(fi, steer_val):
+        a = np.stack([[steer_val, accels[fi+k]] for k in range(HORIZON)])
+        return torch.tensor(a, dtype=torch.float32, device=dev).unsqueeze(0)
+    def decode(g): return ((vae.decode(g.clamp(-6,6)/SCALING).sample.clamp(-1,1))+1)/2
+    def hprofile(img):  # (1,3,256,256) -> (256,) horizontal intensity profile
+        return img[0].mean(dim=(0,1)).detach().cpu().numpy()
+    def hshift(prof, ref):  # peak of 1-D cross-correlation = horizontal shift (px)
+        a = prof - prof.mean(); b = ref - ref.mean()
+        cc = np.correlate(a, b, mode="full"); return int(cc.argmax() - (len(prof)-1))
+
+    def predict_decode(kind, fi, steer_val):
+        zt = torch.tensor(lat[fi:fi+1], device=dev)
+        if kind == "direct":
+            ztn = (patchify(zt)-dzm)/dzs
+            zr = ztn.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(1, HORIZON*N_SPATIAL, PATCH_DIM)
+            t0 = torch.zeros(1, dtype=torch.long, device=dev)
+            gl = unpatchify((d_dit(zr, ztn, d_fo(act_seq(fi, steer_val)), t0)*dzs+dzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)[:, h])
+        else:
+            ztn = (patchify(zt)-gzm)/gzs; a = g_fo(act_seq(fi, steer_val))
+            ns = 50; st = max(DIFFUSION_STEPS//ns, 1); ts = list(reversed(list(range(0, DIFFUSION_STEPS, st))[:ns]))
+            gen = torch.Generator(device=dev).manual_seed(seed)  # FIXED noise across steer values
+            x = torch.randn(1, HORIZON*N_SPATIAL, PATCH_DIM, device=dev, generator=gen)
+            for i, tv in enumerate(ts):
+                t = torch.full((1,), tv, device=dev, dtype=torch.long); px0 = g_dit(x, ztn, a, t)
+                at = alphas[tv]; ap = alphas[ts[i+1]] if i < len(ts)-1 else torch.tensor(1.0, device=dev)
+                nd = (x - torch.sqrt(at)*px0)/torch.sqrt(1-at+1e-8); x = torch.sqrt(ap)*px0 + torch.sqrt(1-ap)*nd
+            gl = unpatchify((x*gzs+gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)[:, h])
+        return decode(gl)
+
+    out = {"n_scenes": len(picks), "horizon_step": h, "steer_sweep": [round(x,4) for x in sweep.tolist()],
+           "train_p5": round(p5,4), "train_p95": round(p95,4)}
+    with torch.no_grad():
+        for kind in ["direct", "diffusion"]:
+            rhos = []
+            for fi in picks:
+                ref = hprofile(predict_decode(kind, fi, float(sweep[len(sweep)//2])))  # median-steer reference
+                shifts = [hshift(hprofile(predict_decode(kind, fi, float(s))), ref) for s in sweep]
+                if np.std(shifts) > 0:
+                    rho, _ = spearmanr(sweep, shifts); rhos.append(rho)
+            rhos = [r for r in rhos if not np.isnan(r)]
+            out[kind] = {"mean_spearman_steer_to_shift": round(float(np.mean(rhos)),4) if rhos else None,
+                         "n_valid": len(rhos),
+                         "frac_monotone_correct": round(float(np.mean([r > 0 for r in rhos])),3) if rhos else None}
+            print(f"[ctrl] {kind}: mean Spearman(steer,shift)={out[kind]['mean_spearman_steer_to_shift']} "
+                  f"(n={out[kind]['n_valid']}, frac_positive={out[kind]['frac_monotone_correct']})")
+    with open(f"{OUT_DIR}/controllability.json", "w") as f: json.dump(out, f, indent=2)
+    vol.commit(); print(json.dumps(out, indent=2)); return out
+
+
 def _entry(fn):
     return app.local_entrypoint()(fn) if app is not None else fn
 
@@ -948,6 +1044,14 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2))
         print(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "controllability":
+        res = controllability.remote(n_windows)
+        out = Path("artifacts/full/controllability.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/controllability.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "frontier":
         res = frontier_eval.remote(n_windows)
