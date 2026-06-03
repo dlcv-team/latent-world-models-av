@@ -794,6 +794,140 @@ def motion_eval(n_windows: int = 200, seed: int = 0):
     return res
 
 
+@_decorator
+def frontier_eval(n_windows: int = 400, horizon_step: int = 15, n_calib: int = 200, seed: int = 0):
+    """A1+B1: empirical distortion–perception curve over real operating points + a DEPLOYABLE
+    per-channel calibration (estimated on TRAIN, not future-GT) + labeled post-hoc interpolation.
+    Each point reports distortion (per-token CosSim↑ to GT) and perception (FID/KID↓ vs real RGB)."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from diffusers import AutoencoderKL
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    from torchmetrics.image.kid import KernelInceptionDistance
+    from PIL import Image
+    import torchvision.transforms.functional as TF
+
+    spec = importlib.util.spec_from_file_location("tv", "/root/train_dit_vae_modal.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    patchify, unpatchify = mod.patchify, mod.unpatchify
+    AnchoredVAEDiT, FourierActionEmbedding = mod.AnchoredVAEDiT, mod.FourierActionEmbedding
+    DIT_CONFIG, FOURIER_CONFIG = mod.DIT_CONFIG, mod.FOURIER_CONFIG
+    PATCH_DIM, N_SPATIAL = mod.PATCH_DIM, mod.N_SPATIAL
+    CosineNoiseSchedule = mod._define_noise_schedule()
+    dev = torch.device("cuda")
+    h = horizon_step
+    sch = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(dev); alphas = sch.alphas_cumprod
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
+    os.makedirs(OUT_DIR, exist_ok=True)
+    data = np.load(VAE_NPZ, allow_pickle=True)
+    lat = data["vae_latents"].astype(np.float32); scenes = data["scene_names"]; splits = data["splits"]
+    steers = data["steer_norms"].astype(np.float32); accels = data["accel_norms"].astype(np.float32)
+    ipaths = data["image_paths"] if "image_paths" in data else None
+
+    def windows(split, cap, need_rgb=True):
+        idx_all = np.where(splits == split)[0]; out = []
+        for sc in np.unique(scenes[idx_all]):
+            idx = idx_all[scenes[idx_all] == sc]
+            for j in range(len(idx) - HORIZON):
+                fi = int(idx[j])
+                if (not need_rgb) or (ipaths is not None and fi + 1 + h < len(ipaths)
+                                      and os.path.exists(f"{VOL_PATH}/nuscenes/{ipaths[fi+1+h]}")):
+                    out.append(fi); break  # 1 per scene
+            if len(out) >= cap: break
+        return out[:cap]
+
+    def load(tag):
+        ck = torch.load(CKPT_PATHS.get(tag, tag), map_location=dev, weights_only=False)
+        dit = AnchoredVAEDiT(horizon=HORIZON, n_spatial=N_SPATIAL, **DIT_CONFIG).to(dev)
+        fo = FourierActionEmbedding(**FOURIER_CONFIG).to(dev)
+        dit.load_state_dict(ck["dit"]); fo.load_state_dict(ck["fourier"])
+        if "ema" in ck and ck["ema"]:
+            for nm, p in dit.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
+            for nm, p in fo.named_parameters():
+                if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(dev))
+        dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(dev), ck["z_std"].to(dev)
+
+    d_dit, d_fo, dzm, dzs = load("direct"); g_dit, g_fo, gzm, gzs = load("diffusion")
+
+    def act_of(fis):
+        return torch.tensor(np.stack([np.stack([[steers[i+k], accels[i+k]] for k in range(HORIZON)]) for i in fis]),
+                            dtype=torch.float32, device=dev)
+    def direct_lat(fis):
+        zt = torch.tensor(np.stack([lat[i] for i in fis]), device=dev); ztn = (patchify(zt)-dzm)/dzs
+        zr = ztn.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(len(fis), HORIZON*N_SPATIAL, PATCH_DIM)
+        t0 = torch.zeros(len(fis), dtype=torch.long, device=dev)
+        return unpatchify((d_dit(zr, ztn, d_fo(act_of(fis)), t0)*dzs+dzm).reshape(len(fis), HORIZON, N_SPATIAL, PATCH_DIM)[:, h])
+    def diff_lat(fis, w=1.0, gs=0):
+        zt = torch.tensor(np.stack([lat[i] for i in fis]), device=dev); ztn = (patchify(zt)-gzm)/gzs
+        a = g_fo(act_of(fis)); B = len(fis); ns = 50; st = max(DIFFUSION_STEPS//ns, 1)
+        ts = list(reversed(list(range(0, DIFFUSION_STEPS, st))[:ns]))
+        gen = torch.Generator(device=dev).manual_seed(1000+gs)
+        x = torch.randn(B, HORIZON*N_SPATIAL, PATCH_DIM, device=dev, generator=gen)
+        for i, tv in enumerate(ts):
+            t = torch.full((B,), tv, device=dev, dtype=torch.long); px0 = g_dit(x, ztn, a, t)
+            if w != 1.0:
+                pu = g_dit(x, ztn, torch.zeros_like(a), t); px0 = pu + w*(px0-pu)
+            at = alphas[tv]; ap = alphas[ts[i+1]] if i < len(ts)-1 else torch.tensor(1.0, device=dev)
+            nd = (x - torch.sqrt(at)*px0)/torch.sqrt(1-at+1e-8); x = torch.sqrt(ap)*px0 + torch.sqrt(1-ap)*nd
+        return unpatchify((x*gzs+gzm).reshape(B, HORIZON, N_SPATIAL, PATCH_DIM)[:, h])
+    def decode(g): return ((vae.decode(g.clamp(-6,6)/SCALING).sample.clamp(-1,1))+1)/2
+    def rgb(fis):
+        out = []
+        for i in fis:
+            im = Image.open(f"{VOL_PATH}/nuscenes/{ipaths[i+1+h]}").convert("RGB")
+            w0, h0 = im.size; c = min(w0, h0)
+            im = im.crop(((w0-c)//2, (h0-c)//2, (w0-c)//2+c, (h0-c)//2+c)).resize((256, 256))
+            out.append(TF.to_tensor(im).unsqueeze(0).to(dev))
+        return torch.cat(out, 0)
+    def cossim(pred_lat_grid, fis):
+        gt = torch.tensor(np.stack([lat[i+1+h] for i in fis]), device=dev)
+        return F.cosine_similarity(patchify(pred_lat_grid), patchify(gt), dim=-1).mean().item()
+
+    # --- B1: deployable per-channel calib estimated on TRAIN (mean+std), NOT future-GT ---
+    tr = windows("train", n_calib, need_rgb=False)
+    pred_acc, tgt_acc = [], []
+    bs = 8
+    with torch.no_grad():
+        for b in range(0, len(tr), bs):
+            fis = tr[b:b+bs]; pred_acc.append(diff_lat(fis, 1.0, gs=b))
+            tgt_acc.append(torch.tensor(np.stack([lat[i+1+h] for i in fis]), device=dev))
+    p_all = torch.cat(pred_acc, 0); t_all = torch.cat(tgt_acc, 0)
+    p_m = p_all.mean(dim=(0,2,3)); p_s = p_all.std(dim=(0,2,3)); t_m = t_all.mean(dim=(0,2,3)); t_s = t_all.std(dim=(0,2,3))
+    def caltrain(g):  # deployable: standardize by TRAIN pred stats, rescale to TRAIN target stats
+        return (g - p_m.view(1,4,1,1))/(p_s.view(1,4,1,1)+1e-6)*t_s.view(1,4,1,1) + t_m.view(1,4,1,1)
+    print(f"[frontier] caltrain ch shift (t_m-p_m)={[round(x,3) for x in (t_m-p_m).tolist()]} "
+          f"std ratio (t_s/p_s)={[round(x,3) for x in (t_s/p_s).tolist()]}")
+
+    te = windows("test", n_windows, need_rgb=True)
+    ops = ["direct", "diff_w1", "diff_w2", "diff_caltrain", "interp_0.5"]
+    fids = {o: FrechetInceptionDistance(normalize=True).to(dev) for o in ops}
+    kids = {o: KernelInceptionDistance(normalize=True, subset_size=min(50, len(te))).to(dev) for o in ops}
+    cs = {o: [] for o in ops}
+    with torch.no_grad():
+        for b in range(0, len(te), bs):
+            fis = te[b:b+bs]; real = rgb(fis)
+            dl = direct_lat(fis); g1 = diff_lat(fis, 1.0, gs=b); g2 = diff_lat(fis, 2.0, gs=b)
+            pts = {"direct": dl, "diff_w1": g1, "diff_w2": g2,
+                   "diff_caltrain": caltrain(g1), "interp_0.5": 0.5*dl + 0.5*g1}
+            for o, gl in pts.items():
+                cs[o].append(cossim(gl, fis))
+                img = decode(gl).clamp(0,1)
+                fids[o].update(real, real=True); fids[o].update(img, real=False)
+                kids[o].update(real, real=True); kids[o].update(img, real=False)
+    res = {"n_windows": len(te), "horizon_step": h, "n_calib": len(tr),
+           "caltrain_shift": [round(x,4) for x in (t_m-p_m).tolist()],
+           "points": {}}
+    for o in ops:
+        km, ks = kids[o].compute()
+        res["points"][o] = {"cossim": round(float(np.mean(cs[o])),4), "fid": round(float(fids[o].compute()),2),
+                            "kid_mean": round(float(km),5), "kid_std": round(float(ks),5)}
+        print(f"[frontier] {o:14s} CosSim={res['points'][o]['cossim']:.4f}  FID={res['points'][o]['fid']:.1f}  KID={res['points'][o]['kid_mean']:.4f}")
+    with open(f"{OUT_DIR}/frontier_eval.json", "w") as f: json.dump(res, f, indent=2)
+    vol.commit(); print(json.dumps(res, indent=2)); return res
+
+
 def _entry(fn):
     return app.local_entrypoint()(fn) if app is not None else fn
 
@@ -814,6 +948,14 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2))
         print(json.dumps(res, indent=2)); print(f"Saved {out}")
+        return
+    if task == "frontier":
+        res = frontier_eval.remote(n_windows)
+        out = Path("artifacts/full/frontier_eval.json")
+        if not out.parent.exists():
+            out = Path("code/latent-world-models-av/artifacts/full/frontier_eval.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "motion":
         res = motion_eval.remote(n_windows)
