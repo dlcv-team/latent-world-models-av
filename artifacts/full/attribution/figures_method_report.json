@@ -1,0 +1,35 @@
+{
+  "source": "legacy_fullscope_attribution_archive",
+  "source_archive_path": "fullscope-gpu-latest/attribution",
+  "caveat": "These are archived fullscope attribution composites, not freshly generated B7 per-frame overlays from evaluation/gradcam.py. Raw trainval images were unavailable during closure.",
+  "legacy_report": {
+    "num_frames": 20,
+    "encoders": [
+      "vit_s16",
+      "clip_b32",
+      "dino_vits14",
+      "vjepa2_rep64",
+      "vq_track"
+    ],
+    "generated_files": [
+      "attribution_vit_s16.png",
+      "attribution_vit_s16.pdf",
+      "attribution_clip_b32.png",
+      "attribution_clip_b32.pdf",
+      "attribution_dino_vits14.png",
+      "attribution_dino_vits14.pdf",
+      "attribution_vjepa2_rep64.png",
+      "attribution_vjepa2_rep64.pdf",
+      "attribution_vq_track.png",
+      "attribution_vq_track.pdf"
+    ],
+    "note": "Proxy attribution pack: overlays perturbation regions on representative frames for each encoder track."
+  },
+  "methods": {
+    "vit_s16": "legacy GradCAM/proxy composite",
+    "clip_b32": "legacy GradCAM/proxy composite",
+    "dino_vits14": "legacy attention/proxy composite",
+    "vjepa2_rep64": "legacy temporal/proxy composite",
+    "vq_track": "legacy VQ/proxy composite"
+  }
+}
