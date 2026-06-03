@@ -795,7 +795,7 @@ def motion_eval(n_windows: int = 200, seed: int = 0):
 
 
 @_decorator
-def motion_fidelity(n_scenes: int = 40, seed: int = 0):
+def motion_fidelity(n_scenes: int = 40, seed: int = 0, diffusion_ckpt: str = "diffusion"):
     """MOTION-FIDELITY DIAGNOSTIC (gates 'forward motion' / 'Scene Prediction' claims).
     Decodes ALL 16 predicted steps and separates COHERENT scene motion (low-freq) from TEXTURE churn (high-freq),
     which the legacy total-L2 'temporal change' metric conflated. Reports, for GT/direct/diffusion:
@@ -843,7 +843,7 @@ def motion_fidelity(n_scenes: int = 40, seed: int = 0):
             for nm, p in fo.named_parameters():
                 if nm in ck["ema"]: p.data.copy_(ck["ema"][nm].to(device))
         dit.eval(); fo.eval(); return dit, fo, ck["z_mean"].to(device), ck["z_std"].to(device)
-    g_dit, g_fou, gzm, gzs = load("diffusion"); d_dit, d_fou, dzm, dzs = load("direct")
+    g_dit, g_fou, gzm, gzs = load(diffusion_ckpt); d_dit, d_fou, dzm, dzs = load("direct")
 
     BLUR_KS, BLUR_SIGMA = 31, 8.0
     def decode(grid): return ((vae.decode(grid.clamp(-6, 6) / SCALING).sample.clamp(-1, 1)) + 1) / 2
@@ -935,7 +935,9 @@ def motion_fidelity(n_scenes: int = 40, seed: int = 0):
           f"residual t15 diff={res['all_scenes']['diffusion']['residual_t15']} gt={res['all_scenes']['gt_residual_t15']}")
     print(f"[motion_fid] HIGH-MOTION Q: diffusion lowfreq_frac_gt={res['high_motion_quartile']['diffusion']['lowfreq_frac_of_gt']} "
           f"dir_corr={res['high_motion_quartile']['diffusion']['disp_dir_corr_vs_gt']}")
-    with open(f"{OUT_DIR}/motion_fidelity.json", "w") as f: json.dump(res, f, indent=2)
+    res["diffusion_ckpt"] = diffusion_ckpt
+    mtag = "" if diffusion_ckpt == "diffusion" else "_" + diffusion_ckpt.strip("/").replace("/", "_")
+    with open(f"{OUT_DIR}/motion_fidelity{mtag}.json", "w") as f: json.dump(res, f, indent=2)
     vol.commit(); print(json.dumps(res, indent=2)); return res
 
 
@@ -1568,10 +1570,11 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.write_text(json.dumps(res, indent=2)); print(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "motion_fidelity":
-        res = motion_fidelity.remote(n_windows)
-        out = Path("artifacts/full/motion_fidelity.json")
+        res = motion_fidelity.remote(n_windows, 0, diffusion_ckpt)
+        mtag = "" if diffusion_ckpt == "diffusion" else "_" + diffusion_ckpt.strip("/").replace("/", "_")
+        out = Path(f"artifacts/full/motion_fidelity{mtag}.json")
         if not out.parent.exists():
-            out = Path("code/latent-world-models-av/artifacts/full/motion_fidelity.json")
+            out = Path(f"code/latent-world-models-av/artifacts/full/motion_fidelity{mtag}.json")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(res, indent=2)); print(f"Saved {out}")
         return

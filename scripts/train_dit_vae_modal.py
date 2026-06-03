@@ -346,6 +346,7 @@ def train_and_eval(
     n_blocks: int = 4,
     cond_aug_sigma: float = 0.0,
     init_ckpt: str = "",
+    motion_lambda: float = 0.0,
 ):
     import numpy as np
     import torch
@@ -603,6 +604,10 @@ def train_and_eval(
                 x_noisy = torch.sqrt(alpha_bar) * zf_b + torch.sqrt(1 - alpha_bar) * noise
                 pred = dit(x_noisy, z_t_b, a_emb, t)
                 loss = F.mse_loss(pred, zf_b)
+                if motion_lambda > 0:  # temporal-difference loss: match predicted frame-to-frame deltas to GT
+                    pr = pred.reshape(B, horizon, n_spatial * PATCH_DIM)
+                    tg = zf_b.reshape(B, horizon, n_spatial * PATCH_DIM)
+                    loss = loss + motion_lambda * F.mse_loss(pr[:, 1:] - pr[:, :-1], tg[:, 1:] - tg[:, :-1])
                 if not torch.isfinite(loss):
                     print(f"  ERROR: non-finite loss at epoch {epoch}")
                     results["smoke_fail"] = "non_finite_loss"
@@ -732,7 +737,7 @@ def train_and_eval(
 
             if not smoke:
                 nb_suffix = "" if n_blocks == 4 else f"_nb{n_blocks}"
-                ra_suffix = "_rollaug" if cond_aug_sigma > 0 else ""
+                ra_suffix = ("_rollaug" if cond_aug_sigma > 0 else "") + ("_motion" if motion_lambda > 0 else "")
                 ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}{nb_suffix}{ra_suffix}"
                 os.makedirs(ckpt_dir, exist_ok=True)
                 torch.save({
@@ -925,13 +930,14 @@ def main(
     n_blocks: int = 4,
     cond_aug_sigma: float = 0.0,
     init_ckpt: str = "",
+    motion_lambda: float = 0.0,
 ):
     t0 = time.time()
     print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} "
           f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout} skip_eval={skip_eval} n_blocks={n_blocks}")
     result = train_and_eval.remote(
         seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout, skip_eval, n_blocks,
-        cond_aug_sigma, init_ckpt,
+        cond_aug_sigma, init_ckpt, motion_lambda,
     )
     print(json.dumps(result, indent=2))
     if mode == "diffusion":
