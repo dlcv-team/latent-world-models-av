@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Generate environmental_robustness.csv with RMSE ratios (B12).
 
-Reads outputs/analysis/per_environment_rmse.csv and computes robustness ratios:
+Reads per-scene RMSE from outputs/probes/{encoder}/per_scene_rmse.csv and computes
+robustness ratios with bootstrap CIs:
 - night/day: Performance degradation in low-light conditions
 - rain/day: Performance degradation in wet conditions
 
@@ -19,107 +20,138 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import yaml
+
+import numpy as np
+
+from config import load_canonical
+from evaluation.metrics import classify_scenes_by_environment, compute_robustness_ratios
 
 
-def main():
-    print("Generating environmental_robustness.csv from per-environment RMSE...")
+def main() -> int:
+    print("Generating environmental_robustness.csv with bootstrap CIs...")
 
-    # Load per-environment RMSE
-    input_path = Path("outputs/analysis/per_environment_rmse.csv")
-    if not input_path.exists():
-        print(f"\n❌ Input file not found: {input_path}")
-        print("Run generate_per_environment_rmse.py first")
-        return
+    # Load canonical config for bootstrap params
+    cfg = load_canonical()
+    bootstrap_cfg = cfg.raw["evaluation"]["bootstrap"]
+    n_resamples = bootstrap_cfg["n_resamples"]
+    bootstrap_seed = bootstrap_cfg["seed"]
+    confidence_level = bootstrap_cfg["confidence_level"]
 
-    df = pd.read_csv(input_path)
-    print(f"\nLoaded {len(df)} rows from {input_path}")
-    print(f"  Encoders: {sorted(df['encoder'].unique())}")
-    print(f"  Environments: {sorted(df['environment'].unique())}")
-    print(f"  Metrics: {sorted(df['metric'].unique())}")
+    print(f"  Bootstrap config: {n_resamples} resamples, seed={bootstrap_seed}, CI={confidence_level}")
 
-    # Validate required environments
-    available_envs = set(df["environment"].unique())
-    if "day_clear" not in available_envs:
-        print("\n❌ Error: 'day_clear' environment not found in input data")
-        print("Cannot compute ratios without baseline day_clear performance")
-        return
+    # Load environment assignments
+    env_config_path = Path("configs/environment_scene_lists.yaml")
+    if not env_config_path.exists():
+        print(f"\n❌ Error: {env_config_path} not found")
+        print("Run generate_per_environment_rmse.py to create it")
+        return 1
 
-    if "night" not in available_envs and "rain" not in available_envs:
-        print("\n⚠️  Warning: Neither 'night' nor 'rain' environments found")
+    with open(env_config_path, "r") as f:
+        env_config = yaml.safe_load(f)
+
+    night_scenes = set(env_config.get("night_scenes", []))
+    rain_scenes = set(env_config.get("rain_scenes", []))
+
+    print(f"  Environment lists: {len(night_scenes)} night, {len(rain_scenes)} rain")
+
+    # Load per-scene RMSE for all encoders
+    probe_dir = Path("outputs/probes")
+    if not probe_dir.exists():
+        print(f"\n❌ Error: {probe_dir} not found")
+        print("Run probe training first to generate per_scene_rmse.csv files")
+        return 1
+
+    # Collect all per-scene RMSE files
+    per_scene_files = list(probe_dir.glob("*/per_scene_rmse.csv"))
+    if not per_scene_files:
+        print(f"\n❌ Error: No per_scene_rmse.csv files found in {probe_dir}")
+        return 1
+
+    print(f"\nFound {len(per_scene_files)} encoder probe results")
+
+    # Load and concatenate all per-scene data
+    scene_dfs = []
+    for file_path in per_scene_files:
+        encoder_name = file_path.parent.name
+        df = pd.read_csv(file_path)
+        df["encoder"] = encoder_name
+        scene_dfs.append(df)
+
+    all_scenes_df = pd.concat(scene_dfs, ignore_index=True)
+    print(f"  Loaded {len(all_scenes_df)} rows (encoder × scene × metric)")
+    print(f"  Encoders: {sorted(all_scenes_df['encoder'].unique())}")
+
+    # Get unique scene names
+    scene_names = sorted(all_scenes_df["scene_name"].unique())
+    print(f"  Total scenes: {len(scene_names)}")
+
+    # Classify scenes by environment
+    env_subsets = classify_scenes_by_environment(scene_names, night_scenes, rain_scenes)
+    print(f"  Environment subsets: {len(env_subsets['night'])} night, {len(env_subsets['rain'])} rain, {len(env_subsets['day_clear'])} day_clear")
+
+    # Validate environment subsets
+    if len(env_subsets["day_clear"]) == 0:
+        print("\n❌ Error: No day_clear scenes found (baseline required for ratios)")
+        return 1
+
+    if len(env_subsets["night"]) == 0 and len(env_subsets["rain"]) == 0:
+        print("\n⚠️  Warning: No night or rain scenes found")
         print("Populate configs/environment_scene_lists.yaml with night/rain scenes")
 
-    # Pivot to get environment columns
-    # Columns after pivot: encoder, metric, n_scenes_day_clear, mean_day_clear, ...
-    pivot_df = df.pivot_table(
-        index=["encoder", "metric"],
-        columns="environment",
-        values=["mean", "n_scenes"],
-        aggfunc="first",
-    )
+    # Get denormalization factors from config
+    steer_norm_cfg = cfg.normalization("steering")
+    accel_norm_cfg = cfg.normalization("acceleration")
+    steer_denorm_factor = steer_norm_cfg["eval_back_to_deg_factor"]
+    accel_denorm_factor = accel_norm_cfg["divisor"]
 
-    # Flatten multi-index columns
-    pivot_df.columns = [f"{val}_{env}" for val, env in pivot_df.columns]
-    pivot_df = pivot_df.reset_index()
+    print(f"  Denormalization: steer × {steer_denorm_factor:.2f} → deg, accel × {accel_denorm_factor:.2f} → m/s²")
 
-    print(f"\nPivoted data shape: {pivot_df.shape}")
-
-    # Compute ratios
+    # Compute ratios with bootstrap CIs
     results = []
+    encoders = sorted(all_scenes_df["encoder"].unique())
 
-    for _, row in pivot_df.iterrows():
-        encoder = row["encoder"]
-        metric = row["metric"]
+    for encoder in encoders:
+        encoder_df = all_scenes_df[all_scenes_df["encoder"] == encoder]
 
-        # Extract values (handle missing environments gracefully)
-        mean_day_clear = row.get("mean_day_clear")
-        n_day_clear = row.get("n_scenes_day_clear", 0)
+        encoder_results = compute_robustness_ratios(
+            encoder_df=encoder_df,
+            env_subsets=env_subsets,
+            steer_denorm_factor=steer_denorm_factor,
+            accel_denorm_factor=accel_denorm_factor,
+            n_resamples=n_resamples,
+            bootstrap_seed=bootstrap_seed,
+            confidence_level=confidence_level,
+        )
 
-        mean_night = row.get("mean_night")
-        n_night = row.get("n_scenes_night", 0)
+        # Add encoder name to each row and check for warnings
+        for row in encoder_results:
+            row["encoder"] = encoder
 
-        mean_rain = row.get("mean_rain")
-        n_rain = row.get("n_scenes_rain", 0)
+            # Check small sample warnings
+            if row["n_day_clear"] < 5:
+                print(f"  ⚠️  Warning: {encoder}/{row['metric']} has only {row['n_day_clear']} day_clear scenes (recommend ≥5)")
+            if row["n_night"] > 0 and row["n_night"] < 5:
+                print(f"  ⚠️  Warning: {encoder}/{row['metric']} has only {row['n_night']} night scenes (small sample → wide CI)")
+            if row["n_rain"] > 0 and row["n_rain"] < 10:
+                print(f"  ⚠️  Warning: {encoder}/{row['metric']} has only {row['n_rain']} rain scenes (small sample → wide CI)")
 
-        # Validate day_clear baseline
-        if pd.isna(mean_day_clear) or mean_day_clear == 0:
-            print(f"  Warning: {encoder}/{metric} has invalid day_clear baseline (mean={mean_day_clear}), skipping")
-            continue
-
-        if n_day_clear < 5:
-            print(f"  Warning: {encoder}/{metric} has only {n_day_clear} day_clear scenes (recommend ≥5)")
-
-        # Compute ratios (vs day_clear baseline)
-        ratio_night_day = mean_night / mean_day_clear if not pd.isna(mean_night) else None
-        ratio_rain_day = mean_rain / mean_day_clear if not pd.isna(mean_rain) else None
-
-        results.append({
-            "encoder": encoder,
-            "metric": metric,
-            "rmse_night": mean_night if not pd.isna(mean_night) else None,
-            "rmse_rain": mean_rain if not pd.isna(mean_rain) else None,
-            "rmse_day_clear": mean_day_clear,
-            "ratio_night_day": ratio_night_day,
-            "ratio_rain_day": ratio_rain_day,
-            "n_night": int(n_night) if not pd.isna(n_night) else 0,
-            "n_rain": int(n_rain) if not pd.isna(n_rain) else 0,
-            "n_day_clear": int(n_day_clear),
-        })
+        results.extend(encoder_results)
 
     results_df = pd.DataFrame(results)
     results_df = results_df.sort_values(["encoder", "metric"]).reset_index(drop=True)
 
-    print(f"\nComputed {len(results_df)} rows")
+    print(f"\nComputed {len(results_df)} rows (encoder × metric)")
 
-    # Log scene count distribution
+    # Log scene count summary
     if len(results_df) > 0:
         print("\nScene count summary (independent subsets, may overlap):")
         print(f"  Night scenes:     {results_df['n_night'].iloc[0]}")
         print(f"  Rain scenes:      {results_df['n_rain'].iloc[0]}")
         print(f"  Day_clear scenes: {results_df['n_day_clear'].iloc[0]}")
-        overlap = results_df['n_night'].iloc[0] + results_df['n_rain'].iloc[0] + results_df['n_day_clear'].iloc[0] - 40
-        if overlap > 0:
-            print(f"  Overlap (night+rain): ~{overlap} scenes")
-        print(f"  Total unique: 40 (p0_test)")
+        overlap = results_df['n_night'].iloc[0] + results_df['n_rain'].iloc[0] - len(night_scenes.intersection(rain_scenes))
+        if overlap < len(scene_names):
+            print(f"  Total unique: {len(scene_names)} (p0_test)")
 
     # Write output
     output_path = Path("outputs/analysis/environmental_robustness.csv")
@@ -128,20 +160,36 @@ def main():
 
     print(f"\n✓ Wrote {output_path}")
     print(f"  Total rows: {len(results_df)}")
+    print(f"  Columns: {list(results_df.columns)}")
 
-    # Show sample
-    print("\nSample output:")
-    display_cols = ["encoder", "metric", "ratio_night_day", "ratio_rain_day", "n_night", "n_rain", "n_day_clear"]
+    # Show sample with CIs
+    print("\nSample output (with bootstrap CIs):")
+    display_cols = [
+        "encoder", "metric",
+        "ratio_night_day", "ci_lo_night_day", "ci_hi_night_day",
+        "ratio_rain_day", "ci_lo_rain_day", "ci_hi_rain_day",
+        "n_night", "n_rain", "n_day_clear"
+    ]
     if len(results_df) > 0:
-        print(results_df[display_cols].head(10).to_string(index=False))
+        sample_df = results_df[display_cols].head(6)
+        # Format for readability
+        pd.options.display.float_format = "{:.3f}".format
+        print(sample_df.to_string(index=False))
+        pd.options.display.float_format = None
 
         # Summary statistics
-        print("\nRatio summary (mean across encoders):")
-        if "ratio_night_day" in results_df.columns and results_df["ratio_night_day"].notna().any():
-            print(f"  Night/Day: {results_df['ratio_night_day'].mean():.3f} (higher = worse in night)")
-        if "ratio_rain_day" in results_df.columns and results_df["ratio_rain_day"].notna().any():
-            print(f"  Rain/Day:  {results_df['ratio_rain_day'].mean():.3f} (higher = worse in rain)")
+        print("\nRatio summary (mean ± CI width across encoders):")
+        if results_df["ratio_night_day"].notna().any():
+            night_ratios = results_df["ratio_night_day"].dropna()
+            night_ci_widths = (results_df["ci_hi_night_day"] - results_df["ci_lo_night_day"]).dropna()
+            print(f"  Night/Day: {night_ratios.mean():.3f} (mean CI width: {night_ci_widths.mean():.3f})")
+        if results_df["ratio_rain_day"].notna().any():
+            rain_ratios = results_df["ratio_rain_day"].dropna()
+            rain_ci_widths = (results_df["ci_hi_rain_day"] - results_df["ci_lo_rain_day"]).dropna()
+            print(f"  Rain/Day:  {rain_ratios.mean():.3f} (mean CI width: {rain_ci_widths.mean():.3f})")
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -29,9 +29,9 @@ notes: |
   - Allows isolation of each environmental effect independently
 
   Classification results:
-  - Night scenes (6pm-6am): 6 scenes (auto-classified by timestamp)
+  - Night scenes (6pm-6am): 6 scenes from p0_test (auto-classified by 6pm-6am timestamp; 99 total scenes in full dataset meet criteria)
   - Rain scenes: 9 scenes (7 day+rain, 2 night+rain from descriptions)
   - Day_clear baseline: 27 scenes (excludes night and rain)
   - Overlap (night+rain): 2 scenes
-  - Total: 40 scenes
+  - Total: 40 scenes (p0_test scope for M2 environmental analysis)
   - Classification date: 2026-05-31
