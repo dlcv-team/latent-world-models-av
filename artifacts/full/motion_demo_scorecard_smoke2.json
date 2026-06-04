@@ -1,0 +1,27 @@
+{
+  "tag": "smoke2",
+  "mode": "direct",
+  "scenes": [
+    {
+      "fi": 3217,
+      "ssim_t4": 0.5,
+      "sharp_pred_t4": 0.00499,
+      "sharp_gt_t4": 0.01245,
+      "sharp_present": 0.01169
+    },
+    {
+      "fi": 438,
+      "ssim_t4": 0.445,
+      "sharp_pred_t4": 0.00442,
+      "sharp_gt_t4": 0.01532,
+      "sharp_present": 0.01421
+    },
+    {
+      "fi": 3336,
+      "ssim_t4": 0.614,
+      "sharp_pred_t4": 0.00347,
+      "sharp_gt_t4": 0.0065,
+      "sharp_present": 0.00957
+    }
+  ]
+}

@@ -54,7 +54,8 @@ def _decorator(fn):
 
 
 @_decorator
-def render(which: str = "counter,steersweep,f5,teaser,rollout", n_scenes: int = 3, seed: int = 0):
+def render(which: str = "counter,steersweep,f5,teaser,rollout", n_scenes: int = 3, seed: int = 0, scene_ids: str = "",
+           cfg_w: float = 1.0, winner: str = "sdedit_0.5"):
     import numpy as np, torch
     import torch.nn.functional as F
     import imageio.v2 as imageio
@@ -88,6 +89,8 @@ def render(which: str = "counter,steersweep,f5,teaser,rollout", n_scenes: int = 
         idx = te[scenes[te] == sc]
         if len(idx) > HORIZON: picks.append(int(idx[0]))
         if len(picks) >= n_scenes: break
+    if scene_ids:  # override with mined scene window-indices (M1 scene mining)
+        picks = [int(x) for x in scene_ids.split(",") if x.strip()]
 
     def load(tag):
         ck = torch.load(CKPT_PATHS.get(tag, tag), map_location=dev, weights_only=False)
@@ -116,23 +119,86 @@ def render(which: str = "counter,steersweep,f5,teaser,rollout", n_scenes: int = 
         im = im.crop(((w-c)//2, (h-c)//2, (w-c)//2+c, (h-c)//2+c)).resize((256, 256))
         return (np.asarray(im)).astype(np.uint8)
 
-    def diff_future(fi, sv, nseed):  # 16 decoded diffusion frames for constant steer sv, fixed noise nseed
-        zt = torch.tensor(lat[fi:fi+1], device=dev); ztn = (patchify(zt)-gzm)/gzs; a = g_fo(act_const(fi, sv))
-        ns = 50; st = max(DIFFUSION_STEPS//ns, 1); ts = list(reversed(list(range(0, DIFFUSION_STEPS, st))[:ns]))
-        gen = torch.Generator(device=dev).manual_seed(nseed); x = torch.randn(1, HORIZON*N_SPATIAL, PATCH_DIM, device=dev, generator=gen)
+    # ---- DDIM + constant-steer action window (shared by single-pass / AR / SDEdit) ----
+    NS = 50; STRIDE = max(DIFFUSION_STEPS // NS, 1); TS = list(reversed(list(range(0, DIFFUSION_STEPS, STRIDE))[:NS]))
+    def _act_window(base, sv):  # H-step constant-steer action window starting at frame `base` (clamped at sequence end)
+        Nf = len(accels)
+        return torch.tensor(np.stack([[sv, accels[min(base + k, Nf - 1)]] for k in range(HORIZON)]),
+                            dtype=torch.float32, device=dev).unsqueeze(0)
+    def _ddim(x, ztn, a, ts, cfg_w):  # DDIM x0 loop; cfg_w>1 guides toward the action (null = zeroed embedding)
         for i, tv in enumerate(ts):
             t = torch.full((1,), tv, device=dev, dtype=torch.long); px0 = g_dit(x, ztn, a, t)
-            at = alphas[tv]; ap = alphas[ts[i+1]] if i < len(ts)-1 else torch.tensor(1.0, device=dev)
-            nd = (x - torch.sqrt(at)*px0)/torch.sqrt(1-at+1e-8); x = torch.sqrt(ap)*px0 + torch.sqrt(1-ap)*nd
-        gp = (x*gzs+gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
-        return [to_u8(decode(calib(unpatchify(gp[:, k]), zt))) for k in range(HORIZON)]
-    def direct_future(fi, sv):
+            if cfg_w != 1.0:
+                pu = g_dit(x, ztn, torch.zeros_like(a), t); px0 = pu + cfg_w * (px0 - pu)
+            at = alphas[tv]; ap = alphas[ts[i + 1]] if i < len(ts) - 1 else torch.tensor(1.0, device=dev)
+            nd = (x - torch.sqrt(at) * px0) / torch.sqrt(1 - at + 1e-8); x = torch.sqrt(ap) * px0 + torch.sqrt(1 - ap) * nd
+        return x
+
+    # ---- raw-latent grid generators (moving-row bake-off candidates) ----
+    def diff_grid(fi, sv, nseed, cfg_w=1.0):  # single-pass diffusion (present anchor + action)
+        zt = torch.tensor(lat[fi:fi+1], device=dev); ztn = (patchify(zt)-gzm)/gzs; a = g_fo(act_const(fi, sv))
+        gen = torch.Generator(device=dev).manual_seed(nseed); x = torch.randn(1, HORIZON*N_SPATIAL, PATCH_DIM, device=dev, generator=gen)
+        return (_ddim(x, ztn, a, TS, cfg_w) * gzs + gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+    def direct_grid(fi, sv, gain=1.0):  # C0: direct regression; gain>1 amplifies per-step residual from present
         zt = torch.tensor(lat[fi:fi+1], device=dev); ztn = (patchify(zt)-dzm)/dzs
         zr = ztn.unsqueeze(1).expand(-1, HORIZON, -1, -1).reshape(1, HORIZON*N_SPATIAL, PATCH_DIM)
         dp = (d_dit(zr, ztn, d_fo(act_const(fi, sv)), torch.zeros(1, dtype=torch.long, device=dev))*dzs+dzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
-        return [to_u8(decode(unpatchify(dp[:, k]))) for k in range(HORIZON)]
+        if gain != 1.0:
+            ztp = patchify(zt).unsqueeze(1)  # (1,1,N_SPATIAL,PATCH_DIM) present in patch space
+            dp = ztp + gain * (dp - ztp)
+        return dp
+    def sdedit_grid(fi, sv, nseed, strength, cfg_w=1.0):  # C2: img2img refine the DIRECT prediction with diffusion
+        zt = torch.tensor(lat[fi:fi+1], device=dev); ztn = (patchify(zt)-gzm)/gzs; a = g_fo(act_const(fi, sv))
+        x0 = (direct_grid(fi, sv, 1.0).reshape(1, HORIZON*N_SPATIAL, PATCH_DIM) - gzm) / gzs   # direct future, normalized
+        k0 = int(min(max(strength, 0.0), 1.0) * (len(TS) - 1)); tv0 = TS[k0]
+        gen = torch.Generator(device=dev).manual_seed(nseed)
+        x = torch.sqrt(alphas[tv0]) * x0 + torch.sqrt(1 - alphas[tv0]) * torch.randn(x0.shape, device=dev, generator=gen)
+        return (_ddim(x, ztn, a, TS[k0:], cfg_w) * gzs + gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)
+    def interp_grid(fi, sv, nseed, beta=0.5, cfg_w=1.0):  # C4: balanced operating point in raw latent space
+        return beta * direct_grid(fi, sv, 1.0) + (1 - beta) * diff_grid(fi, sv, nseed, cfg_w)
 
-    def save_mp4(path, frames, fps=4): imageio.mimwrite(path, frames, fps=fps, codec="libx264", quality=8, macro_block_size=1)
+    # ---- decode wrappers ----
+    def grid_frames(grid, zt):  # raw grid -> list of decoded [0,1] tensors, calibrated to present
+        return [decode(calib(unpatchify(grid[:, k]), zt)) for k in range(HORIZON)]
+    def ar_diffusion_frames(fi, sv, nseed, reproject_fb=False, cfg_w=1.0):  # C1: open-loop chained (re-anchor each step)
+        z0 = torch.tensor(lat[fi:fi+1], device=dev); z_curr = z0; frames = []
+        for kk in range(HORIZON):
+            ztn = (patchify(z_curr)-gzm)/gzs; a = g_fo(_act_window(fi+kk, sv))
+            gen = torch.Generator(device=dev).manual_seed(nseed + kk)
+            x = torch.randn(1, HORIZON*N_SPATIAL, PATCH_DIM, device=dev, generator=gen)
+            z_next = unpatchify((_ddim(x, ztn, a, TS, cfg_w)*gzs+gzm).reshape(1, HORIZON, N_SPATIAL, PATCH_DIM)[:, 0])
+            if reproject_fb:
+                z_next = vae.encode(decode(z_next) * 2 - 1).latent_dist.mean * SCALING
+            frames.append(decode(calib(z_next, z0))); z_curr = z_next
+        return frames
+    def diff_future(fi, sv, nseed, cfg_w=1.0):
+        return [to_u8(f) for f in grid_frames(diff_grid(fi, sv, nseed, cfg_w), torch.tensor(lat[fi:fi+1], device=dev))]
+    def direct_future(fi, sv, gain=1.0):  # decoded direct (no calib, matching the diagnostic / existing F5 row)
+        return [to_u8(decode(unpatchify(direct_grid(fi, sv, gain)[:, k]))) for k in range(HORIZON)]
+
+    # ---- motion metrics (ported from eval motion_fidelity; automatic bake-off gate) ----
+    BLUR_KS, BLUR_SIGMA = 31, 8.0
+    def _low(img): return TF.gaussian_blur(img, BLUR_KS, [BLUR_SIGMA, BLUR_SIGMA])
+    def _rms(a): return float(a.pow(2).mean().sqrt().item())
+    def _seq_lowhigh(fr):
+        lo = [_low(f) for f in fr]
+        L = float(np.mean([_rms(lo[i+1]-lo[i]) for i in range(len(fr)-1)]))
+        H = float(np.mean([_rms((fr[i+1]-lo[i+1])-(fr[i]-lo[i])) for i in range(len(fr)-1)]))
+        return L, H
+    def _prof(img, ax): return img[0].mean(dim=(0, ax)).detach().cpu().numpy()  # ax=1 horizontal, ax=2 vertical
+    def _sh1(p, r):
+        a = p - p.mean(); b = r - r.mean(); cc = np.correlate(a, b, "full"); return int(cc.argmax() - (len(p) - 1))
+    def _disp_seq(fr): return [(_sh1(_prof(fr[i+1], 1), _prof(fr[i], 1)), _sh1(_prof(fr[i+1], 2), _prof(fr[i], 2))) for i in range(len(fr)-1)]
+    def _dir_corr(pr, gt):
+        cs = [(px*gx+py*gy)/(((gx*gx+gy*gy)**0.5)*((px*px+py*py)**0.5))
+              for (px, py), (gx, gy) in zip(pr, gt) if (gx*gx+gy*gy) > 0 and (px*px+py*py) > 0]
+        return float(np.mean(cs)) if cs else 0.0
+    def _disp_mag(s): return float(np.mean([(dx*dx+dy*dy)**0.5 for dx, dy in s]))
+    def _sharp(img):  # Laplacian variance high-freq energy proxy (higher = sharper)
+        g = img.mean(1, keepdim=True); ker = torch.tensor([[0., 1., 0.], [1., -4., 1.], [0., 1., 0.]], device=dev).view(1, 1, 3, 3)
+        return float(F.conv2d(g, ker, padding=1).var().item())
+
+    def save_mp4(path, frames, fps=4): imageio.mimwrite(path, frames, fps=fps, codec="libx264", quality=9, macro_block_size=1)
     def save_gif(path, frames, fps=4): imageio.mimwrite(path, frames, duration=1.0/fps, loop=0)
     def hcat(imgs, gap=6):
         h = imgs[0].shape[0]; sep = np.ones((h, gap, 3), np.uint8)*255
@@ -141,56 +207,118 @@ def render(which: str = "counter,steersweep,f5,teaser,rollout", n_scenes: int = 
             out.append(im);
             if i < len(imgs)-1: out.append(sep)
         return np.concatenate(out, axis=1)
+    def up2(img):  # 2x Lanczos upscale for crisper video display (resolution only; no new content/frames)
+        return np.asarray(Image.fromarray(img).resize((img.shape[1]*2, img.shape[0]*2), Image.LANCZOS))
+
+    # ---- chosen bake-off WINNER technique -> decoded u8 frames + honest protocol label (set after M3 gate) ----
+    def winner_frames(fi, sv, nseed):
+        zt = torch.tensor(lat[fi:fi+1], device=dev)
+        if winner.startswith("sdedit_"): return [to_u8(f) for f in grid_frames(sdedit_grid(fi, sv, nseed, float(winner.split("_")[1]), 1.0), zt)]
+        if winner.startswith("interp_"): return [to_u8(f) for f in grid_frames(interp_grid(fi, sv, nseed, float(winner.split("_")[1]), 1.0), zt)]
+        if winner == "ar":            return [to_u8(f) for f in ar_diffusion_frames(fi, sv, nseed, False, 1.0)]
+        if winner == "ar_reproj":     return [to_u8(f) for f in ar_diffusion_frames(fi, sv, nseed, True, 1.0)]
+        if winner.startswith("direct_g"): return direct_future(fi, sv, float(winner.split("_g")[1]))
+        if winner == "direct":        return direct_future(fi, sv)
+        return diff_future(fi, sv, nseed)  # fallback: single-pass diffusion
+    WINNER_LABEL = {"sdedit_0.3": "DiT-WAM (regression-guided)", "sdedit_0.5": "DiT-WAM (regression-guided)",
+                    "interp_0.5": "DiT-WAM (interpolated)", "ar": "DiT-WAM (open-loop chained)",
+                    "ar_reproj": "DiT-WAM (open-loop, reproject)", "direct_g1.3": "DiT-direct (amplified)",
+                    "direct": "DiT-direct", "diffusion": "DiT-diffusion"}.get(winner, f"DiT-WAM ({winner})")
 
     which = [w.strip() for w in which.split(",") if w.strip()]
     made = []
 
     if "f5" in which or "teaser" in which:
-        with PdfPages(f"{OUT}/f5_multiscene.pdf") as pp:
-            disp = [0, 4, 8, 12, 15]
+        with PdfPages(f"{OUT}/f5_multiscene.pdf") as pp:  # -> fig_vae_qualitative.pdf at report-figure step (M6)
+            disp = [0, 3, 6, 9, 12, 15]
             for fi in picks:
                 zt = torch.tensor(lat[fi:fi+1], device=dev)
                 gt = [to_u8(decode(torch.tensor(lat[fi+1+k:fi+2+k], device=dev))) for k in disp]
-                dd = [direct_future(fi, steers[fi])[k] for k in disp]
-                gg_full = diff_future(fi, steers[fi], seed); gg = [gg_full[k] for k in disp]
+                ddf = direct_future(fi, steers[fi]); dd = [ddf[k] for k in disp]
+                ggf = diff_future(fi, steers[fi], seed); gg = [ggf[k] for k in disp]
                 rr = [rgb_real(fi+1+k) if rgb_real(fi+1+k) is not None else gt[i] for i, k in enumerate(disp)]
-                fig, ax = plt.subplots(4, len(disp), figsize=(2.4*len(disp), 9.6))
-                rows = [("Camera (RGB)", rr), ("VAE-GT", gt), ("DiT-direct (regression)", dd), ("DiT-diffusion", gg)]
+                rows = [("Camera (RGB)", rr), ("VAE-GT (ceiling)", gt),
+                        ("DiT-direct (motion, blurry)", dd), ("DiT-diffusion (sharp, single-pass)", gg)]
+                if winner:  # 5th row = chosen moving-row WINNER (DiT-WAM); empty winner keeps the 4-row honest fallback
+                    wwf = winner_frames(fi, steers[fi], seed); rows.append((WINNER_LABEL, [wwf[k] for k in disp]))
+                fig, ax = plt.subplots(len(rows), len(disp), figsize=(2.4*len(disp), 2.4*len(rows)))
                 for r, (lab, ims) in enumerate(rows):
                     for c, k in enumerate(disp):
                         ax[r, c].imshow(ims[c]); ax[r, c].axis("off")
                         if r == 0: ax[r, c].set_title(f"t+{k}", fontsize=10)
-                        if c == 0: ax[r, c].text(-0.08, 0.5, lab, rotation=90, va="center", ha="right", transform=ax[r, c].transAxes, fontsize=9)
+                        if c == 0: ax[r, c].text(-0.08, 0.5, lab, rotation=90, va="center", ha="right", transform=ax[r, c].transAxes, fontsize=8)
                 fig.tight_layout(); pp.savefig(fig, dpi=120); plt.close(fig)
-                if "teaser" in which:  # teaser components: present, direct-blur, diffusion-sharp @ t+15
+                if "teaser" in which:  # teaser components @ t+15
                     imageio.imwrite(f"{OUT}/teaser_s{fi}_present.png", rr[0])
                     imageio.imwrite(f"{OUT}/teaser_s{fi}_direct.png", dd[-1])
                     imageio.imwrite(f"{OUT}/teaser_s{fi}_diffusion.png", gg[-1])
-        made.append("f5_multiscene.pdf")
+                    if winner: imageio.imwrite(f"{OUT}/teaser_s{fi}_winner.png", winner_frames(fi, steers[fi], seed)[-1])
+        made.append("f5_multiscene.pdf (5-row qualitative)")
 
     if "counter" in which:
         for fi in picks:
-            L = diff_future(fi, p5, seed); Smid = diff_future(fi, pmid, seed); R = diff_future(fi, p95, seed)
-            frames = [hcat([L[k], Smid[k], R[k]]) for k in range(HORIZON)]
+            L = diff_future(fi, p5, seed, cfg_w); Smid = diff_future(fi, pmid, seed, cfg_w); R = diff_future(fi, p95, seed, cfg_w)
+            frames = [up2(hcat([L[k], Smid[k], R[k]])) for k in range(HORIZON)]
             save_mp4(f"{OUT}/v1_counterfactual_s{fi}.mp4", frames, fps=4)
             save_gif(f"{OUT}/v1_counterfactual_s{fi}.gif", frames, fps=4)
-        made.append("v1_counterfactual (L|S|R, fixed noise)")
+        made.append(f"v1_counterfactual (L|S|R, cfg_w={cfg_w})")
 
     if "steersweep" in which:
         sweep = np.linspace(p5, p95, 9)
         for fi in picks:
             for j, sv in enumerate(sweep):
-                fr = diff_future(fi, float(sv), seed)[15]  # endpoint t+15, fixed noise -> only steer changes
+                fr = diff_future(fi, float(sv), seed, cfg_w)[15]  # endpoint t+15, fixed noise -> only steer changes
                 imageio.imwrite(f"{OUT}/steersweep_s{fi}_k{j}.png", fr)
         made.append("steersweep (9 fixed-noise steers/scene for widget)")
 
     if "rollout" in which:
         for fi in picks:
             dseq = direct_future(fi, steers[fi]); gseq = diff_future(fi, steers[fi], seed)
-            frames = [hcat([dseq[k], gseq[k]]) for k in range(HORIZON)]  # direct | diffusion over t+1..t+16
+            frames = [up2(hcat([dseq[k], gseq[k]])) for k in range(HORIZON)]  # direct | diffusion over t+1..t+16
             save_mp4(f"{OUT}/v2_direct_vs_diffusion_s{fi}.mp4", frames, fps=3)
             save_gif(f"{OUT}/v2_direct_vs_diffusion_s{fi}.gif", frames, fps=3)
         made.append("v2_direct_vs_diffusion (sharp vs blur, 3fps)")
+
+    if "motion" in which:  # V-motion: chosen WINNER technique over t+1..t+16 (the "scene prediction" video)
+        for fi in picks:
+            wf = winner_frames(fi, steers[fi], seed)
+            frames = [up2(wf[k]) for k in range(HORIZON)]
+            save_mp4(f"{OUT}/vmotion_s{fi}.mp4", frames, fps=4)
+            save_gif(f"{OUT}/vmotion_s{fi}.gif", frames, fps=4)
+        made.append(f"vmotion ({winner})")
+
+    if "bakeoff" in which:  # M2: inference-only moving-row candidates + automatic motion gate (dir-corr/disp/sharp)
+        import json
+        cands = ["direct", "direct_g1.3", "diffusion", "sdedit_0.3", "sdedit_0.5", "interp_0.5", "ar", "ar_reproj"]
+        boj = {"blur_sigma": BLUR_SIGMA, "cfg_w": 1.0, "note": "metrics on mined scenes; dir_corr/disp vs GT, sharp=Laplacian-var", "scenes": []}
+        for fi in picks:
+            zt = torch.tensor(lat[fi:fi+1], device=dev)
+            gtf = [decode(torch.tensor(lat[fi+1+k:fi+2+k], device=dev)) for k in range(HORIZON)]
+            gtd = _disp_seq(gtf); gtlo, gthi = _seq_lowhigh(gtf)
+            gen_map = {
+                "direct":      lambda: grid_frames(direct_grid(fi, steers[fi], 1.0), zt),
+                "direct_g1.3": lambda: grid_frames(direct_grid(fi, steers[fi], 1.3), zt),
+                "diffusion":   lambda: grid_frames(diff_grid(fi, steers[fi], seed, 1.0), zt),
+                "sdedit_0.3":  lambda: grid_frames(sdedit_grid(fi, steers[fi], seed, 0.3, 1.0), zt),
+                "sdedit_0.5":  lambda: grid_frames(sdedit_grid(fi, steers[fi], seed, 0.5, 1.0), zt),
+                "interp_0.5":  lambda: grid_frames(interp_grid(fi, steers[fi], seed, 0.5, 1.0), zt),
+                "ar":          lambda: ar_diffusion_frames(fi, steers[fi], seed, False, 1.0),
+                "ar_reproj":   lambda: ar_diffusion_frames(fi, steers[fi], seed, True, 1.0),
+            }
+            srec = {"fi": int(fi), "gt": {"lo": round(gtlo, 4), "hi": round(gthi, 4), "disp_mag": round(_disp_mag(gtd), 3)}}
+            for name in cands:
+                fr = gen_map[name]()
+                lo, hi = _seq_lowhigh(fr); ds = _disp_seq(fr)
+                srec[name] = {"dir_corr": round(_dir_corr(ds, gtd), 3),
+                              "disp_mag_frac": round(_disp_mag(ds) / (_disp_mag(gtd) + 1e-9), 3),
+                              "lo_frac": round(lo / (gtlo + 1e-9), 3), "hi_frac": round(hi / (gthi + 1e-9), 3),
+                              "sharp": round(_sharp(fr[HORIZON // 2]), 5)}
+                imageio.imwrite(f"{OUT}/bakeoff_s{fi}_{name}.png", hcat([to_u8(fr[k]) for k in [0, 3, 6, 9, 12, 15]]))
+            boj["scenes"].append(srec)
+            print(f"[bakeoff] fi{fi} (gt disp {srec['gt']['disp_mag']}): " +
+                  " | ".join(f"{n}:dc{srec[n]['dir_corr']},dm{srec[n]['disp_mag_frac']},sh{srec[n]['sharp']}" for n in cands))
+        with open(f"{OUT}/motion_viz_bakeoff.json", "w") as f: json.dump(boj, f, indent=2)
+        made.append(f"bakeoff ({len(picks)}sc x {len(cands)}cand + filmstrips)")
 
     vol.commit()
     print("[viz] rendered:", made)
@@ -203,5 +331,6 @@ def _entry(fn):
 
 
 @_entry
-def main(which: str = "counter,steersweep,f5,teaser,rollout", n_scenes: int = 3):
-    print(render.remote(which, n_scenes))
+def main(which: str = "counter,steersweep,f5,teaser,rollout", n_scenes: int = 3, seed: int = 0, scene_ids: str = "",
+         cfg_w: float = 1.0, winner: str = "sdedit_0.5"):
+    print(render.remote(which, n_scenes, seed, scene_ids, cfg_w, winner))

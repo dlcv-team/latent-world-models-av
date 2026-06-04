@@ -33,7 +33,7 @@ if modal is not None:
              .pip_install("torch==2.5.1", "torchvision==0.20.1", "numpy==1.26.4", "Pillow>=10.0",
                           "diffusers==0.31.0", "transformers==4.46.3", "accelerate==1.1.1",
                           "matplotlib>=3.8", "scipy>=1.11", "imageio>=2.34", "imageio-ffmpeg>=0.4.9",
-                          "scikit-image>=0.22")
+                          "scikit-image>=0.22", "opencv-python-headless>=4.8")
              .add_local_file(str(TRAIN_SCRIPT), remote_path="/root/train_dit_vae_modal.py"))
 else:
     app = vol = image = None
@@ -354,6 +354,72 @@ def render(tag: str = "full", scene_ids: str = ""):
     vol.commit(); print("[render] GT(top)/pred(bottom) strips + mp4 for", made); return {"made": made}
 
 
+@_dec
+def demo(tag: str = "smoke2", scene_ids: str = "3217,438,3336"):
+    """V0 communication pack (no retrain): single-jump t+4 triptych + short t+0,4,8 strip + full5 + baseline + flow."""
+    import json, imageio.v2 as imageio
+    from PIL import Image
+    from skimage.metrics import structural_similarity as ssim
+    try:
+        import cv2; HAS_CV2 = True
+    except Exception:
+        HAS_CV2 = False
+    C = _common(); torch = C["torch"]; np = C["np"]; mod = C["mod"]; dev = C["dev"]
+    dit, fou, zmn, zsd, mmode = _make_model(C, f"{MM_DIR}/{tag}/dit.pt")
+    picks = [int(x) for x in scene_ids.split(",") if x.strip()]
+    SZ = 256
+    def u8(zl): return C["to_u8"](C["decode"](zl))
+    def gtf(n): return torch.tensor(C["lat"][n:n + 1], device=dev)
+    def up(img): return np.asarray(Image.fromarray(img).resize((SZ, SZ), Image.BILINEAR))
+    def hstrip(frames):
+        fr = [up(f) for f in frames]; s = np.ones((SZ, 6, 3), np.uint8) * 255
+        return np.concatenate(sum([[f, s] for f in fr[:-1]], []) + [fr[-1]], axis=1)
+    def stack(*rows):
+        out = []; gap = np.ones((6, rows[0].shape[1], 3), np.uint8) * 255
+        for i, r in enumerate(rows):
+            out.append(r);
+            if i < len(rows) - 1: out.append(gap)
+        return np.concatenate(out, axis=0)
+    def flow_rgb(a, b):
+        ga = cv2.cvtColor(a, cv2.COLOR_RGB2GRAY); gb = cv2.cvtColor(b, cv2.COLOR_RGB2GRAY)
+        fl = cv2.calcOpticalFlowFarneback(ga, gb, None, 0.5, 3, 21, 3, 5, 1.2, 0)
+        mag, ang = cv2.cartToPolar(fl[..., 0], fl[..., 1]); hsv = np.zeros((a.shape[0], a.shape[1], 3), np.uint8)
+        hsv[..., 0] = (ang * 90 / np.pi).astype(np.uint8); hsv[..., 1] = 255
+        hsv[..., 2] = np.clip(mag * 16, 0, 255).astype(np.uint8); return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+    # full-res direct baseline (5.4M, 16-joint) decoded at t+0,4,8,12,16
+    ck = torch.load(DIRECT_FULL, map_location=dev, weights_only=False); nb = int(ck.get("n_blocks", 4))
+    bd = mod.AnchoredVAEDiT(horizon=16, n_spatial=64, patch_dim=64, model_dim=256, n_blocks=nb, n_heads=4).to(dev)
+    bfo = mod.FourierActionEmbedding(action_dim=2, n_frequencies=64, base=2.0, out_dim=256).to(dev)
+    bd.load_state_dict(ck["dit"]); bfo.load_state_dict(ck["fourier"]); bd.eval(); bfo.eval()
+    bzm, bzs = ck["z_mean"].to(dev), ck["z_std"].to(dev)
+    def baseline_frames(fi):
+        zt = gtf(fi); ztn = (mod.patchify(zt) - bzm) / bzs
+        zr = ztn.unsqueeze(1).expand(-1, 16, -1, -1).reshape(1, 16 * 64, 64)
+        act = torch.tensor(np.stack([C["acts"][fi + k] for k in range(16)]), device=dev).unsqueeze(0)
+        dp = (bd(zr, ztn, bfo(act), torch.zeros(1, dtype=torch.long, device=dev)) * bzs + bzm).reshape(1, 16, 64, 64)
+        return [u8(gtf(fi))] + [C["to_u8"](C["decode"](mod.unpatchify(dp[:, k]))) for k in (3, 7, 11, 15)]
+    sc = {"tag": tag, "mode": mmode, "scenes": []}
+    for fi in picks:
+        present = u8(gtf(fi))
+        z4 = _jump_step(C, dit, fou, zmn, zsd, gtf(fi), fi, mode=mmode)
+        pred4, gt4 = u8(z4), u8(gtf(fi + 4))
+        imageio.imwrite(f"{OUT}/demo_s{fi}_triptych_t4.png", hstrip([present, pred4, gt4]))  # present | pred t+4 | GT t+4
+        chain = [C["to_u8"](f) for f in _jump_chain(C, dit, fou, zmn, zsd, fi, mode=mmode)]   # t+0,4,8,12,16
+        gtseq = [u8(gtf(fi + 4 * j)) for j in range(5)]
+        imageio.imwrite(f"{OUT}/demo_s{fi}_short_t048.png", stack(hstrip(gtseq[:3]), hstrip(chain[:3])))  # GT/pred t+0,4,8
+        imageio.imwrite(f"{OUT}/demo_s{fi}_full5.png", stack(hstrip(gtseq), hstrip(chain)))               # supp: full + compounding
+        imageio.imwrite(f"{OUT}/demo_s{fi}_baseline.png", stack(hstrip(gtseq), hstrip(baseline_frames(fi)), hstrip(chain)))  # GT/5.4M-direct/jump
+        if HAS_CV2:
+            fgt = [flow_rgb(gtseq[j], gtseq[j + 1]) for j in range(2)]; fpr = [flow_rgb(chain[j], chain[j + 1]) for j in range(2)]
+            imageio.imwrite(f"{OUT}/demo_s{fi}_flow.png", stack(hstrip(fgt), hstrip(fpr)))  # flow GT(top)/pred(bot): t0->4, t4->8
+        sc["scenes"].append({"fi": fi, "ssim_t4": round(float(ssim(pred4, gt4, channel_axis=2)), 3),
+                             "sharp_pred_t4": round(C["sharp"](C["decode"](z4)), 5),
+                             "sharp_gt_t4": round(C["sharp"](C["decode"](gtf(fi + 4))), 5),
+                             "sharp_present": round(C["sharp"](C["decode"](gtf(fi))), 5)})
+    with open(f"{OUT}/motion_demo_scorecard_{tag}.json", "w") as f: json.dump(sc, f, indent=2)
+    vol.commit(); print("[demo]", json.dumps(sc)); return sc
+
+
 @app.local_entrypoint() if app else (lambda f: f)
 def main(task: str = "preflight", epochs: int = 40, n_windows: int = 8000, n_scenes: int = 40,
          anchor_noise: float = 0.0, tag: str = "full", scene_ids: str = "", mode: str = "direct"):
@@ -365,5 +431,7 @@ def main(task: str = "preflight", epochs: int = 40, n_windows: int = 8000, n_sce
         print(eval.remote(tag, n_scenes))
     elif task == "render":
         print(render.remote(tag, scene_ids))
+    elif task == "demo":
+        print(demo.remote(tag, scene_ids))
     else:
         raise SystemExit(f"unknown task {task}")

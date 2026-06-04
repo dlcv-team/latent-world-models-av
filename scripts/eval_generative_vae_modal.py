@@ -795,7 +795,7 @@ def motion_eval(n_windows: int = 200, seed: int = 0):
 
 
 @_decorator
-def motion_fidelity(n_scenes: int = 40, seed: int = 0, diffusion_ckpt: str = "diffusion"):
+def motion_fidelity(n_scenes: int = 40, seed: int = 0, diffusion_ckpt: str = "diffusion", export_per_scene: int = 0):
     """MOTION-FIDELITY DIAGNOSTIC (gates 'forward motion' / 'Scene Prediction' claims).
     Decodes ALL 16 predicted steps and separates COHERENT scene motion (low-freq) from TEXTURE churn (high-freq),
     which the legacy total-L2 'temporal change' metric conflated. Reports, for GT/direct/diffusion:
@@ -889,7 +889,8 @@ def motion_fidelity(n_scenes: int = 40, seed: int = 0, diffusion_ckpt: str = "di
             gt_lo, gt_hi = seq_lowhigh(gtf); d_lo, d_hi = seq_lowhigh(df); g_lo, g_hi = seq_lowhigh(gf)
             # residual growth (raw-latent RMS from present); endpoint t+15
             res_gt = rms(zf[:, HORIZON-1] - z_t); res_d = rms(unpatchify(dp[:, HORIZON-1]) - z_t); res_g = rms(unpatchify(gp[:, HORIZON-1]) - z_t)
-            rec.append(dict(gt_lo=gt_lo, gt_hi=gt_hi, d_lo=d_lo, d_hi=d_hi, g_lo=g_lo, g_hi=g_hi,
+            rec.append(dict(fi=int(fi), scene=str(scenes[fi]), steer=float(abs(steers[fi])), accel=float(accels[fi]),
+                            gt_lo=gt_lo, gt_hi=gt_hi, d_lo=d_lo, d_hi=d_hi, g_lo=g_lo, g_hi=g_hi,
                             gt_disp=disp_seq(gtf), d_disp=disp_seq(df), g_disp=disp_seq(gf),
                             res_gt=res_gt, res_d=res_d, res_g=res_g,
                             gt_tot=legacy_tot(gtf), d_tot=legacy_tot(df), g_tot=legacy_tot(gf),
@@ -903,6 +904,17 @@ def motion_fidelity(n_scenes: int = 40, seed: int = 0, diffusion_ckpt: str = "di
             if ng > 0 and npred > 0: cs.append((px*gx + py*gy) / (ng * npred))
         return float(np.mean(cs)) if cs else 0.0
     def disp_mag(seq): return float(np.mean([(dx*dx + dy*dy) ** 0.5 for dx, dy in seq]))
+
+    if export_per_scene:  # scene mining: per-scene scores for picking MOTION (high gt_lo, low |steer|, accel>0) + V1 sets
+        per = [{"fi": r["fi"], "scene": r["scene"], "abs_steer": round(r["steer"], 4), "accel": round(r["accel"], 4),
+                "gt_lo": round(r["gt_lo"], 4),
+                "direct": {"disp_mag": round(disp_mag(r["d_disp"]), 3), "dir_corr": round(dir_corr(r["d_disp"], r["gt_disp"]), 3)},
+                "diffusion": {"disp_mag": round(disp_mag(r["g_disp"]), 3), "dir_corr": round(dir_corr(r["g_disp"], r["gt_disp"]), 3)},
+                "artifact": round(r["artifact"], 4)} for r in rec]
+        per.sort(key=lambda x: x["gt_lo"], reverse=True)
+        with open(f"{OUT_DIR}/motion_fidelity_per_scene.json", "w") as f:
+            json.dump({"n": len(per), "blur_sigma": BLUR_SIGMA, "scenes": per}, f, indent=2)
+        print("[motion_fid] per-scene top gt_lo: " + ", ".join(f"fi{p['fi']}|steer{p['abs_steer']}|acc{p['accel']}" for p in per[:10]))
 
     def agg(rs):
         gt_lo = np.mean([r["gt_lo"] for r in rs]); gt_hi = np.mean([r["gt_hi"] for r in rs])
@@ -1503,7 +1515,7 @@ def _entry(fn):
 @_entry
 def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights: str = "1.0",
          n_windows: int = 48, steps_eval: str = "3,15", n_fig: int = 5, cfg_w: float = 1.0,
-         wps: int = 1, diffusion_ckpt: str = "diffusion", feedback_mode: str = "both"):
+         wps: int = 1, diffusion_ckpt: str = "diffusion", feedback_mode: str = "both", export_per_scene: int = 0):
     if task == "figure":
         res = make_figure.remote(n_fig, cfg_w)
         print(json.dumps(res, indent=2))
@@ -1570,7 +1582,7 @@ def main(task: str = "eval", models: str = "diffusion", k: int = 8, cfg_weights:
         out.write_text(json.dumps(res, indent=2)); print(json.dumps(res, indent=2)); print(f"Saved {out}")
         return
     if task == "motion_fidelity":
-        res = motion_fidelity.remote(n_windows, 0, diffusion_ckpt)
+        res = motion_fidelity.remote(n_windows, 0, diffusion_ckpt, export_per_scene)
         mtag = "" if diffusion_ckpt == "diffusion" else "_" + diffusion_ckpt.strip("/").replace("/", "_")
         out = Path(f"artifacts/full/motion_fidelity{mtag}.json")
         if not out.parent.exists():
