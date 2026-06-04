@@ -1,0 +1,33 @@
+{
+  "tag": "diff2",
+  "mode": "diffusion",
+  "protocol": "jump_chain",
+  "dt": 4,
+  "n_jumps": 4,
+  "motionmini_ordinary_openloop": {
+    "n": 30,
+    "disp_dir_corr": 0.031,
+    "lowfreq_frac": 0.688,
+    "disp_mag_frac": 0.018
+  },
+  "motionmini_ordinary_teacherforced": {
+    "n": 30,
+    "disp_dir_corr": 0.104,
+    "lowfreq_frac": 1.627,
+    "disp_mag_frac": 1.219
+  },
+  "motionmini_mined_openloop": {
+    "n": 30,
+    "disp_dir_corr": 0.005,
+    "lowfreq_frac": 0.334,
+    "disp_mag_frac": 0.005
+  },
+  "baseline_fullres_direct_ordinary": {
+    "n": 30,
+    "disp_dir_corr": 0.407,
+    "lowfreq_frac": 0.998,
+    "disp_mag_frac": 2.756
+  },
+  "gate_motion_PASS": false,
+  "gate_motion_STRONG": false
+}
