@@ -1,0 +1,646 @@
+{
+  "n": 40,
+  "blur_sigma": 8.0,
+  "scenes": [
+    {
+      "fi": 598,
+      "scene": "scene-0016",
+      "abs_steer": 0.1536,
+      "accel": -0.0344,
+      "gt_lo": 0.1166,
+      "direct": {
+        "disp_mag": 25.417,
+        "dir_corr": 0.037
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1863
+    },
+    {
+      "fi": 438,
+      "scene": "scene-0012",
+      "abs_steer": 0.0849,
+      "accel": 0.0869,
+      "gt_lo": 0.1056,
+      "direct": {
+        "disp_mag": 3.019,
+        "dir_corr": 0.321
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.101
+    },
+    {
+      "fi": 1395,
+      "scene": "scene-0036",
+      "abs_steer": 0.0032,
+      "accel": 0.0161,
+      "gt_lo": 0.098,
+      "direct": {
+        "disp_mag": 0.677,
+        "dir_corr": 0.346
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0903
+    },
+    {
+      "fi": 1475,
+      "scene": "scene-0039",
+      "abs_steer": 0.0175,
+      "accel": 0.1355,
+      "gt_lo": 0.0871,
+      "direct": {
+        "disp_mag": 3.2,
+        "dir_corr": 0.175
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1145
+    },
+    {
+      "fi": 1355,
+      "scene": "scene-0035",
+      "abs_steer": 0.0419,
+      "accel": -0.0226,
+      "gt_lo": 0.0846,
+      "direct": {
+        "disp_mag": 1.222,
+        "dir_corr": 0.593
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1489
+    },
+    {
+      "fi": 638,
+      "scene": "scene-0017",
+      "abs_steer": 0.0,
+      "accel": -0.0462,
+      "gt_lo": 0.0833,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1191
+    },
+    {
+      "fi": 678,
+      "scene": "scene-0018",
+      "abs_steer": 0.2909,
+      "accel": 0.0657,
+      "gt_lo": 0.0822,
+      "direct": {
+        "disp_mag": 11.733,
+        "dir_corr": 0.25
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1004
+    },
+    {
+      "fi": 8016,
+      "scene": "scene-0271",
+      "abs_steer": 0.0969,
+      "accel": 0.1357,
+      "gt_lo": 0.0766,
+      "direct": {
+        "disp_mag": 5.147,
+        "dir_corr": 0.205
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0774
+    },
+    {
+      "fi": 3336,
+      "scene": "scene-0102",
+      "abs_steer": 0.1245,
+      "accel": -0.0283,
+      "gt_lo": 0.0757,
+      "direct": {
+        "disp_mag": 12.0,
+        "dir_corr": 0.667
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1056
+    },
+    {
+      "fi": 2982,
+      "scene": "scene-0093",
+      "abs_steer": 0.0096,
+      "accel": -0.1073,
+      "gt_lo": 0.0734,
+      "direct": {
+        "disp_mag": 30.0,
+        "dir_corr": 0.333
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0668
+    },
+    {
+      "fi": 7936,
+      "scene": "scene-0269",
+      "abs_steer": 0.5312,
+      "accel": -0.0022,
+      "gt_lo": 0.072,
+      "direct": {
+        "disp_mag": 3.0,
+        "dir_corr": 0.442
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1607
+    },
+    {
+      "fi": 2942,
+      "scene": "scene-0092",
+      "abs_steer": 0.0012,
+      "accel": 0.026,
+      "gt_lo": 0.0715,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0653
+    },
+    {
+      "fi": 3376,
+      "scene": "scene-0103",
+      "abs_steer": 0.0265,
+      "accel": -0.0607,
+      "gt_lo": 0.0619,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0758
+    },
+    {
+      "fi": 478,
+      "scene": "scene-0013",
+      "abs_steer": 0.0521,
+      "accel": -0.0534,
+      "gt_lo": 0.0613,
+      "direct": {
+        "disp_mag": 4.008,
+        "dir_corr": 0.311
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0882
+    },
+    {
+      "fi": 8094,
+      "scene": "scene-0273",
+      "abs_steer": 0.062,
+      "accel": 0.0977,
+      "gt_lo": 0.0599,
+      "direct": {
+        "disp_mag": 7.933,
+        "dir_corr": -1.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1007
+    },
+    {
+      "fi": 6186,
+      "scene": "scene-0221",
+      "abs_steer": 0.0166,
+      "accel": -0.0281,
+      "gt_lo": 0.0581,
+      "direct": {
+        "disp_mag": 10.403,
+        "dir_corr": 0.127
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0954
+    },
+    {
+      "fi": 7897,
+      "scene": "scene-0268",
+      "abs_steer": 0.0605,
+      "accel": 0.0445,
+      "gt_lo": 0.0573,
+      "direct": {
+        "disp_mag": 0.8,
+        "dir_corr": 0.126
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.083
+    },
+    {
+      "fi": 3217,
+      "scene": "scene-0099",
+      "abs_steer": 0.002,
+      "accel": -0.1122,
+      "gt_lo": 0.0572,
+      "direct": {
+        "disp_mag": 3.933,
+        "dir_corr": 1.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0717
+    },
+    {
+      "fi": 3494,
+      "scene": "scene-0106",
+      "abs_steer": 0.055,
+      "accel": 0.0299,
+      "gt_lo": 0.0559,
+      "direct": {
+        "disp_mag": 1.533,
+        "dir_corr": 0.333
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0882
+    },
+    {
+      "fi": 3534,
+      "scene": "scene-0107",
+      "abs_steer": 0.0413,
+      "accel": 0.0417,
+      "gt_lo": 0.0542,
+      "direct": {
+        "disp_mag": 0.467,
+        "dir_corr": 1.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0693
+    },
+    {
+      "fi": 8133,
+      "scene": "scene-0274",
+      "abs_steer": 0.03,
+      "accel": -0.0422,
+      "gt_lo": 0.0527,
+      "direct": {
+        "disp_mag": 0.667,
+        "dir_corr": 0.667
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1001
+    },
+    {
+      "fi": 1435,
+      "scene": "scene-0038",
+      "abs_steer": 0.4375,
+      "accel": 0.1068,
+      "gt_lo": 0.0515,
+      "direct": {
+        "disp_mag": 0.667,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.1734
+    },
+    {
+      "fi": 3416,
+      "scene": "scene-0104",
+      "abs_steer": 0.0055,
+      "accel": 0.0428,
+      "gt_lo": 0.0505,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0703
+    },
+    {
+      "fi": 558,
+      "scene": "scene-0015",
+      "abs_steer": 0.0369,
+      "accel": -0.0568,
+      "gt_lo": 0.0476,
+      "direct": {
+        "disp_mag": 1.333,
+        "dir_corr": 1.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0747
+    },
+    {
+      "fi": 3455,
+      "scene": "scene-0105",
+      "abs_steer": 0.0154,
+      "accel": 0.0148,
+      "gt_lo": 0.0452,
+      "direct": {
+        "disp_mag": 2.733,
+        "dir_corr": 0.002
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0791
+    },
+    {
+      "fi": 7976,
+      "scene": "scene-0270",
+      "abs_steer": 0.0358,
+      "accel": -0.005,
+      "gt_lo": 0.0446,
+      "direct": {
+        "disp_mag": 0.467,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0792
+    },
+    {
+      "fi": 3100,
+      "scene": "scene-0096",
+      "abs_steer": 0.0003,
+      "accel": 0.1545,
+      "gt_lo": 0.038,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.063
+    },
+    {
+      "fi": 3178,
+      "scene": "scene-0098",
+      "abs_steer": 0.0003,
+      "accel": 0.0583,
+      "gt_lo": 0.0368,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0718
+    },
+    {
+      "fi": 3653,
+      "scene": "scene-0110",
+      "abs_steer": 0.0061,
+      "accel": -0.0406,
+      "gt_lo": 0.0359,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0653
+    },
+    {
+      "fi": 8055,
+      "scene": "scene-0272",
+      "abs_steer": 0.0387,
+      "accel": -0.0269,
+      "gt_lo": 0.0349,
+      "direct": {
+        "disp_mag": 2.142,
+        "dir_corr": -0.003
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0658
+    },
+    {
+      "fi": 3613,
+      "scene": "scene-0109",
+      "abs_steer": 0.0093,
+      "accel": -0.0395,
+      "gt_lo": 0.0348,
+      "direct": {
+        "disp_mag": 0.733,
+        "dir_corr": 1.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0545
+    },
+    {
+      "fi": 8173,
+      "scene": "scene-0275",
+      "abs_steer": 0.0038,
+      "accel": -0.0098,
+      "gt_lo": 0.0335,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0669
+    },
+    {
+      "fi": 518,
+      "scene": "scene-0014",
+      "abs_steer": 0.0349,
+      "accel": -0.0074,
+      "gt_lo": 0.0327,
+      "direct": {
+        "disp_mag": 2.133,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0677
+    },
+    {
+      "fi": 3021,
+      "scene": "scene-0094",
+      "abs_steer": 0.0,
+      "accel": 0.0174,
+      "gt_lo": 0.0284,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0603
+    },
+    {
+      "fi": 80,
+      "scene": "scene-0003",
+      "abs_steer": 0.0157,
+      "accel": -0.0112,
+      "gt_lo": 0.0264,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0628
+    },
+    {
+      "fi": 3574,
+      "scene": "scene-0108",
+      "abs_steer": 0.0078,
+      "accel": -0.0109,
+      "gt_lo": 0.0252,
+      "direct": {
+        "disp_mag": 27.067,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0381
+    },
+    {
+      "fi": 3296,
+      "scene": "scene-0101",
+      "abs_steer": 0.0593,
+      "accel": -0.0034,
+      "gt_lo": 0.0138,
+      "direct": {
+        "disp_mag": 1.133,
+        "dir_corr": 1.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0751
+    },
+    {
+      "fi": 3139,
+      "scene": "scene-0097",
+      "abs_steer": 0.0006,
+      "accel": 0.0217,
+      "gt_lo": 0.0101,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0726
+    },
+    {
+      "fi": 3061,
+      "scene": "scene-0095",
+      "abs_steer": 0.0044,
+      "accel": 0.0263,
+      "gt_lo": 0.0055,
+      "direct": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0649
+    },
+    {
+      "fi": 3256,
+      "scene": "scene-0100",
+      "abs_steer": 0.0352,
+      "accel": -0.0035,
+      "gt_lo": 0.0029,
+      "direct": {
+        "disp_mag": 0.067,
+        "dir_corr": 0.0
+      },
+      "diffusion": {
+        "disp_mag": 0.0,
+        "dir_corr": 0.0
+      },
+      "artifact": 0.0825
+    }
+  ]
+}

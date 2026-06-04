@@ -1,0 +1,32 @@
+{
+  "tag": "smoke2",
+  "protocol": "jump_chain",
+  "dt": 4,
+  "n_jumps": 4,
+  "motionmini_ordinary_openloop": {
+    "n": 30,
+    "disp_dir_corr": 0.482,
+    "lowfreq_frac": 1.02,
+    "disp_mag_frac": 0.824
+  },
+  "motionmini_ordinary_teacherforced": {
+    "n": 30,
+    "disp_dir_corr": 0.4,
+    "lowfreq_frac": 0.996,
+    "disp_mag_frac": 1.403
+  },
+  "motionmini_mined_openloop": {
+    "n": 30,
+    "disp_dir_corr": 0.273,
+    "lowfreq_frac": 0.508,
+    "disp_mag_frac": 0.439
+  },
+  "baseline_fullres_direct_ordinary": {
+    "n": 30,
+    "disp_dir_corr": 0.407,
+    "lowfreq_frac": 0.998,
+    "disp_mag_frac": 2.756
+  },
+  "gate_motion_PASS": true,
+  "gate_motion_STRONG": true
+}
