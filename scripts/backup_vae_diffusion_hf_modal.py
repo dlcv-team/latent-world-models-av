@@ -37,6 +37,11 @@ UPLOADS = [
      EMBEDDINGS_REPO, "gen_eval/motion_eval.json", "dataset"),
     (f"{VOL_PATH}/da_analysis/t0_perwindow_results.csv",
      EMBEDDINGS_REPO, "da_analysis/t0_perwindow_results.csv", "dataset"),
+    # Phase-2 project-page media (durable HF mirror; small copies also in docs-repo/project-page/assets)
+    (f"{VOL_PATH}/viz/v1_counterfactual_s80.mp4", EMBEDDINGS_REPO, "viz/v1_counterfactual.mp4", "dataset"),
+    (f"{VOL_PATH}/viz/v2_direct_vs_diffusion_s80.mp4", EMBEDDINGS_REPO, "viz/v2_direct_vs_diffusion.mp4", "dataset"),
+    (f"{VOL_PATH}/viz/v1_counterfactual_s80.gif", EMBEDDINGS_REPO, "viz/v1_counterfactual.gif", "dataset"),
+    (f"{VOL_PATH}/viz/f5_multiscene.pdf", EMBEDDINGS_REPO, "viz/f5_multiscene.pdf", "dataset"),
 ]
 
 if modal is not None:
