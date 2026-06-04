@@ -42,6 +42,17 @@ UPLOADS = [
     (f"{VOL_PATH}/viz/v2_direct_vs_diffusion_s80.mp4", EMBEDDINGS_REPO, "viz/v2_direct_vs_diffusion.mp4", "dataset"),
     (f"{VOL_PATH}/viz/v1_counterfactual_s80.gif", EMBEDDINGS_REPO, "viz/v1_counterfactual.gif", "dataset"),
     (f"{VOL_PATH}/viz/f5_multiscene.pdf", EMBEDDINGS_REPO, "viz/f5_multiscene.pdf", "dataset"),
+    # Motion-mini chain-anchor JUMP world-model (Delta t=4): direct-jump PASS deliverable (open-loop dir-corr 0.48 >
+    # 5.4M baseline) + diffusion-jump ablations (explode / anchor-noise->static) + rollout videos. Durable for resume.
+    (f"{VOL_PATH}/dits/vae_latent/motionmini_jump4/smoke2/dit.pt",
+     CHECKPOINTS_REPO, "vae_latent/motionmini_jump4/direct_smoke2/dit.pt", "model"),
+    (f"{VOL_PATH}/dits/vae_latent/motionmini_jump4/diff/dit.pt",
+     CHECKPOINTS_REPO, "vae_latent/motionmini_jump4/diffusion_ablation/dit.pt", "model"),
+    (f"{VOL_PATH}/dits/vae_latent/motionmini_jump4/diff2/dit.pt",
+     CHECKPOINTS_REPO, "vae_latent/motionmini_jump4/diffusion_anchornoise_ablation/dit.pt", "model"),
+    (f"{VOL_PATH}/viz/vmotion_mini_s3217_smoke2.mp4", EMBEDDINGS_REPO, "motion_mini/vmotion_s3217.mp4", "dataset"),
+    (f"{VOL_PATH}/viz/vmotion_mini_s438_smoke2.mp4", EMBEDDINGS_REPO, "motion_mini/vmotion_s438.mp4", "dataset"),
+    (f"{VOL_PATH}/viz/vmotion_mini_s3336_smoke2.mp4", EMBEDDINGS_REPO, "motion_mini/vmotion_s3336.mp4", "dataset"),
 ]
 
 if modal is not None:
