@@ -1,0 +1,91 @@
+{
+  "split": "example",
+  "n_scenes": 6,
+  "provenance": {
+    "generator": "data.scene_captions",
+    "nuscenes_version": "synthetic-example",
+    "counting": "unique instance_token per vehicle.*/human.pedestrian.*",
+    "bucket_priority": "rain > night > scenario",
+    "source": "SYNTHETIC schema example (not real nuScenes); regenerate real data with: python -m data.scene_captions"
+  },
+  "captions": [
+    {
+      "scene_token": "scene_tok_0",
+      "scene_name": "scene-A",
+      "caption": "rain daytime urban, 2 vehicles, 1 pedestrians",
+      "fields": {
+        "weather": "rain",
+        "time_of_day": "daytime",
+        "scenario": "urban",
+        "n_vehicles": 2,
+        "n_pedestrians": 1
+      },
+      "bucket": "rain"
+    },
+    {
+      "scene_token": "scene_tok_1",
+      "scene_name": "scene-B",
+      "caption": "clear night highway, 2 vehicles, 0 pedestrians",
+      "fields": {
+        "weather": "clear",
+        "time_of_day": "night",
+        "scenario": "highway",
+        "n_vehicles": 2,
+        "n_pedestrians": 0
+      },
+      "bucket": "night"
+    },
+    {
+      "scene_token": "scene_tok_2",
+      "scene_name": "scene-C",
+      "caption": "clear daytime highway, 1 vehicles, 0 pedestrians",
+      "fields": {
+        "weather": "clear",
+        "time_of_day": "daytime",
+        "scenario": "highway",
+        "n_vehicles": 1,
+        "n_pedestrians": 0
+      },
+      "bucket": "highway"
+    },
+    {
+      "scene_token": "scene_tok_3",
+      "scene_name": "scene-D",
+      "caption": "clear daytime urban, 1 vehicles, 2 pedestrians",
+      "fields": {
+        "weather": "clear",
+        "time_of_day": "daytime",
+        "scenario": "urban",
+        "n_vehicles": 1,
+        "n_pedestrians": 2
+      },
+      "bucket": "urban"
+    },
+    {
+      "scene_token": "scene_tok_4",
+      "scene_name": "scene-E",
+      "caption": "clear daytime intersection, 1 vehicles, 1 pedestrians",
+      "fields": {
+        "weather": "clear",
+        "time_of_day": "daytime",
+        "scenario": "intersection",
+        "n_vehicles": 1,
+        "n_pedestrians": 1
+      },
+      "bucket": "intersection"
+    },
+    {
+      "scene_token": "scene_tok_5",
+      "scene_name": "scene-F",
+      "caption": "clear daytime other, 0 vehicles, 0 pedestrians",
+      "fields": {
+        "weather": "clear",
+        "time_of_day": "daytime",
+        "scenario": "other",
+        "n_vehicles": 0,
+        "n_pedestrians": 0
+      },
+      "bucket": "other"
+    }
+  ]
+}
