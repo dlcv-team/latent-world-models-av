@@ -53,7 +53,7 @@ def load_environment_scene_lists(config_path: Path) -> tuple[set[str], set[str]]
     return night_scenes, rain_scenes
 
 
-def main():
+def main() -> int:
     print("Generating per_environment_rmse.csv from probe results...")
 
     # Load config
@@ -71,7 +71,7 @@ def main():
         print("1. Manually inspect p0_test scenes in nuScenes")
         print("2. Populate configs/environment_scene_lists.yaml with night/rain scene names")
         print("3. Re-run this script")
-        return
+        return 1
 
     print(f"  Night scenes: {len(night_scenes)}")
     print(f"  Rain scenes: {len(rain_scenes)}")
@@ -86,7 +86,7 @@ def main():
     if not probe_root.exists():
         print(f"\n❌ Probe results not found at {probe_root}")
         print("Run probe training first: python training/train_probe.py")
-        return
+        return 1
 
     encoders = sorted([d.name for d in probe_root.iterdir() if d.is_dir()])
     print(f"\nFound {len(encoders)} encoders: {encoders}")
@@ -123,7 +123,7 @@ def main():
 
     if not all_scene_rmse:
         print("\n❌ No per_scene_rmse.csv files found")
-        return
+        return 1
 
     scene_rmse_df = pd.DataFrame(all_scene_rmse)
     print(f"\nTotal scene-encoder pairs: {len(scene_rmse_df)}")
@@ -201,7 +201,8 @@ def main():
     # Show sample
     print("\nSample (first 12 rows):")
     print(results_df.head(12).to_string(index=False))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -15,24 +15,7 @@ import yaml
 from nuscenes.nuscenes import NuScenes
 
 from config import load_canonical, manifest_split
-
-
-def parse_logfile_timestamp(logfile: str) -> str:
-    """Extract timestamp from logfile name.
-
-    Args:
-        logfile: e.g., "n015-2018-07-18-11-07-57+0800"
-
-    Returns:
-        Time string "HH:MM:SS" or "unknown"
-    """
-    match = re.search(r'-(\d{2})-(\d{2})-(\d{2})[+-]\d{4}$', logfile)
-    if match:
-        hour = int(match.group(1))
-        minute = int(match.group(2))
-        second = int(match.group(3))
-        return f"{hour:02d}:{minute:02d}:{second:02d}"
-    return "unknown"
+from evaluation.metrics import parse_logfile_timestamp, is_night_from_timestamp
 
 
 def derive_night_scenes_from_timestamps(nusc: NuScenes, test_scenes: list[str]) -> set[str]:
@@ -55,11 +38,8 @@ def derive_night_scenes_from_timestamps(nusc: NuScenes, test_scenes: list[str]) 
         logfile = log.get("logfile", "")
         timestamp = parse_logfile_timestamp(logfile)
 
-        if timestamp != "unknown":
-            hour = int(timestamp.split(":")[0])
-            # Night: 6pm-6am (18:00-05:59)
-            if hour >= 18 or hour < 6:
-                night_scenes.add(scene_name)
+        if is_night_from_timestamp(timestamp):
+            night_scenes.add(scene_name)
 
     return night_scenes
 
