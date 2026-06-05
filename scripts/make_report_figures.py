@@ -61,9 +61,6 @@ def f6(profile):
     axes[0].set_title(f"KID $\\downarrow$   (train-calib $\\approx${dr/cc:.1f}$\\times$ lower than regression)")
     axes[1].set_title("FID $\\downarrow$")
     axes[0].legend(frameon=False, ncol=2, loc="upper left", fontsize=plt.rcParams["legend.fontsize"]-1)
-    fig.suptitle("Distribution realism: diffusion wins where regression's blur fails "
-                 "(600 test windows; t+4 = 3 seeds, t+16 = seed 0)", y=1.04,
-                 fontsize=plt.rcParams["axes.titlesize"])
     return S.savefig(fig, "fig_fidkid", profile)
 
 
