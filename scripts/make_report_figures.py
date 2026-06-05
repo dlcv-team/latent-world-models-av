@@ -111,7 +111,6 @@ def f8(profile):
         ax.text(b.get_x() + b.get_width()/2, ytxt,
                 f"$\\rho$={r:+.2f}\n{int(fr*100)}% sign-correct\n(n={n})", ha="center",
                 va="bottom", fontsize=plt.rcParams["legend.fontsize"]-1)
-    ax.set_title("Action controllability: steering controls the\ngenerated scene shift for diffusion, not regression", pad=10)
     return S.savefig(fig, "fig_controllability", profile)
 
 
