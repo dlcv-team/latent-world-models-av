@@ -86,8 +86,7 @@ def f7(profile):
     ax.plot([x for x, _ in strong_pts], [y for _, y in strong_pts], "--",
             color="#777777", lw=1.0, zorder=1)
     ax.set_xlabel("CosSim to GT  $\\rightarrow$ better distortion")
-    ax.set_ylabel("KID  $\\downarrow$ better perception")
-    ax.set_title("Empirical distortion–perception frontier\n(inspired by Blau–Michaeli, t+16, 150 windows)")
+    ax.set_ylabel("KID  $\\leftarrow$ better perception")
     ax.legend(frameon=False, loc="upper center", fontsize=plt.rcParams["legend.fontsize"]-1)
     ax.margins(0.18)
     return S.savefig(fig, "fig_frontier", profile)
