@@ -53,6 +53,10 @@ UPLOADS = [
     (f"{VOL_PATH}/viz/vmotion_mini_s3217_smoke2.mp4", EMBEDDINGS_REPO, "motion_mini/vmotion_s3217.mp4", "dataset"),
     (f"{VOL_PATH}/viz/vmotion_mini_s438_smoke2.mp4", EMBEDDINGS_REPO, "motion_mini/vmotion_s438.mp4", "dataset"),
     (f"{VOL_PATH}/viz/vmotion_mini_s3336_smoke2.mp4", EMBEDDINGS_REPO, "motion_mini/vmotion_s3336.mp4", "dataset"),
+    # V0 demo strips = the DATA inputs for fig_motion_overlay.pdf (generator: scripts/render_motion_overlay_fig.py).
+    (f"{VOL_PATH}/viz/demo_s3217_baseline.png", EMBEDDINGS_REPO, "motion_mini/demo_s3217_baseline.png", "dataset"),
+    (f"{VOL_PATH}/viz/demo_s3217_full5.png", EMBEDDINGS_REPO, "motion_mini/demo_s3217_full5.png", "dataset"),
+    (f"{VOL_PATH}/viz/demo_s3217_triptych_t4.png", EMBEDDINGS_REPO, "motion_mini/demo_s3217_triptych_t4.png", "dataset"),
 ]
 
 if modal is not None:
