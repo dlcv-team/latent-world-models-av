@@ -243,7 +243,7 @@ def smf(profile):
     The headline correction to the old 'more dynamic than the blur' claim."""
     S.apply(profile)
     d = S.load("motion_fidelity.json")
-    groups = ["all_scenes", "high_motion_quartile"]; glab = ["All scenes", "High-motion\nquartile"]
+    groups = ["all_scenes", "high_motion_quartile"]; glab = ["All scenes", "High-motion quartile"]
     dlow = [d[g]["direct"]["lowfreq_frac_of_gt"] for g in groups]
     glow = [d[g]["diffusion"]["lowfreq_frac_of_gt"] for g in groups]
     ghigh = [d[g]["diffusion"]["highfreq_frac_of_gt"] for g in groups]
@@ -253,13 +253,12 @@ def smf(profile):
     ax.bar(x, glow, w, color=S.C["diffusion"], edgecolor="white", label="Diffusion: scene-motion (low-freq)")
     ax.bar(x + w, ghigh, w, color=S.C["diffusion"], alpha=0.4, hatch="//", edgecolor="white", label="Diffusion: texture (high-freq)")
     ax.axhline(1.0, ls="--", color=S.C["ceiling"], lw=1.0); ax.text(1.48, 1.0, "GT", va="center", color=S.C["ceiling"])
-    for xi, v in zip(x - w, dlow): ax.text(xi, v + 0.02, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
-    for xi, v in zip(x, glow): ax.text(xi, v + 0.02, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
-    for xi, v in zip(x + w, ghigh): ax.text(xi, v + 0.02, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
-    ax.set_xticks(x); ax.set_xticklabels(glab); ax.set_ylim(0, 1.15)
+    for xi, v in zip(x - w, dlow): ax.text(xi, v + 0.04, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
+    for xi, v in zip(x, glow): ax.text(xi, v + 0.04, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
+    for xi, v in zip(x + w, ghigh): ax.text(xi, v + 0.04, f"{v:.2f}", ha="center", fontsize=plt.rcParams["legend.fontsize"]-1)
+    ax.set_xticks(x); ax.set_xticklabels(glab); ax.set_ylim(0, 1.40)
     ax.set_ylabel("fraction of GT frame-to-frame change")
     ax.legend(frameon=False, loc="upper center", fontsize=plt.rcParams["legend.fontsize"]-1)
-    ax.set_title("Diffusion reproduces GT texture (0.98) but little coherent motion;\nthe blurry mean captures MORE scene motion (40 scenes)")
     return S.savefig(fig, "fig_motion_fidelity", profile)
 
 
