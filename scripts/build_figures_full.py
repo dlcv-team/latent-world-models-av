@@ -20,6 +20,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+import viz_style as S
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SUMMARY_PATH = PROJECT_ROOT / "outputs" / "analysis" / "encoder_summary_with_ci.csv"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "artifacts" / "full" / "figures"
@@ -40,8 +42,19 @@ def save_png_pdf(fig: plt.Figure, out_dir: Path, stem: str) -> None:
     fig.tight_layout()
     fig.savefig(out_dir / f"{stem}.png", dpi=DPI, bbox_inches="tight")
     fig.savefig(out_dir / f"{stem}.pdf", dpi=DPI, bbox_inches="tight")
+    
+    # Also save as fig_encoder_rmse in the artifacts directory
+    fig.savefig(out_dir / "fig_encoder_rmse.png", dpi=DPI, bbox_inches="tight")
+    fig.savefig(out_dir / "fig_encoder_rmse.pdf", dpi=DPI, bbox_inches="tight")
+    
+    # Also save to the LaTeX report figures directory
+    latex_dir = PROJECT_ROOT.parent.parent / "docs-repo" / "final-report" / "latex" / "figures"
+    latex_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(latex_dir / f"{stem}.pdf", dpi=DPI, bbox_inches="tight")
+    fig.savefig(latex_dir / "fig_encoder_rmse.pdf", dpi=DPI, bbox_inches="tight")
+    
     plt.close(fig)
-    print(f"  Saved {out_dir / stem}.{{png,pdf}}")
+    print(f"  Saved {out_dir / stem}.{{png,pdf}} and copies to LaTeX directory")
 
 
 def build_rmse_bar_chart(summary_path: Path, out_dir: Path) -> None:
@@ -67,36 +80,29 @@ def build_rmse_bar_chart(summary_path: Path, out_dir: Path) -> None:
     x = np.arange(len(encoders))
     w = 0.35
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    # Apply shared house styling
+    S.apply("report")
+
+    fig, ax = plt.subplots(figsize=S.figsize("report", 7.0, 3.4))
     ax.bar(
         x - w / 2, steer_mean, width=w,
-        yerr=steer_err, capsize=3, color="#4878CF", alpha=0.85,
-        label="Steering RMSE", error_kw={"linewidth": 1},
+        yerr=steer_err, capsize=2.5, color=S.C["diffusion"],
+        label="Steering RMSE", error_kw={"linewidth": 0.8},
+        edgecolor="white", linewidth=0.5,
     )
     ax.bar(
         x + w / 2, accel_mean, width=w,
-        yerr=accel_err, capsize=3, color="#D65F5F", alpha=0.85,
-        label="Acceleration RMSE", error_kw={"linewidth": 1},
+        yerr=accel_err, capsize=2.5, color=S.C["accent"],
+        label="Acceleration RMSE", error_kw={"linewidth": 0.8},
+        edgecolor="white", linewidth=0.5,
     )
 
     labels = [ENCODER_DISPLAY.get(e, e) for e in encoders]
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=8)
-    ax.set_ylabel("RMSE (normalized)", fontsize=10)
-    ax.set_title(
-        "Action Prediction RMSE by Encoder (850 scenes, full dataset)",
-        fontsize=11,
-    )
-    ax.legend(fontsize=9, loc="upper right")
+    ax.set_xticklabels(labels, fontsize=plt.rcParams["xtick.labelsize"])
+    ax.set_ylabel("RMSE (normalized)", fontsize=plt.rcParams["axes.labelsize"])
+    ax.legend(frameon=False, loc="upper left", fontsize=plt.rcParams["legend.fontsize"])
     ax.set_ylim(bottom=0)
-
-    n_scenes = int(rows[0]["num_scenes"])
-    ax.text(
-        0.99, 0.02,
-        f"n = {n_scenes} test scenes, 3 seeds, 95% bootstrap CI",
-        transform=ax.transAxes, fontsize=7, ha="right", va="bottom",
-        color="gray",
-    )
 
     save_png_pdf(fig, out_dir, "encoder_rmse_bars")
 
