@@ -55,6 +55,7 @@ def f6(profile):
         ax.set_xticks(range(len(horizons)))
         ax.set_xticklabels([h for _, h in horizons])
         ax.set_ylabel(ylab)
+    axes[0].set_ylim(0.0, 0.50)
     # ratio annotation (t+16, KID): direct vs diff-calib
     dr = _kidfid(0, 15, "direct", "kid_mean"); cc = _kidfid(0, 15, "diffusion_calib", "kid_mean")
     axes[0].set_title(f"KID $\\downarrow$   (train-calib $\\approx${dr/cc:.1f}$\\times$ lower than regression)")
