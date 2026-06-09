@@ -20,6 +20,8 @@ import os
 import time
 from pathlib import Path
 
+from config import load_canonical
+
 try:
     import modal
 except ImportError:
@@ -890,7 +892,7 @@ def train_and_eval(
                     fig, axes = plt.subplots(2, len(steps), figsize=(12, 5))
                     for col, k in enumerate(steps):
                         for row, grid in enumerate([zf_gt[:, k], pred_lat[:, k]]):
-                            img = vae_dec.decode(grid / 0.18215).sample
+                            img = vae_dec.decode(grid / load_canonical().vae_scaling_factor).sample
                             im = ((img.clamp(-1, 1) + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
                             axes[row, col].imshow(im)
                             axes[row, col].axis("off")
