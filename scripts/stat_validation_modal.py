@@ -640,7 +640,7 @@ def main():
             r = enc_results[0]
             w_scenes = np.array(r["window_scenes"])
             dit_cs = np.array(r["dit_cossim"])
-            mlp_cs = np.array(r["mlp_residual_cossim"])
+            mlp_cs = np.array(r["mlp_cossim"])
             copy_cs_arr = np.array(r["copy_cossim"])
             h_k = h - 1
 
