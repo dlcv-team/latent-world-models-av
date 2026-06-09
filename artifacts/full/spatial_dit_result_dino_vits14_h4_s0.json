@@ -1,0 +1,42 @@
+{
+  "dit_spatial": {
+    "cossim_by_step": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "copy_by_step": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mean_cossim": 1.0,
+    "n_test": 5419,
+    "model": "dit_spatial",
+    "train_time_s": 3379.3,
+    "n_params": 12095232
+  },
+  "mlp_spatial": {
+    "cossim_by_step": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "copy_by_step": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mean_cossim": 1.0,
+    "n_test": 5419,
+    "model": "mlp_spatial",
+    "train_time_s": 273.3,
+    "n_params": 1296512
+  },
+  "gap": 0.0,
+  "dit_wins": false
+}

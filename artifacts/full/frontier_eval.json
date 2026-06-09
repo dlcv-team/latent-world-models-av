@@ -1,0 +1,43 @@
+{
+  "n_windows": 150,
+  "horizon_step": 15,
+  "n_calib": 200,
+  "caltrain_shift": [
+    -0.0689,
+    0.0347,
+    0.0288,
+    -0.002
+  ],
+  "points": {
+    "direct": {
+      "cossim": 0.4708,
+      "fid": 370.77,
+      "kid_mean": 0.37485,
+      "kid_std": 0.01633
+    },
+    "diff_w1": {
+      "cossim": 0.2325,
+      "fid": 341.87,
+      "kid_mean": 0.29351,
+      "kid_std": 0.01585
+    },
+    "diff_w2": {
+      "cossim": 0.2164,
+      "fid": 379.55,
+      "kid_mean": 0.35756,
+      "kid_std": 0.01568
+    },
+    "diff_caltrain": {
+      "cossim": 0.2597,
+      "fid": 162.5,
+      "kid_mean": 0.07823,
+      "kid_std": 0.00942
+    },
+    "interp_0.5": {
+      "cossim": 0.3162,
+      "fid": 166.55,
+      "kid_mean": 0.08392,
+      "kid_std": 0.00913
+    }
+  }
+}

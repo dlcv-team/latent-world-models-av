@@ -20,6 +20,8 @@ import os
 import time
 from pathlib import Path
 
+from config import load_canonical
+
 try:
     import modal
 except ImportError:
@@ -325,7 +327,7 @@ def _modal_function_decorator(fn):
         return app.function(
             volumes={VOL_PATH: vol},
             image=base_image,
-            gpu="A100",
+            gpu=os.environ.get("LWM_GPU", "A100"),
             timeout=14400,
             memory=32768,
         )(fn)
@@ -342,6 +344,11 @@ def train_and_eval(
     mode: str = "direct",
     n_samples: int = 1,
     action_dropout: float = 0.0,
+    cfg_dropout: float = 0.0,
+    skip_eval: bool = False,
+    n_blocks: int = 4,
+    cond_aug_sigma: float = 0.0,
+    init_ckpt: str = "",
 ):
     import numpy as np
     import torch
@@ -365,6 +372,7 @@ def train_and_eval(
 
     assert mode in ("direct", "diffusion"), f"bad mode {mode}"
     is_diffusion = mode == "diffusion"
+    dit_cfg = {**DIT_CONFIG, "n_blocks": n_blocks}  # P1: capacity (depth) override
     n_ddim_steps = N_DDIM_STEPS_SMOKE if smoke else N_DDIM_STEPS
     print(f"[vae-dit] h{horizon}/s{seed} mode={mode} smoke={smoke} "
           f"mlp_hidden={mlp_hidden} n_samples={n_samples} action_dropout={action_dropout} device={device}")
@@ -556,12 +564,21 @@ def train_and_eval(
     if is_diffusion:
         schedule = CosineNoiseSchedule(n_steps=DIFFUSION_STEPS).to(device)
         print(f"\n{'='*60}\nTraining VAE DiT-diffusion (DDIM steps={n_ddim_steps})\n{'='*60}")
-        dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+        dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **dit_cfg).to(device)
         fourier = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
         n_dit = sum(p.numel() for p in dit.parameters()) + sum(p.numel() for p in fourier.parameters())
         print(f"  DiT params: {n_dit:,}")
         opt = torch.optim.Adam(list(dit.parameters()) + list(fourier.parameters()), lr=TRAIN_LR)
         ema = {n: p.data.clone() for n, p in list(dit.named_parameters()) + list(fourier.named_parameters())}
+        if init_ckpt:  # P6 EMA warm-start: load EMA weights into params AND re-seed the new EMA buffer from them
+            ick = torch.load(init_ckpt, map_location=device, weights_only=False)
+            src = ick.get("ema") or {}
+            nload = 0
+            for nm, p in list(dit.named_parameters()) + list(fourier.named_parameters()):
+                if nm in src:
+                    p.data.copy_(src[nm].to(device)); nload += 1
+            ema = {n: p.data.clone() for n, p in list(dit.named_parameters()) + list(fourier.named_parameters())}
+            print(f"  [warm-start] loaded {nload} EMA tensors from {init_ckpt}; re-seeded EMA buffer")
         epoch_losses = []
         for epoch in range(epochs):
             dit.train()
@@ -573,10 +590,16 @@ def train_and_eval(
                 idx = perm[start:end]
                 B = len(idx)
                 z_t_b = norm_patches(z_t_train[idx].to(device))
+                if cond_aug_sigma > 0:  # P6 conditioning augmentation: robustness to imperfect (rolled-back) z_t
+                    s = cond_aug_sigma * torch.rand(B, 1, 1, device=device)
+                    if epoch == 0 and nb == 0:
+                        print(f"  [cond-aug] sigma_max={cond_aug_sigma} mean_s={float(s.mean()):.4f} "
+                              f"z_t_b.std={float(z_t_b.std()):.4f} (injected noise std≈mean_s)")
+                    z_t_b = z_t_b + s * torch.randn_like(z_t_b)
                 act_b = act_train[idx].to(device)
                 zf_b = norm_patches(zf_train[idx].to(device).reshape(B * horizon, 4, GRID_H, GRID_W))
                 zf_b = zf_b.reshape(B, horizon * n_spatial, PATCH_DIM)
-                a_emb = embed_actions(fourier, act_b, dropout_p=action_dropout)
+                a_emb = embed_actions(fourier, act_b, dropout_p=max(action_dropout, cfg_dropout))
                 t = torch.randint(0, DIFFUSION_STEPS, (B,), device=device)
                 alpha_bar = schedule.alphas_cumprod[t].unsqueeze(1).unsqueeze(2)
                 noise = torch.randn_like(zf_b)
@@ -629,7 +652,7 @@ def train_and_eval(
 
             # Unconditioned direct baseline (actions always zeroed)
             print(f"\n{'='*60}\nTraining unconditioned direct baseline\n{'='*60}")
-            dit_u = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+            dit_u = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **dit_cfg).to(device)
             f_u = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
             opt_u = torch.optim.Adam(list(dit_u.parameters()) + list(f_u.parameters()), lr=TRAIN_LR)
             u_epochs = epochs if not smoke else epochs
@@ -691,24 +714,29 @@ def train_and_eval(
                     "uncond_fourier": f_u.state_dict(),
                 }, f"{ckpt_dir}/dit.pt")
         else:
-            def dit_predict(z_t_b, act_b):
-                return ddim_sample(dit_e, f_e, z_t_b, act_b, schedule, n_ddim_steps)
+            if skip_eval:
+                results["dit"] = {"n_params": n_dit, "skipped_eval": True}
+            else:
+                def dit_predict(z_t_b, act_b):
+                    return ddim_sample(dit_e, f_e, z_t_b, act_b, schedule, n_ddim_steps)
 
-            dit_res = evaluate(dit_predict, "DiT-vae-diffusion")
-            dit_res["n_params"] = n_dit
-            dit_res["n_ddim_steps"] = n_ddim_steps
-            results["dit"] = dit_res
+                dit_res = evaluate(dit_predict, "DiT-vae-diffusion")
+                dit_res["n_params"] = n_dit
+                dit_res["n_ddim_steps"] = n_ddim_steps
+                results["dit"] = dit_res
 
-            if n_samples > 1:
-                k = n_samples
-                print(f"\n  Distributional eval: K={k}")
-                dist = evaluate_distributional(dit_e, f_e, schedule, k, n_ddim_steps, uncond=False)
-                results["dit_distributional"] = dist
-                print(f"    best-of-K={dist['best_of_k_mean_cossim']:.4f} "
-                      f"diversity={dist['sample_diversity_l2']:.4f}")
+                if n_samples > 1:
+                    k = n_samples
+                    print(f"\n  Distributional eval: K={k}")
+                    dist = evaluate_distributional(dit_e, f_e, schedule, k, n_ddim_steps, uncond=False)
+                    results["dit_distributional"] = dist
+                    print(f"    best-of-K={dist['best_of_k_mean_cossim']:.4f} "
+                          f"diversity={dist['sample_diversity_l2']:.4f}")
 
             if not smoke:
-                ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}"
+                nb_suffix = "" if n_blocks == 4 else f"_nb{n_blocks}"
+                ra_suffix = "_rollaug" if cond_aug_sigma > 0 else ""
+                ckpt_dir = f"{CKPT_DIR}/diffusion/h{horizon}/seed_{seed}{nb_suffix}{ra_suffix}"
                 os.makedirs(ckpt_dir, exist_ok=True)
                 torch.save({
                     "dit": dit.state_dict(),
@@ -717,16 +745,22 @@ def train_and_eval(
                     "z_mean": z_mean.cpu(),
                     "z_std": z_std.cpu(),
                     "mode": "diffusion",
+                    "cfg_dropout": cfg_dropout,
+                    "cond_aug_sigma": cond_aug_sigma,
+                    "init_ckpt": init_ckpt,
+                    "n_blocks": n_blocks,
+                    "n_params": n_dit,
                 }, f"{ckpt_dir}/dit.pt")
-            results["g6"] = evaluate_g6(results)
-            print(f"\n  G6 outcome: {results['g6']['outcome']}")
+            if not skip_eval:
+                results["g6"] = evaluate_g6(results)
+                print(f"\n  G6 outcome: {results['g6']['outcome']}")
 
         vol.commit()
         return results
 
     # ---- Train DiT (direct) ----
     print(f"\n{'='*60}\nTraining VAE DiT-direct\n{'='*60}")
-    dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **DIT_CONFIG).to(device)
+    dit = AnchoredVAEDiT(horizon=horizon, n_spatial=n_spatial, **dit_cfg).to(device)
     fourier = FourierActionEmbedding(**FOURIER_CONFIG).to(device)
     n_dit = sum(p.numel() for p in dit.parameters()) + sum(p.numel() for p in fourier.parameters())
     print(f"  DiT params: {n_dit:,}")
@@ -858,7 +892,7 @@ def train_and_eval(
                     fig, axes = plt.subplots(2, len(steps), figsize=(12, 5))
                     for col, k in enumerate(steps):
                         for row, grid in enumerate([zf_gt[:, k], pred_lat[:, k]]):
-                            img = vae_dec.decode(grid / 0.18215).sample
+                            img = vae_dec.decode(grid / load_canonical().vae_scaling_factor).sample
                             im = ((img.clamp(-1, 1) + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
                             axes[row, col].imshow(im)
                             axes[row, col].axis("off")
@@ -889,16 +923,23 @@ def main(
     mode: str = "direct",
     n_samples: int = 1,
     action_dropout: float = 0.0,
+    cfg_dropout: float = 0.0,
+    skip_eval: bool = False,
+    n_blocks: int = 4,
+    cond_aug_sigma: float = 0.0,
+    init_ckpt: str = "",
 ):
     t0 = time.time()
     print(f"VAE DiT training seed={seed} mode={mode} smoke={smoke} "
-          f"n_samples={n_samples} action_dropout={action_dropout}")
+          f"n_samples={n_samples} action_dropout={action_dropout} cfg_dropout={cfg_dropout} skip_eval={skip_eval} n_blocks={n_blocks}")
     result = train_and_eval.remote(
-        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout,
+        seed, horizon, epochs, smoke, mlp_hidden, mode, n_samples, action_dropout, cfg_dropout, skip_eval, n_blocks,
+        cond_aug_sigma, init_ckpt,
     )
     print(json.dumps(result, indent=2))
     if mode == "diffusion":
-        ad_tag = f"_ad{action_dropout}" if action_dropout > 0 else ""
+        ad_tag = f"_ad{action_dropout}" if action_dropout > 0 else (f"_cfg{cfg_dropout}" if cfg_dropout > 0 else "")
+        ad_tag += "" if n_blocks == 4 else f"_nb{n_blocks}"
         tag = "smoke" if smoke else "result"
         if action_dropout > 0 and not smoke:
             out = Path(f"artifacts/full/vae_diffusion_multifuture_result_h{horizon}_s{seed}.json")

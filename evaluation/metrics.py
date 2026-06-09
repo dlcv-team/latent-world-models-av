@@ -6,11 +6,15 @@ Provides RMSE computation and scenario classification.
 from __future__ import annotations
 
 import logging
+from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from nuscenes.nuscenes import NuScenes
+
+from config import CanonicalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -36,52 +40,60 @@ def compute_rmse(
     Returns
     -------
     tuple[float, float]
-        (steer_rmse_norm, accel_rmse_norm) tuple, both in normalized space.
+        (steer_rmse, accel_rmse) tuple, both in normalized space.
     """
-    steer_rmse_norm = float(
+    steer_rmse = float(
         np.sqrt(np.mean((predictions[:, 0] - targets[:, 0]) ** 2))
     )
-    accel_rmse_norm = float(np.sqrt(np.mean((predictions[:, 1] - targets[:, 1]) ** 2)))
-    return steer_rmse_norm, accel_rmse_norm
+    accel_rmse = float(np.sqrt(np.mean((predictions[:, 1] - targets[:, 1]) ** 2)))
+    return steer_rmse, accel_rmse
 
 
-def convert_steer_rmse_to_deg(rmse_norm: float, cfg: dict[str, Any] | None = None) -> float:
-    """Convert normalized steering RMSE to degrees.
+def bootstrap_mean_ci(
+    values: np.ndarray,
+    n_resamples: int,
+    seed: int,
+    confidence_level: float,
+) -> tuple[float, float, float]:
+    """Return (mean, ci_lo, ci_hi) via nonparametric bootstrap of the mean.
 
-    Uses the eval_back_to_deg_factor from canonical config to convert from
-    normalized [-1, 1] space to degrees. Factor is 6 * 180 / pi ≈ 34.377.
+    Args:
+        values: Array of observations to bootstrap
+        n_resamples: Number of bootstrap resamples (typically 1000)
+        seed: Random seed for reproducibility
+        confidence_level: CI level (e.g., 0.95 for 95% CI)
 
-    Parameters
-    ----------
-    rmse_norm
-        Steering RMSE in normalized space (from compute_rmse).
-    cfg
-        Configuration dict with normalization.steering.eval_back_to_deg_factor.
-        If None, loads canonical config. Can be either a config object (from
-        load_canonical) or a plain dict.
+    Returns:
+        Tuple of (mean, ci_lo, ci_hi)
 
-    Returns
-    -------
-    float
-        Steering RMSE in degrees.
+    Notes:
+        Uses percentile method with vectorized resampling.
+        For single-value inputs, returns (mean, mean, mean).
 
-    Examples
-    --------
-    >>> convert_steer_rmse_to_deg(0.1)  # doctest: +SKIP
-    3.4377...
+    Raises:
+        ValueError: If values array is empty
     """
-    if cfg is None:
-        from config import load_canonical
-        cfg = load_canonical()
+    values = np.asarray(values, dtype=float)
+    if len(values) == 0:
+        raise ValueError("bootstrap_mean_ci received zero-length input")
 
-    # Handle both config object (with normalization method) and plain dict (for testing)
-    if hasattr(cfg, "normalization"):
-        steer_config = cfg.normalization("steering")
-    else:
-        steer_config = cfg["normalization"]["steering"]
+    mean = float(np.mean(values))
 
-    factor = steer_config["eval_back_to_deg_factor"]
-    return rmse_norm * factor
+    if len(values) == 1:
+        return mean, mean, mean
+
+    # Vectorized bootstrap resampling
+    rng = np.random.default_rng(seed)
+    n = values.shape[0]
+    indices = rng.integers(0, n, size=(n_resamples, n))
+    boot_means = values[indices].mean(axis=1)
+
+    # Compute percentile-based CI
+    alpha = 1.0 - confidence_level
+    ci_lo = float(np.percentile(boot_means, 100 * alpha / 2))
+    ci_hi = float(np.percentile(boot_means, 100 * (1 - alpha / 2)))
+
+    return mean, ci_lo, ci_hi
 
 
 def classify_scenes_by_scenario(
@@ -126,24 +138,24 @@ def classify_scenes_by_scenario(
         scene = scene_records[0]
         description = scene.get("description", "").lower()
 
-        # String matching heuristic
+        # String matching heuristic (check specific before general:
+        # "intersection" before "urban" since descriptions may contain both)
         if "highway" in description or "freeway" in description:
             bucket = "highway"
+        elif "intersection" in description or "junction" in description:
+            bucket = "intersection"
         elif (
             "urban" in description
             or "city" in description
             or "downtown" in description
         ):
             bucket = "urban"
-        elif "intersection" in description or "junction" in description:
-            bucket = "intersection"
         else:
             bucket = "other"
 
         mapping[scene_token] = bucket
 
     # Log scene counts per bucket to detect classification issues
-    from collections import Counter
     bucket_counts = Counter(mapping.values())
     total_scenes = len(scene_tokens)
     logger.info("Scene classification breakdown (total=%d):", total_scenes)
@@ -158,7 +170,7 @@ def classify_scenes_by_scenario(
 def compute_per_scenario_rmse(
     predictions_df: pd.DataFrame,
     scene_to_bucket: dict[str, str],
-    cfg: dict[str, Any],
+    cfg: CanonicalConfig | dict[str, Any],
 ) -> pd.DataFrame:
     """Compute per-scenario RMSE with bootstrap confidence intervals.
 
@@ -166,138 +178,272 @@ def compute_per_scenario_rmse(
     dataset and model output). To convert steering RMSE to degrees, use
     convert_steer_rmse_to_deg() on the returned values.
 
-    Parameters
-    ----------
-    predictions_df
+    Args:
+        predictions_df: DataFrame with columns:
+            - encoder: str
+            - scene_name (or scene_token): str
+            - steer_pred, accel_pred: float (normalized)
+            - steer_true, accel_true: float (normalized)
+        scene_to_bucket: Mapping from scene identifier to scenario bucket
+        cfg: Canonical config or plain dict with evaluation.bootstrap parameters
+
+    Returns:
         DataFrame with columns:
-        ``encoder, scene_token, steer_pred, accel_pred, steer_true, accel_true``.
-        All prediction/target columns should be in normalized [-1, 1] space.
-        Alternatively, if ``scene_name`` is present instead of ``scene_token``,
-        it will be used for scenario mapping.
-    scene_to_bucket
-        Mapping from scene_token to scenario category
-        (output of ``classify_scenes_by_scenario``).
-    cfg
-        Configuration dict with ``evaluation.bootstrap.seed``,
-        ``evaluation.bootstrap.n_resamples``, and
-        ``evaluation.bootstrap.confidence_level``.
+            - encoder, scenario, metric, mean, ci_lo, ci_hi
+            where metric is 'steer_rmse' or 'accel_rmse'
+            All RMSE values are in normalized space.
 
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with columns: ``encoder, scenario, metric, mean, ci_lo, ci_hi``.
-        Each encoder × scenario × {steer_rmse_norm, accel_rmse_norm} combination
-        gets one row with bootstrapped confidence intervals.
-        All RMSE values are in normalized space.
-
-    Notes
-    -----
-    Uses 1000-resample bootstrap (configurable via cfg) to compute 95% CI.
-    Called by evaluation harness (B6.5); output consumed by
-    ``evaluation.sidecars.write_per_scenario_rmse``.
+    Notes:
+        - Uses scene-level resampling to respect temporal correlation
+        - Bootstrap config: n_resamples=1000, seed=42, confidence_level=0.95
+        - Scenarios with 1 scene: ci_lo = ci_hi = mean (no variance)
+        - Empty scenarios: omitted from output
     """
-    # Extract bootstrap config
-    bootstrap_cfg = cfg["evaluation"]["bootstrap"]
+    # Extract config
+    if hasattr(cfg, 'raw'):  # CanonicalConfig
+        bootstrap_cfg = cfg.raw["evaluation"]["bootstrap"]
+    else:  # dict
+        bootstrap_cfg = cfg["evaluation"]["bootstrap"]
+
     n_resamples = bootstrap_cfg["n_resamples"]
     seed = bootstrap_cfg["seed"]
     confidence_level = bootstrap_cfg["confidence_level"]
 
-    # Map scenes to scenarios
-    # Handle both scene_token and scene_name columns
+    # Handle empty input
+    if predictions_df.empty:
+        return pd.DataFrame(
+            columns=["encoder", "scenario", "metric", "mean", "ci_lo", "ci_hi"]
+        )
+
+    # Determine scene column
     if "scene_token" in predictions_df.columns:
         scene_col = "scene_token"
     elif "scene_name" in predictions_df.columns:
         scene_col = "scene_name"
     else:
-        raise ValueError(
-            "predictions_df must have 'scene_token' or 'scene_name' column"
-        )
+        raise ValueError("predictions_df must have 'scene_token' or 'scene_name' column")
 
-    predictions_df = predictions_df.copy()
-    predictions_df["scenario"] = predictions_df[scene_col].map(scene_to_bucket)
+    # Add scenario column
+    df = predictions_df.copy()
+    df["scenario"] = df[scene_col].map(scene_to_bucket)
+    df = df.dropna(subset=["scenario"])
 
-    # Drop rows where scenario mapping failed
-    predictions_df = predictions_df.dropna(subset=["scenario"])
-
-    # Compute squared errors
-    predictions_df["steer_sq_error"] = (
-        predictions_df["steer_pred"] - predictions_df["steer_true"]
-    ) ** 2
-    predictions_df["accel_sq_error"] = (
-        predictions_df["accel_pred"] - predictions_df["accel_true"]
-    ) ** 2
-
-    # Bootstrap resampling for CI
-    rng = np.random.RandomState(seed)
-    alpha = 1.0 - confidence_level
-
+    # Compute per-scenario RMSE for each encoder × scenario
     results = []
 
-    for encoder in predictions_df["encoder"].unique():
-        encoder_df = predictions_df[predictions_df["encoder"] == encoder]
+    for (encoder, scenario), group in df.groupby(["encoder", "scenario"]):
+        # Compute scene-level RMSE
+        scene_rmses = []
 
-        for scenario in encoder_df["scenario"].unique():
-            scenario_df = encoder_df[encoder_df["scenario"] == scenario]
+        for scene_name, scene_group in group.groupby(scene_col):
+            # Compute errors
+            steer_errors = scene_group["steer_pred"].values - scene_group["steer_true"].values
+            accel_errors = scene_group["accel_pred"].values - scene_group["accel_true"].values
 
-            if len(scenario_df) == 0:
-                continue
+            # Compute RMSE for this scene (in normalized space)
+            steer_rmse = np.sqrt(np.mean(steer_errors ** 2))
+            accel_rmse = np.sqrt(np.mean(accel_errors ** 2))
 
-            # Bootstrap for steering RMSE
-            steer_rmse_samples = []
-            for _ in range(n_resamples):
-                sample_indices = rng.choice(
-                    len(scenario_df), size=len(scenario_df), replace=True
-                )
-                sample = scenario_df.iloc[sample_indices]
-                rmse = np.sqrt(sample["steer_sq_error"].mean())
-                steer_rmse_samples.append(rmse)
+            scene_rmses.append((steer_rmse, accel_rmse))
 
-            steer_rmse_samples = np.array(steer_rmse_samples)
-            steer_mean = float(np.mean(steer_rmse_samples))
-            steer_ci_lo = float(np.percentile(steer_rmse_samples, 100 * alpha / 2))
-            steer_ci_hi = float(
-                np.percentile(steer_rmse_samples, 100 * (1 - alpha / 2))
+        # Convert to arrays
+        scene_steer = np.array([x[0] for x in scene_rmses])
+        scene_accel = np.array([x[1] for x in scene_rmses])
+
+        # Bootstrap steering (normalized)
+        steer_mean, steer_lo, steer_hi = bootstrap_mean_ci(
+            scene_steer, n_resamples, seed, confidence_level
+        )
+        results.append({
+            "encoder": encoder,
+            "scenario": scenario,
+            "metric": "steer_rmse",
+            "mean": steer_mean,
+            "ci_lo": steer_lo,
+            "ci_hi": steer_hi,
+        })
+
+        # Bootstrap acceleration (normalized)
+        accel_mean, accel_lo, accel_hi = bootstrap_mean_ci(
+            scene_accel, n_resamples, seed, confidence_level
+        )
+        results.append({
+            "encoder": encoder,
+            "scenario": scenario,
+            "metric": "accel_rmse",
+            "mean": accel_mean,
+            "ci_lo": accel_lo,
+            "ci_hi": accel_hi,
+        })
+
+    # Build output DataFrame
+    results_df = pd.DataFrame(results)
+    results_df = results_df.sort_values(["encoder", "scenario", "metric"]).reset_index(drop=True)
+
+    return results_df
+
+
+def load_per_scene_rmse(probe_root: Path, metric: str) -> dict[str, pd.Series]:
+    """Scan <probe_root>/*/per_scene_rmse.csv and return per-encoder series.
+
+    Each returned series is indexed by scene_name so paired tests can align
+    cleanly across encoders. Raises ValueError if scene sets don't match.
+
+    Args:
+        probe_root: Directory containing <encoder>/per_scene_rmse.csv
+        metric: RMSE metric column name (e.g., 'steer_rmse', 'accel_rmse')
+
+    Returns:
+        dict mapping encoder_name -> pd.Series(scene_name -> rmse_value)
+
+    Raises:
+        FileNotFoundError: If probe_root doesn't exist or no CSVs found
+        ValueError: If scene sets don't match across encoders or columns missing
+    """
+    probe_root = Path(probe_root)
+    if not probe_root.exists():
+        raise FileNotFoundError(f"probe-root does not exist: {probe_root}")
+
+    per_encoder: dict[str, pd.Series] = {}
+    for enc_dir in sorted(p for p in probe_root.iterdir() if p.is_dir()):
+        csv_path = enc_dir / "per_scene_rmse.csv"
+        if not csv_path.exists():
+            continue
+        df = pd.read_csv(csv_path)
+        if metric not in df.columns or "scene_name" not in df.columns:
+            raise ValueError(
+                f"{csv_path}: missing required columns "
+                f"({metric!r}, 'scene_name'); got {list(df.columns)!r}"
+            )
+        # If fold_id is present and >0 rows exist per scene, mean across folds
+        if "fold_id" in df.columns:
+            df = df.groupby("scene_name", as_index=True)[metric].mean()
+        else:
+            df = df.set_index("scene_name")[metric]
+        per_encoder[enc_dir.name] = df.sort_index()
+
+    if not per_encoder:
+        raise FileNotFoundError(
+            f"no per_scene_rmse.csv files found under {probe_root}"
+        )
+
+    # Require identical scene sets across encoders
+    reference_scenes = next(iter(per_encoder.values())).index
+    for enc, series in per_encoder.items():
+        if not series.index.equals(reference_scenes):
+            missing = set(reference_scenes) - set(series.index)
+            extra = set(series.index) - set(reference_scenes)
+            raise ValueError(
+                f"encoder {enc!r} has a mismatched scene set; "
+                f"missing={sorted(missing)} extra={sorted(extra)}"
             )
 
-            results.append(
-                {
-                    "encoder": encoder,
-                    "scenario": scenario,
-                    "metric": "steer_rmse_norm",
-                    "mean": steer_mean,
-                    "ci_lo": steer_ci_lo,
-                    "ci_hi": steer_ci_hi,
-                }
-            )
-
-            # Bootstrap for acceleration RMSE
-            accel_rmse_samples = []
-            for _ in range(n_resamples):
-                sample_indices = rng.choice(
-                    len(scenario_df), size=len(scenario_df), replace=True
-                )
-                sample = scenario_df.iloc[sample_indices]
-                rmse = np.sqrt(sample["accel_sq_error"].mean())
-                accel_rmse_samples.append(rmse)
-
-            accel_rmse_samples = np.array(accel_rmse_samples)
-            accel_mean = float(np.mean(accel_rmse_samples))
-            accel_ci_lo = float(np.percentile(accel_rmse_samples, 100 * alpha / 2))
-            accel_ci_hi = float(
-                np.percentile(accel_rmse_samples, 100 * (1 - alpha / 2))
-            )
-
-            results.append(
-                {
-                    "encoder": encoder,
-                    "scenario": scenario,
-                    "metric": "accel_rmse_norm",
-                    "mean": accel_mean,
-                    "ci_lo": accel_ci_lo,
-                    "ci_hi": accel_ci_hi,
-                }
-            )
-
-    return pd.DataFrame(results)
+    return per_encoder
 
 
+def convert_steer_rmse_to_deg(rmse_norm: float, cfg: dict[str, Any] | None = None) -> float:
+    """Convert normalized steering RMSE to degrees.
+
+    Uses the eval_back_to_deg_factor from canonical config to convert from
+    normalized [-1, 1] space to degrees. Factor is 6 * 180 / pi ≈ 34.377.
+
+    Parameters
+    ----------
+    rmse_norm
+        Steering RMSE in normalized space (from compute_rmse).
+    cfg
+        Configuration dict with normalization.steering.eval_back_to_deg_factor.
+        If None, loads canonical config. Can be either a config object (from
+        load_canonical) or a plain dict.
+
+    Returns
+    -------
+    float
+        Steering RMSE in degrees.
+
+    Examples
+    --------
+    >>> convert_steer_rmse_to_deg(0.1)  # doctest: +SKIP
+    3.4377...
+    """
+    if cfg is None:
+        from config import load_canonical
+        cfg = load_canonical()
+
+    # Handle both config object (with normalization method) and plain dict (for testing)
+    if hasattr(cfg, "normalization"):
+        steer_config = cfg.normalization("steering")
+    else:
+        steer_config = cfg["normalization"]["steering"]
+
+    factor = steer_config["eval_back_to_deg_factor"]
+    return rmse_norm * factor
+
+
+def denormalize_rmse_dataframe(
+    df: pd.DataFrame,
+    cfg: CanonicalConfig | None = None,
+    value_cols: list[str] | None = None,
+) -> pd.DataFrame:
+    """Convert normalized RMSE metrics to physical units in a DataFrame.
+
+    This function is for OUTPUT/PRESENTATION only. The internal evaluation workflow
+    operates in normalized space; denormalization happens only when writing CSVs
+    for human consumption.
+
+    Args:
+        df: DataFrame with 'metric' column containing 'steer_rmse' and/or
+            'accel_rmse' and numeric value columns to convert.
+        cfg: Canonical config with normalization factors. If None, loads canonical config.
+        value_cols: List of numeric columns to convert (e.g., ["mean", "ci_lo", "ci_hi"]).
+            If None, defaults to ["mean", "ci_lo", "ci_hi"].
+
+    Returns:
+        Modified DataFrame with denormalized values and renamed metrics:
+        - steer_rmse → steer_rmse_deg (multiplied by eval_back_to_deg_factor)
+        - accel_rmse → accel_rmse_mps2 (multiplied by divisor)
+
+    Examples:
+        >>> df = pd.DataFrame({
+        ...     "encoder": ["vit_s16", "vit_s16"],
+        ...     "metric": ["steer_rmse", "accel_rmse"],
+        ...     "mean": [0.1, 0.05],
+        ...     "ci_lo": [0.09, 0.04],
+        ...     "ci_hi": [0.11, 0.06]
+        ... })
+        >>> denormalized = denormalize_rmse_dataframe(df)
+        >>> denormalized["metric"].tolist()  # doctest: +SKIP
+        ['steer_rmse_deg', 'accel_rmse_mps2']
+    """
+    if cfg is None:
+        from config import load_canonical
+        cfg = load_canonical()
+
+    if value_cols is None:
+        value_cols = ["mean", "ci_lo", "ci_hi"]
+
+    # Get normalization factors
+    if hasattr(cfg, 'normalization'):
+        steer_factor = cfg.normalization("steering")["eval_back_to_deg_factor"]
+        accel_factor = cfg.normalization("acceleration")["divisor"]
+    else:
+        steer_factor = cfg["normalization"]["steering"]["eval_back_to_deg_factor"]
+        accel_factor = cfg["normalization"]["acceleration"]["divisor"]
+
+    df = df.copy()
+
+    # Convert steering
+    steer_mask = df["metric"] == "steer_rmse"
+    for col in value_cols:
+        if col in df.columns:
+            df.loc[steer_mask, col] *= steer_factor
+    df.loc[steer_mask, "metric"] = "steer_rmse_deg"
+
+    # Convert acceleration
+    accel_mask = df["metric"] == "accel_rmse"
+    for col in value_cols:
+        if col in df.columns:
+            df.loc[accel_mask, col] *= accel_factor
+    df.loc[accel_mask, "metric"] = "accel_rmse_mps2"
+
+    return df
