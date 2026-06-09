@@ -22,10 +22,10 @@ env/
 .idea/
 *.swp
 .DS_Store
-CLAUDE.md
 
 # Project outputs (large; not committed)
 outputs/
+artifacts/
 data/raw/
 data/processed/
 data/cache/
@@ -45,6 +45,3 @@ data/prediction/
 # Logs
 *.log
 wandb/
-
-# PRD documentation
-docs/prd/
