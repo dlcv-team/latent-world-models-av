@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from config import ENCODER_DISPLAY
+import viz_style as S
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SUMMARY_PATH = PROJECT_ROOT / "outputs" / "analysis" / "encoder_summary_with_ci.csv"
@@ -39,6 +40,7 @@ def save_png_pdf(fig: plt.Figure, out_dir: Path, stem: str) -> None:
 
 def build_rmse_bar_chart(summary_path: Path, out_dir: Path) -> None:
     """Dual bar chart: steer + accel RMSE with bootstrap CI error bars."""
+    S.apply("report")
     with summary_path.open() as fh:
         rows = list(csv.DictReader(fh))
 
@@ -60,15 +62,15 @@ def build_rmse_bar_chart(summary_path: Path, out_dir: Path) -> None:
     x = np.arange(len(encoders))
     w = 0.35
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=S.figsize("report", 8, 4.7))
     ax.bar(
         x - w / 2, steer_mean, width=w,
-        yerr=steer_err, capsize=3, color="#4878CF", alpha=0.85,
+        yerr=steer_err, capsize=3, color=S.C["diffusion"], edgecolor="white", alpha=0.85,
         label="Steering RMSE", error_kw={"linewidth": 1},
     )
     ax.bar(
         x + w / 2, accel_mean, width=w,
-        yerr=accel_err, capsize=3, color="#D65F5F", alpha=0.85,
+        yerr=accel_err, capsize=3, color=S.C["accent"], edgecolor="white", alpha=0.85,
         label="Acceleration RMSE", error_kw={"linewidth": 1},
     )
 
@@ -76,22 +78,20 @@ def build_rmse_bar_chart(summary_path: Path, out_dir: Path) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=8)
     ax.set_ylabel("RMSE (normalized)", fontsize=10)
-    ax.set_title(
-        "Action Prediction RMSE by Encoder (850 scenes, full dataset)",
-        fontsize=11,
-    )
-    ax.legend(fontsize=9, loc="upper right")
-    ax.set_ylim(bottom=0)
+    
+    ax.legend(fontsize=9, loc="upper left", frameon=False)
+    ax.set_ylim(bottom=0, top=0.175)
 
-    n_scenes = int(rows[0]["num_scenes"])
-    ax.text(
-        0.99, 0.02,
-        f"n = {n_scenes} test scenes, 3 seeds, 95% bootstrap CI",
-        transform=ax.transAxes, fontsize=7, ha="right", va="bottom",
-        color="gray",
-    )
+    # Add significance brackets
+    # vjepa2_rep64 is at x=0, vjepa2_rep1 is at x=1, dino_vits14 is at x=2
+    def add_bracket(x1, x2, y, h, text):
+        ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1, color="black")
+        ax.text((x1+x2)/2, y+h+0.001, text, ha="center", va="bottom", color="black", fontsize=8)
+    
+    add_bracket(0 - w/2, 1 - w/2, 0.125, 0.003, "*** (d=0.68)")
+    add_bracket(0 - w/2, 2 - w/2, 0.140, 0.003, "*** (d=0.91)")
 
-    save_png_pdf(fig, out_dir, "encoder_rmse_bars")
+    S.savefig(fig, "fig_encoder_rmse", profile="report")
 
 
 def print_ranking_table(summary_path: Path) -> None:

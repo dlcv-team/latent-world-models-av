@@ -51,3 +51,11 @@ docs/prd/
 
 # Large per-window analysis CSVs (kept on HuggingFace, not git)
 artifacts/full/*perwindow*.csv
+
+# Large result files
+artifacts/full/t0_perwindow_results.csv
+
+# Python coverage/test caching
+.pytest_cache/
+.coverage
+coverage.xml
