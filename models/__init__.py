@@ -4,7 +4,8 @@ Re-exports the P0 heads — :class:`ActionProbe` and :func:`train_probe`
 (M1 task A9), :class:`BCBaseline` and :func:`train_bc` (M3 task C3) —
 and the P1 latent-prediction stack — :class:`FourierActionEmbedding`
 (A15), :class:`LatentPredictor` and :func:`train_latent_predictor`
-(A16-A17).
+(A16-A17) — plus the P2 language-conditioned predictor
+:class:`LanguageConditionedLatentPredictor` (C7).
 
 The two action heads share an MLP shape
 (`Linear(384,256) -> GELU -> Dropout(0.1) -> Linear(256,2)`) but
@@ -22,6 +23,7 @@ contract.
 from models._train_utils import precompute_embeddings
 from models.bc_baseline import BCBaseline, train_bc
 from models.fourier_embed import FourierActionEmbedding
+from models.lang_latent_pred import LanguageConditionedLatentPredictor
 from models.latent_pred import LatentPredictor, train_latent_predictor
 from models.probe import ActionProbe, train_probe
 
@@ -29,6 +31,7 @@ __all__ = [
     "ActionProbe",
     "BCBaseline",
     "FourierActionEmbedding",
+    "LanguageConditionedLatentPredictor",
     "LatentPredictor",
     "precompute_embeddings",
     "train_bc",
