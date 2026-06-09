@@ -5,7 +5,9 @@ Uses 2D spatial + 1D temporal learned positional embeddings.
 Self-attention sees all H*S tokens (captures spatial AND temporal patterns).
 
 Action-sequence conditioning: per-horizon-step action broadcast to all S
-tokens in that step via adaLN-Zero.
+tokens in that step via adaLN modulation.  Identity-at-init is ensured
+by zero-initializing ``final_linear`` (the residual anchor), not the
+per-block modulation MLPs -- so this is adaLN, not adaLN-Zero.
 """
 
 from __future__ import annotations
