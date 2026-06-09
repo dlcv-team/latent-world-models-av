@@ -291,11 +291,12 @@ def evaluate_perscene(encoder_name: str, seed: int, use_ema: bool = True):
     else:
         adapter = nn.Identity().to(device)
 
-    # DiT model
+    # DiT model - EMA weights (primary eval)
     dit = LatentDiT(**{**DIT_CONFIG, "horizon": horizon}).to(device)
     fourier_dit = FourierActionEmbedding(action_dim=2, **FOURIER_CONFIG).to(device)
 
-    if use_ema and "ema_state_dict" in dit_ckpt:
+    has_ema = use_ema and "ema_state_dict" in dit_ckpt
+    if has_ema:
         ema_sd = dit_ckpt["ema_state_dict"]
         dit_ema = {k[4:]: v for k, v in ema_sd.items() if k.startswith("dit.")}
         fourier_ema = {k[8:]: v for k, v in ema_sd.items() if k.startswith("fourier.")}
@@ -324,48 +325,65 @@ def evaluate_perscene(encoder_name: str, seed: int, use_ema: bool = True):
     act_dev = act_test.to(device)
     zf_dev = zf_test.to(device)
 
-    torch.manual_seed(seed)
+    def _run_dit_inference(dit_model, fourier_model):
+        """Run DDIM inference and return (n_windows, horizon) cossim array."""
+        cossim = np.zeros((n_windows, horizon), dtype=np.float32)
+        copy_cs = np.zeros((n_windows, horizon), dtype=np.float32)
+        torch.manual_seed(seed)
+        with torch.no_grad():
+            for start in range(0, n_windows, EVAL_BATCH_SIZE):
+                end = min(start + EVAL_BATCH_SIZE, n_windows)
+                B = end - start
+                z_t_b = z_t_dev[start:end]
+                act_b = act_dev[start:end]
+                zf_b = zf_dev[start:end]
+                H = horizon
 
-    dit_cossim = np.zeros((n_windows, horizon), dtype=np.float32)
-    copy_cossim = np.zeros((n_windows, horizon), dtype=np.float32)
+                z_t_adapted = (adapter(z_t_b) - z_mean) / z_std
+                zf_adapted = (
+                    adapter(zf_b.reshape(B * H, -1)).reshape(B, H, TARGET_DIM) - z_mean
+                ) / z_std
+                a_embed = fourier_model(act_b)
 
-    with torch.no_grad():
-        for start in range(0, n_windows, EVAL_BATCH_SIZE):
-            end = min(start + EVAL_BATCH_SIZE, n_windows)
-            B = end - start
-            z_t_b = z_t_dev[start:end]
-            act_b = act_dev[start:end]
-            zf_b = zf_dev[start:end]
-            H = horizon
+                x = torch.randn(B, horizon, TARGET_DIM, device=device)
+                for i, t_val in enumerate(timesteps):
+                    t = torch.full((B,), t_val, device=device, dtype=torch.long)
+                    pred_x0 = dit_model(x, z_t=z_t_adapted, a_embed=a_embed, timestep=t)
+                    alpha_bar_t = alphas_cumprod[t_val]
+                    if i < len(timesteps) - 1:
+                        alpha_bar_prev = alphas_cumprod[timesteps[i + 1]]
+                    else:
+                        alpha_bar_prev = torch.tensor(1.0, device=device)
+                    noise_dir = (x - torch.sqrt(alpha_bar_t) * pred_x0) / torch.sqrt(1.0 - alpha_bar_t + 1e-8)
+                    x = torch.sqrt(alpha_bar_prev) * pred_x0 + torch.sqrt(1.0 - alpha_bar_prev) * noise_dir
 
-            z_t_adapted = (adapter(z_t_b) - z_mean) / z_std
-            zf_adapted = (
-                adapter(zf_b.reshape(B * H, -1)).reshape(B, H, TARGET_DIM) - z_mean
-            ) / z_std
-            a_embed = fourier_dit(act_b)
+                z_hat = x * z_std + z_mean
+                zf_orig = zf_adapted * z_std + z_mean
+                z_t_unnorm = z_t_adapted * z_std + z_mean
 
-            # DDIM x0-prediction
-            x = torch.randn(B, horizon, TARGET_DIM, device=device)
-            for i, t_val in enumerate(timesteps):
-                t = torch.full((B,), t_val, device=device, dtype=torch.long)
-                pred_x0 = dit(x, z_t=z_t_adapted, a_embed=a_embed, timestep=t)
-                alpha_bar_t = alphas_cumprod[t_val]
-                if i < len(timesteps) - 1:
-                    alpha_bar_prev = alphas_cumprod[timesteps[i + 1]]
-                else:
-                    alpha_bar_prev = torch.tensor(1.0, device=device)
-                noise_dir = (x - torch.sqrt(alpha_bar_t) * pred_x0) / torch.sqrt(1.0 - alpha_bar_t + 1e-8)
-                x = torch.sqrt(alpha_bar_prev) * pred_x0 + torch.sqrt(1.0 - alpha_bar_prev) * noise_dir
+                for k in range(horizon):
+                    cossim[start:end, k] = F.cosine_similarity(z_hat[:, k], zf_orig[:, k], dim=-1).cpu().numpy()
+                    copy_cs[start:end, k] = F.cosine_similarity(z_t_unnorm, zf_orig[:, k], dim=-1).cpu().numpy()
+        return cossim, copy_cs
 
-            z_hat = x * z_std + z_mean
-            zf_orig = zf_adapted * z_std + z_mean
-            z_t_unnorm = z_t_adapted * z_std + z_mean
+    # EMA eval (primary)
+    dit_cossim, copy_cossim = _run_dit_inference(dit, fourier_dit)
+    print(f"[stat] {encoder_name}/s{seed} EMA: DiT h1={dit_cossim[:, 0].mean():.4f}")
 
-            for k in range(horizon):
-                cs = F.cosine_similarity(z_hat[:, k], zf_orig[:, k], dim=-1).cpu().numpy()
-                dit_cossim[start:end, k] = cs
-                cp = F.cosine_similarity(z_t_unnorm, zf_orig[:, k], dim=-1).cpu().numpy()
-                copy_cossim[start:end, k] = cp
+    # Raw weights eval (EMA decomposition) - only if EMA was available
+    dit_raw_cossim = None
+    if has_ema and "dit_state_dict" in dit_ckpt:
+        dit_raw = LatentDiT(**{**DIT_CONFIG, "horizon": horizon}).to(device)
+        fourier_raw = FourierActionEmbedding(action_dim=2, **FOURIER_CONFIG).to(device)
+        dit_raw.load_state_dict(dit_ckpt["dit_state_dict"])
+        fourier_raw.load_state_dict(dit_ckpt["fourier_embed_state_dict"])
+        dit_raw.eval()
+        fourier_raw.eval()
+        dit_raw_cossim, _ = _run_dit_inference(dit_raw, fourier_raw)
+        del dit_raw, fourier_raw
+        ema_delta = float(dit_cossim.mean() - dit_raw_cossim.mean())
+        print(f"[stat] {encoder_name}/s{seed} RAW: DiT h1={dit_raw_cossim[:, 0].mean():.4f} | EMA delta={ema_delta:+.4f}")
+        torch.cuda.empty_cache()
 
     del dit, fourier_dit
     torch.cuda.empty_cache()
@@ -383,13 +401,11 @@ def evaluate_perscene(encoder_name: str, seed: int, use_ema: bool = True):
     mlp_z_mean = mlp_ckpt["z_mean"].to(device)
     mlp_z_std = mlp_ckpt["z_std"].to(device)
 
-    if needs_adapter and mlp_ckpt.get("adapter_state_dict"):
-        mlp_adapter = nn.Linear(native_dim, TARGET_DIM, bias=False).to(device)
-        mlp_adapter.load_state_dict(mlp_ckpt["adapter_state_dict"])
-        for p in mlp_adapter.parameters():
-            p.requires_grad_(False)
-    else:
-        mlp_adapter = nn.Identity().to(device)
+    # Adapter parity: MLP reuses the DiT's adapter (single source of truth).
+    # Both models were trained with separate seeded adapters, but the DiT's
+    # adapter is the reference; using it for the MLP removes adapter-weight
+    # differences as a confound in the comparison.
+    mlp_adapter = adapter  # already loaded from DiT checkpoint above
 
     mlp_fourier = FourierActionEmbedding(action_dim=2, **FOURIER_CONFIG).to(device)
     mlp_fourier.load_state_dict(mlp_ckpt["fourier_embed_state_dict"])
@@ -427,7 +443,7 @@ def evaluate_perscene(encoder_name: str, seed: int, use_ema: bool = True):
 
     print(f"[stat] {encoder_name}/s{seed}: DiT h1={dit_cossim[:, 0].mean():.4f} MLP h1={mlp_cossim[:, 0].mean():.4f}")
 
-    return {
+    result = {
         "encoder": encoder_name,
         "seed": seed,
         "dit_cossim": dit_cossim.tolist(),
@@ -437,6 +453,9 @@ def evaluate_perscene(encoder_name: str, seed: int, use_ema: bool = True):
         "action_vars": action_vars.tolist(),
         "n_windows": n_windows,
     }
+    if dit_raw_cossim is not None:
+        result["dit_raw_cossim"] = dit_raw_cossim.tolist()
+    return result
 
 
 # ===================================================================
