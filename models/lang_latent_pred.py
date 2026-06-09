@@ -197,7 +197,21 @@ class LanguageConditionedLatentPredictor(nn.Module):
         -------
         torch.Tensor
             ``(B, horizon, z_dim)`` predicted future latents.
+
+        Raises
+        ------
+        ValueError
+            If ``text_embed``'s last dim is not ``clip_text_dim`` -- catches
+            passing the already-projected ``text_dim``-d vector (the shapes
+            would otherwise only clash inside ``text_proj`` at runtime).
         """
+        if text_embed.shape[-1] != self.clip_text_dim:
+            raise ValueError(
+                f"text_embed has last dim {text_embed.shape[-1]}, expected the "
+                f"raw CLIP width clip_text_dim={self.clip_text_dim}. forward() "
+                f"consumes the *raw* encode_text() output and applies text_proj "
+                f"internally; do not pass the projected {self.text_dim}-d vector."
+            )
         text_proj = self.text_proj(text_embed)  # (B, text_dim)
         x = torch.cat([z_t, a_embed, text_proj], dim=-1)  # (B, 1152)
         return self.net(x).view(-1, self.horizon, self.z_dim)

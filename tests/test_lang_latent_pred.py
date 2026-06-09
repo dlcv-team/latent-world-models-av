@@ -70,6 +70,18 @@ def test_forward_output_shape():
     assert out.shape == (5, HORIZON, Z_DIM)
 
 
+def test_forward_rejects_wrong_width_text_embed():
+    # forward expects the *raw* CLIP embedding (clip_text_dim) and projects
+    # internally; passing the already-projected text_dim vector (or any wrong
+    # width) must fail fast with a clear error, not a cryptic matmul error
+    # inside text_proj.
+    model = _make_model()
+    z_t, a_embed, _ = _inputs(batch=3)
+    projected = torch.randn(3, TEXT_DIM)  # 384-d: the easy mistake to make
+    with pytest.raises(ValueError, match="clip_text_dim"):
+        model(z_t, a_embed, projected)
+
+
 def test_predictor_first_layer_input_is_1152():
     model = _make_model()
     first_linear = model.net[0]
