@@ -11,6 +11,7 @@ Usage::
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 try:
@@ -194,3 +195,6 @@ def main():
     print(f"  Uploaded: {result['uploaded']}")
     print(f"  Skipped: {result['skipped']}")
     print(f"  Errors: {result['errors']}")
+
+    if result["errors"] > 0:
+        sys.exit(1)
