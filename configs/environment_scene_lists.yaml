@@ -1,0 +1,37 @@
+version: 1.0.0
+last_updated: '2026-05-31'
+night_scenes:
+- scene-1059
+- scene-1060
+- scene-1061
+- scene-1063
+- scene-1067
+- scene-1071
+rain_scenes:
+- scene-0635
+- scene-0638
+- scene-0904
+- scene-0905
+- scene-0906
+- scene-0913
+- scene-0914
+- scene-1060
+- scene-1067
+notes: |
+  Classification guidelines:
+  - Night scenes: Low-light conditions (6pm-6am by timestamp)
+  - Rain scenes: Visible rain in scene descriptions or manual inspection
+  - Day_clear baseline: Scenes with neither night nor rain
+
+  Subsets are INDEPENDENT and may OVERLAP:
+  - scene-1060 and scene-1067 are both night AND rain
+  - These scenes contribute to both night and rain RMSE metrics
+  - Allows isolation of each environmental effect independently
+
+  Classification results:
+  - Night scenes (6pm-6am): 6 scenes from p0_test (auto-classified by 6pm-6am timestamp; 99 total scenes in full dataset meet criteria)
+  - Rain scenes: 9 scenes (7 day+rain, 2 night+rain from descriptions)
+  - Day_clear baseline: 27 scenes (excludes night and rain)
+  - Overlap (night+rain): 2 scenes
+  - Total: 40 scenes (p0_test scope for M2 environmental analysis)
+  - Classification date: 2026-05-31

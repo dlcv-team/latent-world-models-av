@@ -1,0 +1,41 @@
+{
+  "encoders": [
+    "vjepa2_rep64"
+  ],
+  "horizon": 4,
+  "inputs": {
+    "captions": "outputs/p2/_smoke_inputs/captions.json",
+    "encoder": "vjepa2_rep64",
+    "sample_scenes": "outputs/p2/_smoke_inputs/sample_scenes.json",
+    "z_hat_action": "z_hat_conditioned.pt",
+    "z_hat_lang": "z_hat_conditioned.pt",
+    "z_real": "z_real_conditioned.pt"
+  },
+  "method": "global_delta_cossim(lang_conditioned_minus_action_only)",
+  "metric": "DeltaCosSim(k) = CosSim(z_hat_lang, z_real)(k) - CosSim(z_hat_action, z_real)(k)",
+  "n_samples": 5419,
+  "per_encoder": {
+    "vjepa2_rep64": {
+      "cossim_action": [
+        0.9955065250396729,
+        0.99550861120224,
+        0.9955352544784546,
+        0.995522141456604
+      ],
+      "cossim_lang": [
+        0.9955065250396729,
+        0.99550861120224,
+        0.9955352544784546,
+        0.995522141456604
+      ],
+      "delta_cossim": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "status": "smoke_untrained_head",
+  "warning": "SMOKE ARTIFACT -- NOT a benchmark result. The language head is UNTRAINED: initialised from M1 it reproduces the action-only predictor exactly (see models.lang_latent_pred.init_shared_layers_from and tests/test_lang_latent_pred.py::test_init_reproduces_m1_for_any_text), so z_hat_lang := z_hat_action := the real vjepa2_rep64 action-conditioned output and delta_cossim == 0 by construction. cossim_lang/cossim_action ARE real CosSim on the 5419-sequence full-test split, but the per-sample scene->bucket partition is SYNTHETIC: scripts/export_z_hat.py does not currently emit a per-sample scene sidecar (recommended A18 follow-up), so real stratification is not yet possible. Regenerate real numbers with a trained language head, real C6 captions (python -m data.scene_captions), and a real sample-scene sidecar via: python -m evaluation.lang_scene_eval."
+}
