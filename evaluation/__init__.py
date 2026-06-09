@@ -1,39 +1,66 @@
-"""Evaluation harness for encoder benchmarking."""
+"""Evaluation harness for encoder benchmarking.
 
-from evaluation.attribution_grid import AttributionGridGenerator
-from evaluation.gradcam import AttributionPipeline
-from evaluation.latent_eval import (
-    COSSIM_CSV_FILENAME,
-    COSSIM_JSON_FILENAME,
-    compute_delta_cossim,
-    evaluate_cossim,
-    export_cossim_results,
-    run_latent_eval,
-)
-from evaluation.metrics import (
-    compute_rmse,
-    classify_scenes_by_scenario,
-    compute_per_scenario_rmse,
-    convert_steer_rmse_to_deg,
-)
-from evaluation.sidecars import (
-    write_data_quality_report,
-    write_per_scenario_rmse,
-)
+Submodules are imported **lazily** (PEP 562 ``__getattr__``) so that
+lightweight consumers -- CosSim / DeltaCosSim evaluation
+(:mod:`evaluation.latent_eval`, :mod:`evaluation.lang_scene_eval`) and
+:mod:`evaluation.metrics` -- can be imported with only ``torch`` /
+``numpy`` / ``pandas`` installed, without dragging in the heavy
+attribution stack (``pytorch_grad_cam``, ``transformers``, ``opencv``)
+that ``gradcam`` / ``attribution_grid`` need.
 
-__all__ = [
-    "AttributionGridGenerator",
-    "AttributionPipeline",
-    "COSSIM_CSV_FILENAME",
-    "COSSIM_JSON_FILENAME",
-    "classify_scenes_by_scenario",
-    "compute_delta_cossim",
-    "compute_per_scenario_rmse",
-    "compute_rmse",
-    "convert_steer_rmse_to_deg",
-    "evaluate_cossim",
-    "export_cossim_results",
-    "run_latent_eval",
-    "write_data_quality_report",
-    "write_per_scenario_rmse",
-]
+All previously eager top-level names remain importable
+(``from evaluation import AttributionPipeline``); they are just resolved
+on first access instead of at package import time, so importing one
+submodule no longer fails when an unrelated submodule's dependency is
+missing.
+"""
+
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+# Public attribute -> submodule that defines it.
+_EXPORTS: dict[str, str] = {
+    "AttributionGridGenerator": "attribution_grid",
+    "AttributionPipeline": "gradcam",
+    "COSSIM_CSV_FILENAME": "latent_eval",
+    "COSSIM_JSON_FILENAME": "latent_eval",
+    "compute_delta_cossim": "latent_eval",
+    "evaluate_cossim": "latent_eval",
+    "export_cossim_results": "latent_eval",
+    "run_latent_eval": "latent_eval",
+    "compute_rmse": "metrics",
+    "classify_scenes_by_scenario": "metrics",
+    "compute_per_scenario_rmse": "metrics",
+    "convert_steer_rmse_to_deg": "metrics",
+    "write_data_quality_report": "sidecars",
+    "write_per_scenario_rmse": "sidecars",
+}
+
+# Submodules that may be accessed as ``evaluation.<name>`` directly.
+_SUBMODULES = {
+    "attribution_grid",
+    "gradcam",
+    "latent_eval",
+    "lang_scene_eval",
+    "metrics",
+    "perturbation",
+    "sidecars",
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a public name or submodule on first access (PEP 562)."""
+    if name in _EXPORTS:
+        module = import_module(f"{__name__}.{_EXPORTS[name]}")
+        return getattr(module, name)
+    if name in _SUBMODULES:
+        return import_module(f"{__name__}.{name}")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_EXPORTS) | _SUBMODULES)
