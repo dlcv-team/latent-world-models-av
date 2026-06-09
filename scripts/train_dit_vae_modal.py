@@ -1,7 +1,8 @@
 """VAE-latent direct-anchored DiT training (production pipeline bridge).
 
 Encodes driving scenes as SD VAE 32x32x4 grids, patchifies to 8x8=64 tokens of 64-d,
-trains direct-anchored DiT (no diffusion at 2Hz) vs param-matched MLP.
+trains direct-anchored DiT (no diffusion at 2Hz) vs MLP baseline (note: DiT ~5.4M
+params vs MLP ~1.6M at hidden=1024, a 3.3x capacity advantage -- not param-matched).
 
 Usage::
 
