@@ -284,6 +284,11 @@ class DDIMSampler:
         if t_start <= 0:
             return x_init.clone()
 
+        # Snap t_start to the nearest DDIM grid timestep so the
+        # forward-diffusion noise level matches the first denoising step.
+        # Without this, off-grid t_start leaks un-denoised noise.
+        t_start = min(self.timesteps, key=lambda t: abs(t - t_start))
+
         alphas_cumprod = self.schedule.alphas_cumprod.to(device)
         alpha_bar_start = alphas_cumprod[t_start]
 
