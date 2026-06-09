@@ -311,7 +311,10 @@ def test_counts_ignore_non_actor_categories():
 
 
 def test_empty_description_is_clear_daytime_other():
-    fields = parse_scene_fields("scene_tok_0", _single(""))
+    # An empty description must still classify (clear/daytime/other) *and*
+    # warn, so the silent default is visible during generation.
+    with pytest.warns(UserWarning, match="empty/missing 'description'"):
+        fields = parse_scene_fields("scene_tok_0", _single(""))
     assert fields == {
         "weather": "clear",
         "time_of_day": "daytime",
@@ -322,13 +325,21 @@ def test_empty_description_is_clear_daytime_other():
 
 
 def test_missing_description_key_is_handled():
-    # Some records may lack the key entirely; treat as empty.
+    # Some records may lack the key entirely; treat as empty (and warn).
     nusc = _single("placeholder")
     del nusc._tables["scene"]["scene_tok_0"]["description"]
-    fields = parse_scene_fields("scene_tok_0", nusc)
+    with pytest.warns(UserWarning, match="empty/missing 'description'"):
+        fields = parse_scene_fields("scene_tok_0", nusc)
     assert fields["weather"] == "clear"
     assert fields["time_of_day"] == "daytime"
     assert fields["scenario"] == "other"
+
+
+def test_nonempty_description_does_not_warn(recwarn):
+    # The warning must fire only for blank descriptions, so a normal
+    # generation run isn't flooded with false positives.
+    parse_scene_fields("scene_tok_0", _single("Clear day highway"))
+    assert [str(w.message) for w in recwarn] == []
 
 
 def test_single_sample_scene_terminates():

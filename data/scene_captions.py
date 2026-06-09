@@ -27,6 +27,22 @@ test scene is assigned one of the six P2 buckets declared in
 :func:`classify_scene_bucket`, with priority **rain > night > scenario**
 so a single scene lands in exactly one bucket.
 
+Caveats
+-------
+**weather** and **time-of-day** are parsed *only* from the free-text
+``description``.  When a description is empty or simply doesn't mention
+rain/night, both silently fall back to ``clear`` / ``daytime`` -- so an
+unlabelled rainy or night scene reads as ``clear daytime``.
+:func:`parse_scene_fields` emits a :mod:`warnings` warning for each such
+scene so the defaults are visible during generation rather than hidden.
+
+This description-derived night set is deliberately *not* the same as B12's
+(PR #29) **timestamp**-based night classification: B12 derives night/rain
+from timestamps and treats them as overlapping subsets, whereas C6 buckets
+every scene into exactly one of ``rain > night > scenario`` (a partition).
+On ``p0_test`` the two disagree (B12 night=6 by timestamp; C6 night=4,
+rain=9 by description) -- reconcile them deliberately, not blindly.
+
 CLI
 ---
     # all p0_test scenes -> outputs/scene_captions.json
@@ -47,6 +63,7 @@ import argparse
 import json
 import re
 import sys
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -119,9 +136,32 @@ def parse_scene_fields(scene_token: str, nusc: Any) -> dict[str, Any]:
 
     Returns a dict with keys ``weather``, ``time_of_day``, ``scenario``,
     ``n_vehicles``, ``n_pedestrians``.
+
+    Two field semantics worth flagging for C7 consumers:
+
+    * ``weather`` / ``time_of_day`` are derived *solely* from the scene's
+      free-text ``description``.  An empty description, or one that doesn't
+      mention rain/night, silently yields ``clear`` / ``daytime`` (a
+      :mod:`warnings` warning is emitted so this is visible during
+      generation).  This description-based night set intentionally differs
+      from B12's timestamp-based one; see the module-level *Caveats*.
+    * ``n_vehicles`` / ``n_pedestrians`` are counts of *distinct actor
+      instances over the entire scene* (deduplicated by ``instance_token``),
+      **not** a per-frame count or actor density -- a car tracked across
+      every keyframe contributes 1, not one-per-frame.
     """
     scene = nusc.get("scene", scene_token)
     description = (scene.get("description") or "").lower()
+    if not description.strip():
+        # weather/time-of-day are description-only, so a blank description
+        # silently reads as "clear daytime".  Surface it (don't fail) so the
+        # default is visible at generation time, not buried in the JSON.
+        scene_label = scene.get("name") or scene_token
+        warnings.warn(
+            f"scene {scene_label!r} has an empty/missing 'description'; "
+            "weather and time-of-day default to 'clear'/'daytime'",
+            stacklevel=2,
+        )
     n_vehicles, n_pedestrians = _count_actor_instances(scene, nusc)
 
     return {
@@ -226,7 +266,10 @@ def export_scene_captions(
         "provenance": {
             "generator": "data.scene_captions",
             "nuscenes_version": getattr(nusc, "version", None),
-            "counting": "unique instance_token per vehicle.*/human.pedestrian.*",
+            "counting": (
+                "distinct instance_token per vehicle.*/human.pedestrian.* "
+                "across the whole scene (unique instances, not per-frame)"
+            ),
             "bucket_priority": "rain > night > scenario",
         },
         "captions": captions,
