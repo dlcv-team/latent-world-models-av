@@ -102,6 +102,13 @@ def _per_horizon_cossim(z_hat: torch.Tensor, z_real: torch.Tensor) -> dict[int, 
     Faithful copy of the C4 implementation (``evaluation/latent_eval.py`` on
     the ``main`` branch, which this tier-2 branch predates): float32
     reduction, 1-indexed horizons, identical validation.
+
+    Keep in sync with that C4 original -- if either side's cosine math
+    changes (reduction dtype, horizon indexing, or validation), update both
+    so the two pipelines stay comparable.  ``test_cossim_matches_reference``
+    pins this copy to the canonical per-horizon formula, so drift here fails
+    that test.  Once ``latent_eval`` is available on this branch's base,
+    prefer importing it (as ``lang_scene_eval`` does) over keeping the copy.
     """
     if z_hat.shape != z_real.shape:
         raise ValueError(
