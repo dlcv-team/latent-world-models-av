@@ -1,0 +1,1383 @@
+{
+  "encoders": [
+    "clip_b32",
+    "dino_vits14",
+    "vit_s16",
+    "vjepa2_rep1",
+    "vjepa2_rep64",
+    "vq_track"
+  ],
+  "generated_by": "evaluation.unified_cossim (DC1)",
+  "horizon": 4,
+  "inputs": {
+    "dit_results": "artifacts/full/rollout_results.json",
+    "mlp_results": "artifacts/full/mlp_rollout_results.json"
+  },
+  "method": "unified_per_horizon_cossim_delta(conditioned_minus_unconditioned)",
+  "metric": "CosSim(k) = mean_n cos(z_hat[n, k-1, :], z_real[n, k-1, :]) per C4; DeltaCosSim(k) = CosSim_conditioned(k) - CosSim_unconditioned(k), paired per seed, aggregated across seeds with ddof=1",
+  "models": [
+    "dit",
+    "mlp"
+  ],
+  "per_seed": [
+    {
+      "cossim_conditioned": [
+        0.6280512509695343,
+        0.6160925502463842,
+        0.6170136032343835,
+        0.6088833616193007
+      ],
+      "cossim_unconditioned": [
+        0.6200282724608924,
+        0.6128675425969976,
+        0.6150770622066167,
+        0.6078913851095799
+      ],
+      "encoder": "clip_b32",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.6217361738110275,
+        0.622188036634069,
+        0.6159915610815155,
+        0.6127865582424065
+      ],
+      "cossim_unconditioned": [
+        0.6224873478198364,
+        0.6218919372136225,
+        0.6194166295047527,
+        0.6142775786717146
+      ],
+      "encoder": "clip_b32",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.6141399637670353,
+        0.6087676514820719,
+        0.6065963228418942,
+        0.6013405731758699
+      ],
+      "cossim_unconditioned": [
+        0.6141025840983133,
+        0.6115582647920205,
+        0.6023738443642486,
+        0.6043613424686559
+      ],
+      "encoder": "clip_b32",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.4521515162190425,
+        0.4420085329040651,
+        0.4334468172801599,
+        0.4235462122549538
+      ],
+      "cossim_unconditioned": [
+        0.44426276521459235,
+        0.4388839150073454,
+        0.42554890579305293,
+        0.4179350305118339
+      ],
+      "encoder": "dino_vits14",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.443591385535328,
+        0.431871025252989,
+        0.4289603827294003,
+        0.42019570219184577
+      ],
+      "cossim_unconditioned": [
+        0.443627739550993,
+        0.4277778790212245,
+        0.4261351604922756,
+        0.41529406751515485
+      ],
+      "encoder": "dino_vits14",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.44820007870482836,
+        0.43639608334958235,
+        0.4263874697364065,
+        0.4213372378534971
+      ],
+      "cossim_unconditioned": [
+        0.44799953924595465,
+        0.43570025412881036,
+        0.4317576824947793,
+        0.42094180073151183
+      ],
+      "encoder": "dino_vits14",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.49862919744254697,
+        0.48997932352423995,
+        0.4842764806386663,
+        0.4791330808114029
+      ],
+      "cossim_unconditioned": [
+        0.49798588278461237,
+        0.4935225870231351,
+        0.49189036471924236,
+        0.48108901069445414
+      ],
+      "encoder": "vit_s16",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.5035384516584893,
+        0.49072665010217503,
+        0.48269384095184387,
+        0.4781065721048995
+      ],
+      "cossim_unconditioned": [
+        0.49543895957258316,
+        0.48790709359506373,
+        0.4792210420002069,
+        0.47418240731790684
+      ],
+      "encoder": "vit_s16",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.5081956539235006,
+        0.5037509814732452,
+        0.49148414768092985,
+        0.48537507508596955
+      ],
+      "cossim_unconditioned": [
+        0.4435529946444945,
+        0.44087715275636524,
+        0.4309477921362886,
+        0.4286397580929756
+      ],
+      "encoder": "vit_s16",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.745278377642071,
+        0.7443486006195243,
+        0.7412868580005996,
+        0.7370788572810852
+      ],
+      "cossim_unconditioned": [
+        0.7426865185774392,
+        0.7394551250586586,
+        0.7364815857868438,
+        0.7358984671784714
+      ],
+      "encoder": "vjepa2_rep1",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.7663680099653436,
+        0.7593415424510944,
+        0.7597215852739186,
+        0.759676344611588
+      ],
+      "cossim_unconditioned": [
+        0.7624018947716062,
+        0.7566520893655155,
+        0.7572694212819712,
+        0.7562982249818708
+      ],
+      "encoder": "vjepa2_rep1",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.7437514322537473,
+        0.7435322184473809,
+        0.7438306841909237,
+        0.7424261519380504
+      ],
+      "cossim_unconditioned": [
+        0.7357653600084185,
+        0.7359608391330436,
+        0.7374358799299602,
+        0.7339731650414953
+      ],
+      "encoder": "vjepa2_rep1",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.6961602652550272,
+        0.6970288409894629,
+        0.6937065944611795,
+        0.6916350009015046
+      ],
+      "cossim_unconditioned": [
+        0.7561129520554938,
+        0.7572004987340414,
+        0.7558379214635786,
+        0.7485358112741384
+      ],
+      "encoder": "vjepa2_rep64",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.7597118503692339,
+        0.7552866699027276,
+        0.7521040962727489,
+        0.7515025929917178
+      ],
+      "cossim_unconditioned": [
+        0.7545298206605997,
+        0.753690268373463,
+        0.7533766054363571,
+        0.7500082270468617
+      ],
+      "encoder": "vjepa2_rep64",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.7475592132247358,
+        0.7501086157436058,
+        0.7509327902743728,
+        0.7453600617215342
+      ],
+      "cossim_unconditioned": [
+        0.7550323269511967,
+        0.7515884623973654,
+        0.7478707995135794,
+        0.7456644075474279
+      ],
+      "encoder": "vjepa2_rep64",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.5001140987989668,
+        0.4942104676087023,
+        0.496637749658737,
+        0.4933773513472945
+      ],
+      "cossim_unconditioned": [
+        0.5142199165554014,
+        0.5090938817313025,
+        0.5094697504911195,
+        0.5071893328779142
+      ],
+      "encoder": "vq_track",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.5067802502409869,
+        0.5002555153778634,
+        0.5092651967655625,
+        0.5106358736681968
+      ],
+      "cossim_unconditioned": [
+        0.5245087122560801,
+        0.5168035867623813,
+        0.5266075737913237,
+        0.528007172772664
+      ],
+      "encoder": "vq_track",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.4970208470903655,
+        0.49365990028585494,
+        0.48990433927522986,
+        0.48658207901994954
+      ],
+      "cossim_unconditioned": [
+        0.5050336137691708,
+        0.5012571234878171,
+        0.4987147095942986,
+        0.49402664640025035
+      ],
+      "encoder": "vq_track",
+      "model": "dit",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9363713508207522,
+        0.9302706904111258,
+        0.9238759202916677,
+        0.9182633433224948
+      ],
+      "cossim_unconditioned": [
+        0.9393368467762805,
+        0.9323829000430434,
+        0.9258143130561306,
+        0.9211468468690891
+      ],
+      "encoder": "clip_b32",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9349861827849638,
+        0.9287568764793057,
+        0.9220830576295319,
+        0.9164523159716266
+      ],
+      "cossim_unconditioned": [
+        0.9387160817026806,
+        0.9316215860071515,
+        0.9249527715277157,
+        0.9201104276227344
+      ],
+      "encoder": "clip_b32",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9360569378264519,
+        0.9301232272660431,
+        0.9238385906032937,
+        0.9185604419979272
+      ],
+      "cossim_unconditioned": [
+        0.9394083468318756,
+        0.932226289086378,
+        0.9259347488000662,
+        0.9215610143024777
+      ],
+      "encoder": "clip_b32",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.8673251388389305,
+        0.8515272075387688,
+        0.8352424155568082,
+        0.8213571160234281
+      ],
+      "cossim_unconditioned": [
+        0.8717303665873529,
+        0.8545386396578085,
+        0.8379210299463549,
+        0.8243352168819346
+      ],
+      "encoder": "dino_vits14",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.8667824170228233,
+        0.8516104755024999,
+        0.8347644513769549,
+        0.8206606842226858
+      ],
+      "cossim_unconditioned": [
+        0.869957266577189,
+        0.8532407992571169,
+        0.8371030614261237,
+        0.8238600663844895
+      ],
+      "encoder": "dino_vits14",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.8669592151124443,
+        0.8513854090677766,
+        0.8351578129066007,
+        0.8214816388927234
+      ],
+      "cossim_unconditioned": [
+        0.8719331952869551,
+        0.8557440135988896,
+        0.8396415372553908,
+        0.8267862876417629
+      ],
+      "encoder": "dino_vits14",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.8809296839746256,
+        0.8685118102745765,
+        0.8555506896127918,
+        0.8451358381948209
+      ],
+      "cossim_unconditioned": [
+        0.8861812817520224,
+        0.872762019397984,
+        0.8602784264679434,
+        0.8511909995929938
+      ],
+      "encoder": "vit_s16",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.880680049735036,
+        0.8687045302728068,
+        0.8559691602837491,
+        0.8463298159126075
+      ],
+      "cossim_unconditioned": [
+        0.8859154334651695,
+        0.8724910435497948,
+        0.8598996831341673,
+        0.8510984268371503
+      ],
+      "encoder": "vit_s16",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.8806095521021954,
+        0.8685199479199706,
+        0.8560459223548564,
+        0.8463230608221921
+      ],
+      "cossim_unconditioned": [
+        0.8855137575990403,
+        0.8720887827024092,
+        0.8593380117266792,
+        0.8502287744133867
+      ],
+      "encoder": "vit_s16",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9837333945291776,
+        0.9792302820290514,
+        0.9753779995417239,
+        0.9716335155137198
+      ],
+      "cossim_unconditioned": [
+        0.9839702633655166,
+        0.9792962293383776,
+        0.9746723424950569,
+        0.9708138701880104
+      ],
+      "encoder": "vjepa2_rep1",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9828593839598573,
+        0.9784035599084331,
+        0.9744411911289506,
+        0.9703357046788679
+      ],
+      "cossim_unconditioned": [
+        0.9829158504899301,
+        0.9780962589064699,
+        0.9733946751483495,
+        0.9696926603371817
+      ],
+      "encoder": "vjepa2_rep1",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.982891832468892,
+        0.9785283094491658,
+        0.974025605943155,
+        0.9703716757465144
+      ],
+      "cossim_unconditioned": [
+        0.9831036393284732,
+        0.978016485343408,
+        0.9730506836433079,
+        0.9688318445797357
+      ],
+      "encoder": "vjepa2_rep1",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9877162988961546,
+        0.9841918255442907,
+        0.97987540794664,
+        0.9758341652503597
+      ],
+      "cossim_unconditioned": [
+        0.9878724135690827,
+        0.9837829116790315,
+        0.9790270548945622,
+        0.9750630930794806
+      ],
+      "encoder": "vjepa2_rep64",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.987671319398741,
+        0.9842795825880114,
+        0.9800385163485464,
+        0.9761434387161979
+      ],
+      "cossim_unconditioned": [
+        0.9877203888373085,
+        0.9838008271699727,
+        0.979199549042666,
+        0.9751832324610709
+      ],
+      "encoder": "vjepa2_rep64",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9872507453294759,
+        0.9837111201887312,
+        0.9794405289386159,
+        0.975387335307573
+      ],
+      "cossim_unconditioned": [
+        0.9875175207165867,
+        0.9833755028558011,
+        0.9786391003938327,
+        0.9744459674199539
+      ],
+      "encoder": "vjepa2_rep64",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.993541193087617,
+        0.9910062883894125,
+        0.9894017066258657,
+        0.9879512473608124
+      ],
+      "cossim_unconditioned": [
+        0.9945128040134213,
+        0.9922996270390405,
+        0.9906313379304966,
+        0.9894329281525542
+      ],
+      "encoder": "vq_track",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 0,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9935826760725157,
+        0.9912448495180982,
+        0.9891634341160911,
+        0.9876951170838788
+      ],
+      "cossim_unconditioned": [
+        0.9946562180463668,
+        0.9922898935422529,
+        0.9903470088820062,
+        0.9889950566591867
+      ],
+      "encoder": "vq_track",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 1,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned": [
+        0.9935239857689308,
+        0.9913114008152918,
+        0.9895087729786832,
+        0.9879765986604299
+      ],
+      "cossim_unconditioned": [
+        0.9945589928944671,
+        0.9920851684052207,
+        0.9900418718179272,
+        0.9887313603430926
+      ],
+      "encoder": "vq_track",
+      "model": "mlp",
+      "n_test_windows": 5419,
+      "seed": 2,
+      "source": "mlp_rollout_results.json"
+    }
+  ],
+  "rows": [
+    {
+      "cossim_conditioned_mean": 0.6213091295158657,
+      "cossim_conditioned_std": 0.006965468615256686,
+      "cossim_unconditioned_mean": 0.6188727347930141,
+      "cossim_unconditioned_std": 0.004310164282583294,
+      "delta_cossim_mean": 0.002436394722851657,
+      "delta_cossim_std": 0.0048541624429274495,
+      "encoder": "clip_b32",
+      "k": 1,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.6156827461208417,
+      "cossim_conditioned_std": 0.006719571338483545,
+      "cossim_unconditioned_mean": 0.6154392482008801,
+      "cossim_unconditioned_std": 0.005626406376544904,
+      "delta_cossim_mean": 0.0002434979199615143,
+      "delta_cossim_std": 0.0030081554265011124,
+      "encoder": "clip_b32",
+      "k": 2,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.6132004957192644,
+      "cossim_conditioned_std": 0.005742165713927425,
+      "cossim_unconditioned_mean": 0.6122891786918726,
+      "cossim_unconditioned_std": 0.008856825176392705,
+      "delta_cossim_mean": 0.0009113170273917411,
+      "delta_cossim_std": 0.00392550080735051,
+      "encoder": "clip_b32",
+      "k": 3,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.607670164345859,
+      "cossim_conditioned_std": 0.005818636374105144,
+      "cossim_unconditioned_mean": 0.6088434354166501,
+      "cossim_unconditioned_std": 0.0050262048256221594,
+      "delta_cossim_mean": -0.0011732710707911265,
+      "delta_cossim_std": 0.002025155724879603,
+      "encoder": "clip_b32",
+      "k": 4,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.44798099348639964,
+      "cossim_conditioned_std": 0.004284268675079562,
+      "cossim_unconditioned_mean": 0.44529668133718,
+      "cossim_unconditioned_std": 0.002362180148639538,
+      "delta_cossim_mean": 0.002684312149219622,
+      "delta_cossim_std": 0.00450873235820719,
+      "encoder": "dino_vits14",
+      "k": 1,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.43675854716887885,
+      "cossim_conditioned_std": 0.005078464370174412,
+      "cossim_unconditioned_mean": 0.4341206827191268,
+      "cossim_unconditioned_std": 0.005719029044337038,
+      "delta_cossim_mean": 0.0026378644497520587,
+      "delta_cossim_std": 0.0017501821067808637,
+      "encoder": "dino_vits14",
+      "k": 2,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.42959822324865554,
+      "cossim_conditioned_std": 0.003572635908104415,
+      "cossim_unconditioned_mean": 0.427813916260036,
+      "cossim_unconditioned_std": 0.0034279575156084536,
+      "delta_cossim_mean": 0.0017843069886196068,
+      "delta_cossim_std": 0.006695028652985706,
+      "encoder": "dino_vits14",
+      "k": 3,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.42169305076676555,
+      "cossim_conditioned_std": 0.0017033589001392282,
+      "cossim_unconditioned_mean": 0.4180569662528335,
+      "cossim_unconditioned_std": 0.0028258403819899887,
+      "delta_cossim_mean": 0.003636084513932029,
+      "delta_cossim_std": 0.0028288179331777573,
+      "encoder": "dino_vits14",
+      "k": 4,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.5034544343415123,
+      "cossim_conditioned_std": 0.004783781619457468,
+      "cossim_unconditioned_mean": 0.4789926123338966,
+      "cossim_unconditioned_std": 0.03071801720391852,
+      "delta_cossim_mean": 0.024461822007615635,
+      "delta_cossim_std": 0.0349967628264647,
+      "encoder": "vit_s16",
+      "k": 1,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.49481898503322,
+      "cossim_conditioned_std": 0.007744355657960701,
+      "cossim_unconditioned_mean": 0.47410227779152136,
+      "cossim_unconditioned_std": 0.028910467685796727,
+      "delta_cossim_mean": 0.02071670724169868,
+      "delta_cossim_std": 0.03664749019935879,
+      "encoder": "vit_s16",
+      "k": 2,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.48615148975714667,
+      "cossim_conditioned_std": 0.004685522115372202,
+      "cossim_unconditioned_mean": 0.4673530662852459,
+      "cossim_unconditioned_std": 0.0321579838288305,
+      "delta_cossim_mean": 0.018798423471900732,
+      "delta_cossim_std": 0.03656870062561312,
+      "encoder": "vit_s16",
+      "k": 3,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.4808715760007573,
+      "cossim_conditioned_std": 0.003933771477731324,
+      "cossim_unconditioned_mean": 0.46130372536844555,
+      "cossim_unconditioned_std": 0.028497830815343843,
+      "delta_cossim_mean": 0.019567850632311774,
+      "delta_cossim_std": 0.03232196304506427,
+      "encoder": "vit_s16",
+      "k": 4,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.751799273287054,
+      "cossim_conditioned_std": 0.012639974559141197,
+      "cossim_unconditioned_mean": 0.7469512577858213,
+      "cossim_unconditioned_std": 0.013820898901093987,
+      "delta_cossim_mean": 0.004848015501232668,
+      "delta_cossim_std": 0.002803158053690738,
+      "encoder": "vjepa2_rep1",
+      "k": 1,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.749074120506,
+      "cossim_conditioned_std": 0.008901212558505994,
+      "cossim_unconditioned_mean": 0.7440226845190726,
+      "cossim_unconditioned_std": 0.01107605112908051,
+      "delta_cossim_mean": 0.005051435986927329,
+      "delta_cossim_std": 0.0024447933548484633,
+      "encoder": "vjepa2_rep1",
+      "k": 2,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.7482797091551473,
+      "cossim_conditioned_std": 0.009990253238012899,
+      "cossim_unconditioned_mean": 0.743728962332925,
+      "cossim_unconditioned_std": 0.011736084983545374,
+      "delta_cossim_mean": 0.0045507468222222664,
+      "delta_cossim_std": 0.0019836054178989774,
+      "encoder": "vjepa2_rep1",
+      "k": 3,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.7463937846102412,
+      "cossim_conditioned_std": 0.011809665117145979,
+      "cossim_unconditioned_mean": 0.7420566190672792,
+      "cossim_unconditioned_std": 0.012371103481482956,
+      "delta_cossim_mean": 0.004337165542962003,
+      "delta_cossim_std": 0.003729945419117386,
+      "encoder": "vjepa2_rep1",
+      "k": 4,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.7344771096163324,
+      "cossim_conditioned_std": 0.03373510143378586,
+      "cossim_unconditioned_mean": 0.7552250332224301,
+      "cossim_unconditioned_std": 0.0008089672636172087,
+      "delta_cossim_mean": -0.020747923606097746,
+      "delta_cossim_std": 0.03453691151052179,
+      "encoder": "vjepa2_rep64",
+      "k": 1,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.7341413755452654,
+      "cossim_conditioned_std": 0.03224450692886195,
+      "cossim_unconditioned_mean": 0.7541597431682899,
+      "cossim_unconditioned_std": 0.0028353205988523,
+      "delta_cossim_mean": -0.020018367623024485,
+      "delta_cossim_std": 0.03480777005799355,
+      "encoder": "vjepa2_rep64",
+      "k": 2,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.7322478270027671,
+      "cossim_conditioned_std": 0.03338282408371109,
+      "cossim_unconditioned_mean": 0.7523617754711717,
+      "cossim_unconditioned_std": 0.0040793587652005634,
+      "delta_cossim_mean": -0.02011394846840464,
+      "delta_cossim_std": 0.03645259999712493,
+      "encoder": "vjepa2_rep64",
+      "k": 3,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.7294992185382522,
+      "cossim_conditioned_std": 0.03293488887993303,
+      "cossim_unconditioned_mean": 0.7480694819561426,
+      "cossim_unconditioned_std": 0.002209137667854128,
+      "delta_cossim_mean": -0.018570263417890403,
+      "delta_cossim_std": 0.03320740826074651,
+      "encoder": "vjepa2_rep64",
+      "k": 4,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.5013050653767731,
+      "cossim_conditioned_std": 0.004987513258747154,
+      "cossim_unconditioned_mean": 0.5145874141935508,
+      "cossim_unconditioned_std": 0.009742748901323402,
+      "delta_cossim_mean": -0.013282348816777681,
+      "delta_cossim_std": 0.00490991443793333,
+      "encoder": "vq_track",
+      "k": 1,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.4960419610908069,
+      "cossim_conditioned_std": 0.0036594140093362064,
+      "cossim_unconditioned_mean": 0.5090515306605004,
+      "cossim_unconditioned_std": 0.0077733181651558035,
+      "delta_cossim_mean": -0.013009569569693439,
+      "delta_cossim_std": 0.004760555729443131,
+      "encoder": "vq_track",
+      "k": 2,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.4986024285665098,
+      "cossim_conditioned_std": 0.009828818499607546,
+      "cossim_unconditioned_mean": 0.5115973446255806,
+      "cossim_unconditioned_std": 0.014067621009935069,
+      "delta_cossim_mean": -0.012994916059070827,
+      "delta_cossim_std": 0.0042683358161087455,
+      "encoder": "vq_track",
+      "k": 3,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.496865101345147,
+      "cossim_conditioned_std": 0.012400385448874266,
+      "cossim_unconditioned_mean": 0.5097410506836095,
+      "cossim_unconditioned_std": 0.017133373601147587,
+      "delta_cossim_mean": -0.012875949338462553,
+      "delta_cossim_std": 0.005029126950024067,
+      "encoder": "vq_track",
+      "k": 4,
+      "model": "dit",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9358048238107227,
+      "cossim_conditioned_std": 0.0007261843633250529,
+      "cossim_unconditioned_mean": 0.9391537584369455,
+      "cossim_unconditioned_std": 0.00038072136435343934,
+      "delta_cossim_mean": -0.003348934626222914,
+      "delta_cossim_std": 0.00038220748823768137,
+      "encoder": "clip_b32",
+      "k": 1,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9297169313854915,
+      "cossim_conditioned_std": 0.000834694801683831,
+      "cossim_unconditioned_mean": 0.9320769250455242,
+      "cossim_unconditioned_std": 0.00040203479679822647,
+      "delta_cossim_mean": -0.0023599936600327367,
+      "delta_cossim_std": 0.0004371206938946033,
+      "encoder": "clip_b32",
+      "k": 2,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9232658561748311,
+      "cossim_conditioned_std": 0.0010245036239466816,
+      "cossim_unconditioned_mean": 0.9255672777946375,
+      "cossim_unconditioned_std": 0.0005355741369492666,
+      "delta_cossim_mean": -0.0023014216198064355,
+      "delta_cossim_std": 0.0004984371255790064,
+      "encoder": "clip_b32",
+      "k": 3,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9177587004306829,
+      "cossim_conditioned_std": 0.0011410728162057659,
+      "cossim_unconditioned_mean": 0.9209394295981004,
+      "cossim_unconditioned_std": 0.0007472060439333063,
+      "delta_cossim_mean": -0.0031807291674175544,
+      "delta_cossim_std": 0.00041754856043709924,
+      "encoder": "clip_b32",
+      "k": 4,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8670222569913993,
+      "cossim_conditioned_std": 0.0002767985753147901,
+      "cossim_unconditioned_mean": 0.8712069428171656,
+      "cossim_unconditioned_std": 0.001086992593772979,
+      "delta_cossim_mean": -0.004184685825766292,
+      "delta_cossim_std": 0.0009196177476661777,
+      "encoder": "dino_vits14",
+      "k": 1,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8515076973696818,
+      "cossim_conditioned_std": 0.00011379459579926449,
+      "cossim_unconditioned_mean": 0.8545078175046049,
+      "cossim_unconditioned_std": 0.0012518917741003827,
+      "delta_cossim_mean": -0.003000120134923271,
+      "delta_cossim_std": 0.0013641755640634754,
+      "encoder": "dino_vits14",
+      "k": 2,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8350548932801213,
+      "cossim_conditioned_std": 0.00025506229913831884,
+      "cossim_unconditioned_mean": 0.8382218762092898,
+      "cossim_unconditioned_std": 0.0012957029904205677,
+      "delta_cossim_mean": -0.0031669829291685048,
+      "delta_cossim_std": 0.0011529339584205216,
+      "encoder": "dino_vits14",
+      "k": 3,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8211664797129458,
+      "cossim_conditioned_std": 0.00044243450896136135,
+      "cossim_unconditioned_mean": 0.8249938569693956,
+      "cossim_unconditioned_std": 0.0015703654941565993,
+      "delta_cossim_mean": -0.003827377256449882,
+      "delta_cossim_std": 0.0012841299197941852,
+      "encoder": "dino_vits14",
+      "k": 4,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8807397619372855,
+      "cossim_conditioned_std": 0.00016821196229620968,
+      "cossim_unconditioned_mean": 0.8858701576054108,
+      "cossim_unconditioned_std": 0.00033605736312613784,
+      "delta_cossim_mean": -0.005130395668125083,
+      "delta_cossim_std": 0.0001960541226804098,
+      "encoder": "vit_s16",
+      "k": 1,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8685787628224513,
+      "cossim_conditioned_std": 0.00010899377961534284,
+      "cossim_unconditioned_mean": 0.8724472818833959,
+      "cossim_unconditioned_std": 0.0003387450732507141,
+      "delta_cossim_mean": -0.003868519060944727,
+      "delta_cossim_std": 0.00034801071762875665,
+      "encoder": "vit_s16",
+      "k": 2,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8558552574171324,
+      "cossim_conditioned_std": 0.00026654129974703787,
+      "cossim_unconditioned_mean": 0.8598387071095966,
+      "cossim_unconditioned_std": 0.00047316332072136274,
+      "delta_cossim_mean": -0.003983449692464188,
+      "delta_cossim_std": 0.0007192856609538427,
+      "encoder": "vit_s16",
+      "k": 3,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.8459295716432068,
+      "cossim_conditioned_std": 0.0006874016279633242,
+      "cossim_unconditioned_mean": 0.8508394002811769,
+      "cossim_unconditioned_std": 0.0005308393274730478,
+      "delta_cossim_mean": -0.004909828637970144,
+      "delta_cossim_std": 0.0010816599746085785,
+      "encoder": "vit_s16",
+      "k": 4,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9831615369859756,
+      "cossim_conditioned_std": 0.000495508843233305,
+      "cossim_unconditioned_mean": 0.9833299177279734,
+      "cossim_unconditioned_std": 0.0005624482763871654,
+      "delta_cossim_mean": -0.00016838074199769051,
+      "delta_cossim_std": 9.772726739666957e-05,
+      "encoder": "vjepa2_rep1",
+      "k": 1,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9787207171288834,
+      "cossim_conditioned_std": 0.0004456825132206128,
+      "cossim_unconditioned_mean": 0.9784696578627519,
+      "cossim_unconditioned_std": 0.0007169422979427861,
+      "delta_cossim_mean": 0.0002510592661315962,
+      "delta_cossim_std": 0.00029296296977441856,
+      "encoder": "vjepa2_rep1",
+      "k": 2,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9746149322046098,
+      "cossim_conditioned_std": 0.0006927348572079663,
+      "cossim_unconditioned_mean": 0.9737059004289047,
+      "cossim_unconditioned_std": 0.0008544531814595926,
+      "delta_cossim_mean": 0.0009090317757050418,
+      "delta_cossim_std": 0.00017972861232824804,
+      "encoder": "vjepa2_rep1",
+      "k": 3,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9707802986463673,
+      "cossim_conditioned_std": 0.0007391263399973918,
+      "cossim_unconditioned_mean": 0.9697794583683091,
+      "cossim_unconditioned_std": 0.0009938595482359863,
+      "delta_cossim_mean": 0.0010008402780580978,
+      "delta_cossim_std": 0.000475058270617785,
+      "encoder": "vjepa2_rep1",
+      "k": 4,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9875461212081239,
+      "cossim_conditioned_std": 0.00025678974095976934,
+      "cossim_unconditioned_mean": 0.9877034410409927,
+      "cossim_unconditioned_std": 0.0001780523940815234,
+      "delta_cossim_mean": -0.00015731983286881857,
+      "delta_cossim_std": 0.00010885797773083906,
+      "encoder": "vjepa2_rep64",
+      "k": 1,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9840608427736778,
+      "cossim_conditioned_std": 0.0003060306185611825,
+      "cossim_unconditioned_mean": 0.9836530805682685,
+      "cossim_unconditioned_std": 0.00024055619104041627,
+      "delta_cossim_mean": 0.0004077622054093159,
+      "delta_cossim_std": 7.157599173217742e-05,
+      "encoder": "vjepa2_rep64",
+      "k": 2,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9797848177446008,
+      "cossim_conditioned_std": 0.00030911514705363636,
+      "cossim_unconditioned_mean": 0.9789552347770204,
+      "cossim_unconditioned_std": 0.0002870440191983952,
+      "delta_cossim_mean": 0.000829582967580437,
+      "delta_cossim_std": 2.4829955702866972e-05,
+      "encoder": "vjepa2_rep64",
+      "k": 3,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9757883130913769,
+      "cossim_conditioned_std": 0.0003801314331860416,
+      "cossim_unconditioned_mean": 0.9748974309868351,
+      "cossim_unconditioned_std": 0.0003955665328589381,
+      "delta_cossim_mean": 0.0008908821045417644,
+      "delta_cossim_std": 0.00010418510534512601,
+      "encoder": "vjepa2_rep64",
+      "k": 4,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9935492849763544,
+      "cossim_conditioned_std": 3.017029882564273e-05,
+      "cossim_unconditioned_mean": 0.9945760049847517,
+      "cossim_unconditioned_std": 7.32048811440314e-05,
+      "delta_cossim_mean": -0.0010267200083972823,
+      "delta_cossim_std": 5.146835796717389e-05,
+      "encoder": "vq_track",
+      "k": 1,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9911875129076009,
+      "cossim_conditioned_std": 0.00016043382836540256,
+      "cossim_unconditioned_mean": 0.992224896328838,
+      "cossim_unconditioned_std": 0.00012110575840457524,
+      "delta_cossim_mean": -0.0010373834212371962,
+      "delta_cossim_std": 0.00025987022751176127,
+      "encoder": "vq_track",
+      "k": 2,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9893579712402133,
+      "cossim_conditioned_std": 0.0001767747732928193,
+      "cossim_unconditioned_mean": 0.99034007287681,
+      "cossim_unconditioned_std": 0.00029479425976937845,
+      "delta_cossim_mean": -0.0009821016365966957,
+      "delta_cossim_std": 0.0003895291198518002,
+      "encoder": "vq_track",
+      "k": 3,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    },
+    {
+      "cossim_conditioned_mean": 0.9878743210350404,
+      "cossim_conditioned_std": 0.00015571195902052025,
+      "cossim_unconditioned_mean": 0.9890531150516112,
+      "cossim_unconditioned_std": 0.0003543690597616825,
+      "delta_cossim_mean": -0.0011787940165708388,
+      "delta_cossim_std": 0.0003782988667540139,
+      "encoder": "vq_track",
+      "k": 4,
+      "model": "mlp",
+      "n_seeds": 3,
+      "n_test_windows": 5419,
+      "source": "mlp_rollout_results.json"
+    }
+  ],
+  "schema_version": "1.0"
+}
