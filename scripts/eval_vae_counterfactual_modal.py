@@ -19,6 +19,8 @@ import os
 import time
 from pathlib import Path
 
+from config import load_canonical
+
 try:
     import modal
 except ImportError:
@@ -464,7 +466,7 @@ def run_counterfactual(
             vdit.eval()
             vfourier.eval()
             vae_dec = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device).eval()
-            scaling = 0.18215
+            scaling = load_canonical().vae_scaling_factor  # 0.18215 for runwayml/stable-diffusion-v1-5
 
             def vae_predict_tokens(z_grid, act_seq):
                 z_n = vnorm(z_grid)

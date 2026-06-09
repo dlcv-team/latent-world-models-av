@@ -109,6 +109,11 @@ class CanonicalConfig:
     def latent_predictor(self) -> dict[str, Any]:
         return dict(self.raw["latent_predictor"])
 
+    @property
+    def vae_scaling_factor(self) -> float:
+        """SD VAE scaling factor (0.18215 for runwayml/stable-diffusion-v1-5)."""
+        return float(self.raw["vae"]["scaling_factor"])
+
 
 @lru_cache(maxsize=1)
 def load_canonical(config_path: Path | str | None = None) -> CanonicalConfig:
@@ -158,6 +163,7 @@ def _shallow_validate(raw: dict[str, Any]) -> None:
         "target_embedding_dim",
         "evaluation",
         "figures",
+        "vae",
     ]
     missing = [k for k in required_top if k not in raw]
     if missing:

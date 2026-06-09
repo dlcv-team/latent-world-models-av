@@ -27,6 +27,8 @@ import json
 import os
 from pathlib import Path
 
+from config import load_canonical
+
 try:
     import modal
 except ImportError:
@@ -57,7 +59,7 @@ SPATIAL_DIR = f"{VOL_PATH}/embeddings/spatial"
 CKPT_DIR = f"{VOL_PATH}/dits/vae_latent"
 VAE_NPZ = f"{SPATIAL_DIR}/sd_vae_latents.npz"
 OUT_DIR = f"{SPATIAL_DIR}/gen_eval"
-SCALING = 0.18215
+SCALING = load_canonical().vae_scaling_factor  # 0.18215 for runwayml/stable-diffusion-v1-5
 HORIZON = 16
 DIFFUSION_STEPS = 1000
 
