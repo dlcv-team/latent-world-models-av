@@ -30,7 +30,9 @@ from evaluation.latent_eval import (
     COSSIM_CSV_FILENAME,
     COSSIM_JSON_FILENAME,
     CSV_COLUMNS,
+    CSV_COLUMNS_PERTURBED,
     compute_delta_cossim,
+    compute_perturbation_delta_cossim,
     evaluate_cossim,
     export_cossim_results,
     main,
@@ -746,3 +748,174 @@ def test_evaluate_cossim_treats_paths_as_first_class(tmp_path):
     via_path = evaluate_cossim(p_hat, p_real)
     via_str = evaluate_cossim(str(p_hat), str(p_real))
     assert via_path == via_str
+
+
+# ---------------------------------------------------------------------------
+# Perturbation analysis tests (B10 extension)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_perturbation_delta_cossim_math():
+    """Per-horizon perturbation delta = masked - unmasked."""
+    unmasked = {1: 0.95, 2: 0.90, 3: 0.85, 4: 0.80}
+    masked = {1: 0.90, 2: 0.88, 3: 0.86, 4: 0.82}
+
+    delta = compute_perturbation_delta_cossim(unmasked, masked)
+
+    assert sorted(delta) == [1, 2, 3, 4]
+    assert delta[1] == pytest.approx(-0.05)  # 0.90 - 0.95
+    assert delta[2] == pytest.approx(-0.02)  # 0.88 - 0.90
+    assert delta[3] == pytest.approx(0.01)  # 0.86 - 0.85
+    assert delta[4] == pytest.approx(0.02)  # 0.82 - 0.80
+
+
+def test_compute_perturbation_delta_cossim_horizon_mismatch():
+    """Mismatched horizons between unmasked and masked raises ValueError."""
+    unmasked = {1: 0.95, 2: 0.90}
+    masked = {1: 0.90, 2: 0.88, 3: 0.86}
+
+    with pytest.raises(ValueError, match="horizon mismatch"):
+        compute_perturbation_delta_cossim(unmasked, masked)
+
+
+def test_export_cossim_results_with_perturbation(tmp_path):
+    """Perturbation columns appear in CSV and JSON when provided."""
+    cossim_cond = {1: 0.95, 2: 0.90}
+    cossim_uncond = {1: 0.94, 2: 0.89}
+    delta = {1: 0.01, 2: 0.01}
+    cossim_masked = {1: 0.90, 2: 0.88}
+    perturb_delta = {1: -0.05, 2: -0.02}
+
+    json_path, csv_path = export_cossim_results(
+        cossim_cond,
+        cossim_uncond,
+        delta,
+        tmp_path,
+        cossim_masked=cossim_masked,
+        perturbation_delta=perturb_delta,
+    )
+
+    # Check CSV has extended columns
+    with csv_path.open() as fh:
+        reader = csv.DictReader(fh)
+        rows = list(reader)
+        assert reader.fieldnames == list(CSV_COLUMNS_PERTURBED)
+        assert len(rows) == 2
+        assert rows[0]["k"] == "1"
+        assert float(rows[0]["cossim_masked"]) == pytest.approx(0.90)
+        assert float(rows[0]["perturbation_delta_cossim"]) == pytest.approx(-0.05)
+
+    # Check JSON has perturbation fields
+    payload = json.loads(json_path.read_text())
+    assert "cossim_masked" in payload["per_horizon"]["1"]
+    assert "perturbation_delta_cossim" in payload["per_horizon"]["1"]
+    assert payload["per_horizon"]["1"]["cossim_masked"] == pytest.approx(0.90)
+    assert payload["per_horizon"]["1"]["perturbation_delta_cossim"] == pytest.approx(-0.05)
+
+
+def test_run_latent_eval_with_masked_input(tmp_path):
+    """run_latent_eval computes perturbation delta when z_hat_masked_path is provided."""
+    n, horizon, z_dim = 16, 4, 384
+
+    # Unmasked baseline
+    z_hat_cond = torch.randn(n, horizon, z_dim)
+    z_real_cond = torch.randn(n, horizon, z_dim)
+    z_hat_uncond = torch.randn(n, horizon, z_dim)
+    z_real_uncond = torch.randn(n, horizon, z_dim)
+
+    # Masked variant (slightly different from unmasked)
+    z_hat_masked = z_hat_cond + torch.randn(n, horizon, z_dim) * 0.1
+
+    paths = {
+        "z_hat_cond": _save(z_hat_cond, tmp_path / "z_hat_conditioned.pt"),
+        "z_real_cond": _save(z_real_cond, tmp_path / "z_real_conditioned.pt"),
+        "z_hat_uncond": _save(z_hat_uncond, tmp_path / "z_hat_unconditioned.pt"),
+        "z_real_uncond": _save(z_real_uncond, tmp_path / "z_real_unconditioned.pt"),
+        "z_hat_masked": _save(z_hat_masked, tmp_path / "z_hat_masked.pt"),
+    }
+
+    out_dir = tmp_path / "out"
+    payload = run_latent_eval(
+        z_hat_conditioned_path=paths["z_hat_cond"],
+        z_real_conditioned_path=paths["z_real_cond"],
+        z_hat_unconditioned_path=paths["z_hat_uncond"],
+        z_real_unconditioned_path=paths["z_real_uncond"],
+        output_dir=out_dir,
+        z_hat_masked_path=paths["z_hat_masked"],
+    )
+
+    # Check payload has perturbation fields
+    assert "cossim_masked" in payload["per_horizon"]["1"]
+    assert "perturbation_delta_cossim" in payload["per_horizon"]["1"]
+
+    # Check CSV written with extended columns
+    csv_path = out_dir / COSSIM_CSV_FILENAME
+    with csv_path.open() as fh:
+        reader = csv.DictReader(fh)
+        assert reader.fieldnames == list(CSV_COLUMNS_PERTURBED)
+
+
+def test_cli_main_with_perturbation(tmp_path, capsys):
+    """CLI --z-hat-masked triggers perturbation analysis."""
+    n, horizon, z_dim = 16, 4, 384
+    paths = _seed_four_pt_files(tmp_path)
+    z_hat_masked = torch.randn(n, horizon, z_dim)
+    p_masked = _save(z_hat_masked, tmp_path / "z_hat_masked.pt")
+    out_dir = tmp_path / "cli_out"
+
+    rc = main(
+        [
+            "--z-hat-conditioned",
+            str(paths["z_hat_cond"]),
+            "--z-real-conditioned",
+            str(paths["z_real_cond"]),
+            "--z-hat-unconditioned",
+            str(paths["z_hat_uncond"]),
+            "--z-real-unconditioned",
+            str(paths["z_real_uncond"]),
+            "--z-hat-masked",
+            str(p_masked),
+            "--perturbation-type",
+            "mask_left_lane",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 0
+    stdout = capsys.readouterr().out
+    assert "CosSim_masked" in stdout
+    assert "PerturbDelta" in stdout
+
+    # Check JSON metadata includes perturbation_type
+    json_path = out_dir / COSSIM_JSON_FILENAME
+    payload = json.loads(json_path.read_text())
+    assert payload["metadata"]["perturbation_type"] == "mask_left_lane"
+
+
+def test_cli_main_perturbation_args_must_be_paired(tmp_path, capsys):
+    """CLI requires both --z-hat-masked and --perturbation-type or neither."""
+    paths = _seed_four_pt_files(tmp_path)
+    out_dir = tmp_path / "cli_out"
+
+    # Only --z-hat-masked without --perturbation-type
+    rc = main(
+        [
+            "--z-hat-conditioned",
+            str(paths["z_hat_cond"]),
+            "--z-real-conditioned",
+            str(paths["z_real_cond"]),
+            "--z-hat-unconditioned",
+            str(paths["z_hat_uncond"]),
+            "--z-real-unconditioned",
+            str(paths["z_real_uncond"]),
+            "--z-hat-masked",
+            str(paths["z_hat_cond"]),  # reuse existing file
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    stderr = capsys.readouterr().err
+    assert "must both be provided" in stderr
