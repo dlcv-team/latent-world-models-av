@@ -20,13 +20,14 @@ Usage:
 from __future__ import annotations
 
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
 
 
-def main():
+def main() -> int:
     # Source and destination directories
     artifacts_root = Path("artifacts/full/probes")
     output_root = Path("outputs/probes")
@@ -38,8 +39,8 @@ def main():
 
     # Scan for all encoder directories (not limited to ENCODER_DISPLAY keys)
     if not artifacts_root.exists():
-        print(f"WARNING: {artifacts_root} does not exist")
-        return
+        print(f"ERROR: {artifacts_root} does not exist", file=sys.stderr)
+        return 1
 
     processed_count = 0
     for encoder_dir in sorted(artifacts_root.iterdir()):
@@ -77,11 +78,21 @@ def main():
             if not metrics["steer_rmse"]:  # No data for this scene
                 continue
 
+            n_seeds = len(metrics["steer_rmse"])
             rows.append({
+                "encoder": encoder_name,
                 "scene_name": scene_name,
-                "steer_rmse": sum(metrics["steer_rmse"]) / len(metrics["steer_rmse"]),
-                "accel_rmse": sum(metrics["accel_rmse"]) / len(metrics["accel_rmse"]),
+                "scenario": "",  # Empty for backward compatibility
+                "fold_id": 0,    # Always 0 for single-fold setup
+                "steer_rmse": sum(metrics["steer_rmse"]) / n_seeds,
+                "accel_rmse": sum(metrics["accel_rmse"]) / n_seeds,
+                "n": n_seeds,    # Number of seeds averaged
             })
+
+        # Validate before writing
+        if len(rows) == 0:
+            print(f"  ERROR: No scenes aggregated for {encoder_name}", file=sys.stderr)
+            return 1
 
         # Write CSV
         output_dir = output_root / encoder_name
@@ -96,14 +107,20 @@ def main():
         print(f"    Mean accel RMSE (normalized): {df['accel_rmse'].mean():.4f}\n")
 
     if processed_count == 0:
-        print(f"WARNING: No encoder directories found in {artifacts_root}")
-    else:
-        print(f"Done! Converted probe results for {processed_count} encoders.")
-        print(f"\nNext steps:")
-        print(f"  1. Run A12 analysis: python -m analysis.paired_tests")
-        print(f"  2. Generate B6.5 per-scenario breakdown")
-        print(f"  3. Render B8 figures: python figures/render_figures.py")
+        print(f"ERROR: No encoder directories found in {artifacts_root}", file=sys.stderr)
+        return 1
+
+    print(f"Done! Converted probe results for {processed_count} encoders.")
+    print(f"\nNext steps:")
+    print(f"  1. Run A12 analysis: python -m analysis.paired_tests")
+    print(f"  2. Generate B6.5 per-scenario breakdown")
+    print(f"  3. Render B8 figures: python figures/render_figures.py")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
+
+
+# --- Merged from main-tier2 ---
+
