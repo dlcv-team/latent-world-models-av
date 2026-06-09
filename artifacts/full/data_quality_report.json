@@ -1,0 +1,17 @@
+{
+  "source": "archived_fullscope_artifacts",
+  "source_handoff_manifest": "fullscope-cpu-eval-latest/handoff_manifest.json",
+  "max_can_alignment_us": 50000,
+  "blacklisted_scenes_dropped": null,
+  "blacklisted_scene_ids": [],
+  "samples_dropped_for_tolerance": null,
+  "sample_retention_pct": null,
+  "manifest_sha256": "15c7ddfc8806aa03ced91010031fd259425b8b4c3d8f21a1b9dc0c24a926fd79",
+  "archived_manifest_sha256": "6336c6ef507b9fc2969fbc3ca20ed74d6ebbdd76af2e1d9e54426bb3a6679a23",
+  "archived_manifest_path": "fullscope-cpu-eval-latest/inputs/trainval_subset_manifest.json",
+  "camfront_keyframe_actions_sha256": "ff70d20ffb4dd152ed06661fe63dd00942d4ed35b87d39f53728a3b22c292a94",
+  "total_keyframes": 33552,
+  "retained_samples": 33552,
+  "scene_description_count": 850,
+  "caveat": "Raw nuScenes trainval was not available in the local checkout or Modal volume during closure. Fields requiring live dataset filtering (blacklist drops, tolerance drops, retention percentage) are left null rather than fabricated."
+}

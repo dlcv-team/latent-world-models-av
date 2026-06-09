@@ -22,7 +22,7 @@ to transform this directory into the canonical
 | `canonical_closure/` | Final 5-encoder summary CSVs (per-encoder mean RMSE, bootstrap CIs, paired t-tests with Bonferroni correction, BC baseline row, perturbation summary) + a JSON manifest listing them. Consumed by the paired-t-test analysis and the publication-ready figure scripts. |
 | `per_scene/` | Per-scene RMSE, fold and scenario breakdowns, per-encoder seed metrics, and the train+eval phase report. Consumed by the paired-t-test analysis and the test-reproducibility checks. |
 | `perturbation/` | Per-encoder perturbation RMSE, per-scene perturbation breakdown, and a summary. Consumed by the perturbation-analysis figure. |
-| `retry_reports/` | `vq_retry_report.json` documents why the VQ-VAE wrapper falls back to DINOv2 embeddings (no loadable pretrained VQ checkpoint); `vjepa2_retry_report.json` documents the successful Hugging Face `transformers` load path for V-JEPA2. Reviewers use these to verify the fallback decision. |
+| `retry_reports/` | `vq_retry_report.json` documents why the VQ-VAE wrapper fell back to DINOv2 embeddings during the pilot run (VQGAN checkpoint was not available at that time); `vjepa2_retry_report.json` documents the successful Hugging Face `transformers` load path for V-JEPA2. Reviewers use these to verify the fallback decision. |
 | `embeddings/` | `camfront_keyframes_all_merged.npz` holds precomputed 384-d embeddings for all 5 encoders on the 3,500 keyframes in the trainval-mirror subset (keys: `cam_tokens`, `scene_names`, `timestamps_us`, `image_paths`, `vit_s16`, `clip_b32`, `dino_vits14`, `vq_track`, `vjepa2_rep64`, `vjepa2_rep1`). Plus per-temporal-stride V-JEPA caches for the multi-frame ablation. Consumed by latent-predictor training, CosSim evaluation, and attribution overlay pipelines that need cached embeddings. |
 | `figures/` | Reference figure PDFs/PNGs from the pilot's figure stage. **Not final.** The figure scripts will regenerate these from `paired_tests`, `encoder_summary_with_ci`, and per-scenario RMSE with the up-to-date caption and Bonferroni-bracket logic. Use these as visual templates while iterating. |
 | `smoke/` | v1.0-mini smoke run: encoder forward check, CAN-bus alignment check, environment report. Reference for the data pipeline's smoke tests. |
@@ -40,16 +40,17 @@ to transform this directory into the canonical
   `tests/data/pilot_baselines.json`'s `status: pending_revalidation`
   marker, which is resolved once fresh canonical numbers land.
 
-* **VQ-VAE is a documented fallback.** The `vq_retry_report.json`
-  records the failed VQGAN checkpoint loads; the wrapper substitutes
-  DINOv2-S/14 embeddings instead. The adopt script tags `vq_track`'s
+* **VQ-VAE used fallback in the pilot run.** The `vq_retry_report.json`
+  records why the pilot run used DINOv2-S/14 fallback (VQGAN checkpoint
+  was not available). Current VQ implementation loads real VQGAN by default
+  (canonical.yaml v1.0.2, May 14). The adopt script tags `vq_track`'s
   `provenance.json::fallback_caveat` accordingly so figure captions
   pick the caveat string up from data, not from hardcoded literals.
 
 * **`vjepa2_rep1` rows in `per_scene/per_scene_rmse.csv` are the
   1-frame V-JEPA2 ablation.** The adopt script filters them out by
   default; the 5-encoder canonical row uses `vjepa2_rep64` (the
-  64-frame V-JEPA2 path).
+  fpc64 V-JEPA2 checkpoint variant, fed 16-frame input).
 
 ## Regenerating
 

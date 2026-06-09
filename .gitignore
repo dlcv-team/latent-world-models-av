@@ -22,7 +22,6 @@ env/
 .idea/
 *.swp
 .DS_Store
-CLAUDE.md
 
 # Project outputs (large; not committed)
 outputs/
@@ -48,3 +47,6 @@ wandb/
 
 # PRD documentation
 docs/prd/
+
+# Large per-window analysis CSVs (kept on HuggingFace, not git)
+artifacts/full/*perwindow*.csv

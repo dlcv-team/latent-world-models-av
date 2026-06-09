@@ -18,6 +18,8 @@ import os
 import time
 from pathlib import Path
 
+from config import load_canonical
+
 try:
     import modal
 except ImportError:
@@ -37,7 +39,7 @@ SPATIAL_DIR = f"{VOL_PATH}/embeddings/spatial"
 # SD VAE config
 VAE_MODEL_ID = "stabilityai/sd-vae-ft-mse"
 TARGET_SIZE = 256  # 256x256 -> 32x32x4 latent grid
-SCALING_FACTOR = 0.18215  # from vae.config.scaling_factor
+SCALING_FACTOR = load_canonical().vae_scaling_factor  # 0.18215 for runwayml/stable-diffusion-v1-5
 BATCH_SIZE = 32  # VAE is memory-heavier than ViT/DINO
 
 if modal is not None:

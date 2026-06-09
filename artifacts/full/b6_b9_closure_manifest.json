@@ -1,0 +1,306 @@
+{
+  "task": "B6.5-B9 artifact closure",
+  "source_mode": "mixed_generated_and_archived_fallback",
+  "details": {
+    "data_quality": {
+      "path": "artifacts/full/data_quality_report.json",
+      "caveat": "Raw nuScenes trainval was not available in the local checkout or Modal volume during closure. Fields requiring live dataset filtering (blacklist drops, tolerance drops, retention percentage) are left null rather than fabricated."
+    },
+    "per_scenario_rmse": {
+      "path": "outputs/analysis/per_scenario_rmse.csv",
+      "rows": 24,
+      "encoders": [
+        "clip_b32",
+        "dino_vits14",
+        "vit_s16",
+        "vjepa2_rep1",
+        "vjepa2_rep64",
+        "vq_track"
+      ],
+      "scenarios": [
+        "intersection",
+        "other"
+      ],
+      "scenario_caveat": "P0 test split contains only intersection and other scenarios; highway and urban have 0 scenes in this split and are absent from the output.",
+      "metrics": [
+        "accel_rmse_mps2",
+        "steer_rmse_deg"
+      ]
+    },
+    "b8_figures": [
+      "artifacts/full/figures/figure1_encoder_rmse.pdf",
+      "artifacts/full/figures/figure2_scenario_heatmap.pdf"
+    ],
+    "legacy_attribution": {
+      "source_archive_path": "fullscope-gpu-latest/attribution",
+      "method_report": "artifacts/full/attribution/figures_method_report.json",
+      "large_manifest": "artifacts/full/attribution/legacy_fullscope_manifest.json",
+      "file_count": 11,
+      "total_bytes": 28133350,
+      "hf_upload_status": "uploaded",
+      "caveat": "These are archived fullscope attribution composites, not freshly generated B7 per-frame overlays from evaluation/gradcam.py. Raw trainval images were unavailable during closure.",
+      "hf_repo": "surlac/lwm-av-embeddings",
+      "hf_path": "b6_b9/artifacts/full/attribution/legacy_fullscope",
+      "hf_url": "https://huggingface.co/datasets/surlac/lwm-av-embeddings/tree/main/b6_b9/artifacts/full/attribution/legacy_fullscope"
+    },
+    "legacy_attribution_grid": "artifacts/full/figures/attribution_grid.pdf"
+  },
+  "files": [
+    {
+      "path": "artifacts/full/analysis/per_scenario_rmse.csv",
+      "bytes": 2313,
+      "sha256": "8547a18b6555b9a090a4bf14b8fba246c76fe4738b928366653623eb72d27241"
+    },
+    {
+      "path": "artifacts/full/attribution/figures_method_report.json",
+      "bytes": 1249,
+      "sha256": "a44438ba68cc66e6a23d39bfdbb08b70490096e177c1edcf502556440f030c00"
+    },
+    {
+      "path": "artifacts/full/attribution/legacy_fullscope_manifest.json",
+      "bytes": 3643,
+      "sha256": "1fe52789600b3ed797d9f776c3717ca4225de1402ec1f4684d7a1099ced048ec"
+    },
+    {
+      "path": "artifacts/full/bc/bc_baseline_row.csv",
+      "bytes": 148,
+      "sha256": "63b4377fd96f560746ce12fd92603ebec4e6e57139bd4b2e1db93374e68d7407"
+    },
+    {
+      "path": "artifacts/full/bc/provenance.json",
+      "bytes": 319,
+      "sha256": "f2238ad13f752553c1c2954b91cf706eacea696044808e26d0d03ab0bc7a2acb"
+    },
+    {
+      "path": "artifacts/full/bc/train_log.csv",
+      "bytes": 1240,
+      "sha256": "adf3a9b00745f54df792bcbf67b9a4b053d50b224c453c29bca899b65cce9f6e"
+    },
+    {
+      "path": "artifacts/full/data_quality_report.json",
+      "bytes": 1023,
+      "sha256": "54b6441c7939e1471aca9046a130e4eefe088006dbc3fbf48b39cf3812d1b7b6"
+    },
+    {
+      "path": "artifacts/full/embeddings/checksums.sha256",
+      "bytes": 483,
+      "sha256": "d2399f156750fc10716ebbd786ce48a47249032182247852437dcd7c59afadc6"
+    },
+    {
+      "path": "artifacts/full/embeddings/provenance.json",
+      "bytes": 1834,
+      "sha256": "2d40f4943e5d6798753d657c9af1d889599111500d0e29ee7497dab4f008f79c"
+    },
+    {
+      "path": "artifacts/full/figures/attribution_grid.pdf",
+      "bytes": 1657459,
+      "sha256": "c1f545b20df60f3ab0a150c967e6b83c06b4da1bdc50d1e467091265994c41f2"
+    },
+    {
+      "path": "artifacts/full/figures/encoder_rmse_bars.pdf",
+      "bytes": 21068,
+      "sha256": "020b8f296933933075d323b4ec4aad9264385ecb132b779262e3472774cc806c"
+    },
+    {
+      "path": "artifacts/full/figures/encoder_rmse_bars.png",
+      "bytes": 131767,
+      "sha256": "f8e90bcd46d351e5c4dfd19ff48386aa70ff71038e137fc9f1dbddddb0bd9a47"
+    },
+    {
+      "path": "artifacts/full/figures/figure1_encoder_rmse.pdf",
+      "bytes": 27831,
+      "sha256": "147e5c67613b01ed2fa2d862db5f16d3b921df503c986713ac7a6d5cd53fa50f"
+    },
+    {
+      "path": "artifacts/full/figures/figure2_scenario_heatmap.pdf",
+      "bytes": 37110,
+      "sha256": "c2477fa3c1beb37497ecc75588cdafeffeebebc5f934e579d49d05eb3e98bcbb"
+    },
+    {
+      "path": "artifacts/full/probe_results.json",
+      "bytes": 4513,
+      "sha256": "ab21653288d5439ef700599f70b2b85461f3b91536c6c98c72e39c2419dc41d4"
+    },
+    {
+      "path": "artifacts/full/probes/clip_b32/seed_0/per_scene_rmse.json",
+      "bytes": 16952,
+      "sha256": "5e98ce8048c51f1244ac4b10b20ba32c9c5401861f9f98acd7d42a8fb18571a5"
+    },
+    {
+      "path": "artifacts/full/probes/clip_b32/seed_0/train_log.json",
+      "bytes": 2221,
+      "sha256": "9661d6e163eb0d1c57740de3a39589f09cf100048feba22ebfce009aa18a2d3d"
+    },
+    {
+      "path": "artifacts/full/probes/clip_b32/seed_1/per_scene_rmse.json",
+      "bytes": 16969,
+      "sha256": "f038f69cb6d76c47a4473d0c9f1078037319c55179989b768cc7197ec7b4a231"
+    },
+    {
+      "path": "artifacts/full/probes/clip_b32/seed_1/train_log.json",
+      "bytes": 2238,
+      "sha256": "c2607930976e650d0a6ec4208099d8274d94314c2c001d0594b1a36a63ce8f45"
+    },
+    {
+      "path": "artifacts/full/probes/clip_b32/seed_2/per_scene_rmse.json",
+      "bytes": 16958,
+      "sha256": "e42e964067b2a7e06898b4082b4f9fc97a1df53ecef1ffcb6e66871f913d62cf"
+    },
+    {
+      "path": "artifacts/full/probes/clip_b32/seed_2/train_log.json",
+      "bytes": 2226,
+      "sha256": "b2c0bd90b3471c372f7ac5947b5f93274607e82138a2e766d9d091e816361b98"
+    },
+    {
+      "path": "artifacts/full/probes/dino_vits14/seed_0/per_scene_rmse.json",
+      "bytes": 16945,
+      "sha256": "2dd12bcacb8ae4848e41766713633a44d6cbbf0ae44299bfa9fc74a29f8cdf42"
+    },
+    {
+      "path": "artifacts/full/probes/dino_vits14/seed_0/train_log.json",
+      "bytes": 2242,
+      "sha256": "ba6b5e4d7e49fe39a9e976ee43bcbd036e4f193e8f6789732e01c3a541f764f9"
+    },
+    {
+      "path": "artifacts/full/probes/dino_vits14/seed_1/per_scene_rmse.json",
+      "bytes": 16943,
+      "sha256": "7370464de82ff6ff8229042c160d5f71ebea51cfede7802655a73e8b6d72ae5e"
+    },
+    {
+      "path": "artifacts/full/probes/dino_vits14/seed_1/train_log.json",
+      "bytes": 2253,
+      "sha256": "f90e44eb0e55050009b56416a3b966e3bf71636aa0458845a63e13dcb06bb116"
+    },
+    {
+      "path": "artifacts/full/probes/dino_vits14/seed_2/per_scene_rmse.json",
+      "bytes": 16965,
+      "sha256": "fd2a9c5847c0542d4574f1e9e4bab4fbd84fdcf2aa700c38928978d365995e58"
+    },
+    {
+      "path": "artifacts/full/probes/dino_vits14/seed_2/train_log.json",
+      "bytes": 2243,
+      "sha256": "dc2db5ef5c0d3ec47bf97603e4172c9ea73490c484d7219f6b1d850a4be6fc8e"
+    },
+    {
+      "path": "artifacts/full/probes/vit_s16/seed_0/per_scene_rmse.json",
+      "bytes": 16942,
+      "sha256": "ab8f7a32bf19b75cf613831e45a8e8779aa4b84f7c132c3058f16cc6d02a01ac"
+    },
+    {
+      "path": "artifacts/full/probes/vit_s16/seed_0/train_log.json",
+      "bytes": 2222,
+      "sha256": "49ae8e3ac60c9f7791a22d6e76647329849725874ae9eeef4151c43c7bc49723"
+    },
+    {
+      "path": "artifacts/full/probes/vit_s16/seed_1/per_scene_rmse.json",
+      "bytes": 16947,
+      "sha256": "37e6301923bd17756952588a0010beee953fb8d82faccb7191b5b47dcc484f42"
+    },
+    {
+      "path": "artifacts/full/probes/vit_s16/seed_1/train_log.json",
+      "bytes": 2237,
+      "sha256": "bf294aac337635d7c4543317e5e6ff1fa0815c56a5e2ac931ac40593bd539bec"
+    },
+    {
+      "path": "artifacts/full/probes/vit_s16/seed_2/per_scene_rmse.json",
+      "bytes": 16934,
+      "sha256": "4a66cb9f9d0a9180676b0108b464fbbbcbfa7bd531d5a697852234ac0dc28053"
+    },
+    {
+      "path": "artifacts/full/probes/vit_s16/seed_2/train_log.json",
+      "bytes": 2226,
+      "sha256": "21a659f84f46f8308941f78d8810557844ad7cd61bc1492c29f0386ce3b12ab5"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep1/seed_0/per_scene_rmse.json",
+      "bytes": 16996,
+      "sha256": "6874833204ab20f7823c27dc0218472e5f020357bc207ca0dd1e4d4e99a71a35"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep1/seed_0/train_log.json",
+      "bytes": 2223,
+      "sha256": "437af921b754ecf488ffcd817f924592e59fe3e22761e055640bcdf6f8c07a61"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep1/seed_1/per_scene_rmse.json",
+      "bytes": 17000,
+      "sha256": "c811763155b04abe7d5d2ce3273453a3f98790302484eccce101ce57a20a7f03"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep1/seed_1/train_log.json",
+      "bytes": 2223,
+      "sha256": "c18a7aa5f5fa4828f5d1b8e62c5ee2a6ac30b2aec00e96eeb2ce4e61e2e3608c"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep1/seed_2/per_scene_rmse.json",
+      "bytes": 16993,
+      "sha256": "0df79a4e13375951d11e7383a330b5ff0cce5b75b8ec15426f712028231261e2"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep1/seed_2/train_log.json",
+      "bytes": 2216,
+      "sha256": "a3d1e8e871c3f2c9644cbf24e6f169f7675f5c5a08a9269aa511f8db205f3f82"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep64/seed_0/per_scene_rmse.json",
+      "bytes": 17014,
+      "sha256": "c24b2dc1c5b112d7e5fdcde447ff9702a2aa47856ab687cf6ab48f7151020774"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep64/seed_0/train_log.json",
+      "bytes": 2250,
+      "sha256": "50eb6a46b4e0b66ff9296589eb7f1b5b88c0c609f0d737d2745a93fd720e339f"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep64/seed_1/per_scene_rmse.json",
+      "bytes": 17035,
+      "sha256": "19ceef21555c1dfa5d8e50d3a7800e1706d36bb42fcbfad45c5111fb4bb308cb"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep64/seed_1/train_log.json",
+      "bytes": 2247,
+      "sha256": "d2cf2c96d6bf9a0a094a3c148ff37735bd000fe3168a0bb3dde902d3e5318a9f"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep64/seed_2/per_scene_rmse.json",
+      "bytes": 17018,
+      "sha256": "ae35a0d8c6aea7b22a02b5b4a5f8b6b3690f9ff2a500c21ba6f7b027a4201f75"
+    },
+    {
+      "path": "artifacts/full/probes/vjepa2_rep64/seed_2/train_log.json",
+      "bytes": 2256,
+      "sha256": "c20f04d949018fc9fb09bf066df9ed54e0a0d2eb4d5dd5cdbc22abac3f0f7aa1"
+    },
+    {
+      "path": "artifacts/full/probes/vq_track/seed_0/per_scene_rmse.json",
+      "bytes": 16975,
+      "sha256": "977e67bc67f13b92b8a7c7599bafb3efae726fa18f220471689c392087c1cdc8"
+    },
+    {
+      "path": "artifacts/full/probes/vq_track/seed_0/train_log.json",
+      "bytes": 2213,
+      "sha256": "f36bdf36ebb3055ae3dbafa41289bf05cadda00ed89ff51ca14ea9fa540087f4"
+    },
+    {
+      "path": "artifacts/full/probes/vq_track/seed_1/per_scene_rmse.json",
+      "bytes": 16960,
+      "sha256": "f24f653e30c640f2210fa8f12961426679876ffac0c0b64c48bcafc2ebc84294"
+    },
+    {
+      "path": "artifacts/full/probes/vq_track/seed_1/train_log.json",
+      "bytes": 2203,
+      "sha256": "cf900774d84a6b1161b1d92d7a43085f60c82e816bc8b4fb76307a90a94277aa"
+    },
+    {
+      "path": "artifacts/full/probes/vq_track/seed_2/per_scene_rmse.json",
+      "bytes": 16970,
+      "sha256": "947dd8aa366643d354962eec90ac868752381e2fe45d0f76fa9ead91f3a2c98b"
+    },
+    {
+      "path": "artifacts/full/probes/vq_track/seed_2/train_log.json",
+      "bytes": 2207,
+      "sha256": "f43c05168b3cb658ae0d2edfff629024abe09c7739b553f943577036485e968a"
+    }
+  ],
+  "large_file_policy": "Attribution PDFs/PNGs are multiple MB each. Upload to HuggingFace when HF_TOKEN is available; do not commit large visual bundles if repository size is a concern."
+}

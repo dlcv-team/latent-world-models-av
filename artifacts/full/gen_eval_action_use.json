@@ -1,0 +1,13 @@
+{
+  "perturb": 0.3,
+  "n_windows": 48,
+  "perturb_sens_by_step": {
+    "3": 0.0543,
+    "15": 0.0624
+  },
+  "shuffle_sens_by_step": {
+    "3": 0.0231,
+    "15": 0.0255
+  },
+  "uses_actions": true
+}
