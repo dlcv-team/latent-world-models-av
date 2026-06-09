@@ -6,6 +6,7 @@ Provides RMSE computation and scenario classification.
 from __future__ import annotations
 
 import logging
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,70 @@ from nuscenes.nuscenes import NuScenes
 from config import CanonicalConfig
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Timestamp utilities for environment classification
+# ============================================================================
+
+
+def parse_logfile_timestamp(logfile: str) -> str:
+    """Extract timestamp from nuScenes logfile name.
+
+    Args:
+        logfile: e.g., "n015-2018-07-18-11-07-57+0800"
+
+    Returns:
+        Time string "HH:MM:SS" or "unknown" if parsing fails
+
+    Note:
+        Timestamp represents local time at recording location.
+        The ±HHMM offset indicates timezone (e.g., +0800 = Singapore SGT, -0500 = Boston EST).
+
+    Examples:
+        >>> parse_logfile_timestamp("n015-2018-07-18-11-07-57+0800")
+        '11:07:57'
+        >>> parse_logfile_timestamp("invalid")
+        'unknown'
+    """
+    match = re.search(r'-(\d{2})-(\d{2})-(\d{2})[+-]\d{4}$', logfile)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        second = int(match.group(3))
+        return f"{hour:02d}:{minute:02d}:{second:02d}"
+    return "unknown"
+
+
+def is_night_from_timestamp(timestamp: str) -> bool:
+    """Return True if timestamp is in night range (18:00-05:59).
+
+    Args:
+        timestamp: Time string "HH:MM:SS" from parse_logfile_timestamp
+
+    Returns:
+        True if night (6pm-6am), False otherwise
+
+    Examples:
+        >>> is_night_from_timestamp("18:00:00")
+        True
+        >>> is_night_from_timestamp("23:59:59")
+        True
+        >>> is_night_from_timestamp("00:00:00")
+        True
+        >>> is_night_from_timestamp("05:59:59")
+        True
+        >>> is_night_from_timestamp("06:00:00")
+        False
+        >>> is_night_from_timestamp("12:00:00")
+        False
+        >>> is_night_from_timestamp("unknown")
+        False
+    """
+    if timestamp == "unknown":
+        return False
+    hour = int(timestamp.split(":")[0])
+    return hour >= 18 or hour < 6
 
 
 def compute_rmse(
@@ -96,6 +161,64 @@ def bootstrap_mean_ci(
     return mean, ci_lo, ci_hi
 
 
+def bootstrap_ratio_ci(
+    numerator_values: np.ndarray,
+    denominator_values: np.ndarray,
+    n_resamples: int,
+    seed: int,
+    confidence_level: float,
+) -> tuple[float, float, float]:
+    """Return (ratio, ci_lo, ci_hi) via bootstrap of ratio of two independent means.
+
+    Args:
+        numerator_values: Array of observations for numerator
+        denominator_values: Array of observations for denominator
+        n_resamples: Number of bootstrap resamples (typically 1000)
+        seed: Random seed for reproducibility
+        confidence_level: CI level (e.g., 0.95 for 95% CI)
+
+    Returns:
+        Tuple of (ratio, ci_lo, ci_hi)
+
+    Notes:
+        Resamples numerator and denominator independently (different scene subsets).
+        Uses percentile method with vectorized resampling.
+        For single-value inputs, returns (ratio, ratio, ratio).
+
+    Raises:
+        ValueError: If either array is empty
+    """
+    numerator_values = np.asarray(numerator_values, dtype=float)
+    denominator_values = np.asarray(denominator_values, dtype=float)
+
+    if len(numerator_values) == 0 or len(denominator_values) == 0:
+        raise ValueError("bootstrap_ratio_ci received zero-length input")
+
+    ratio = float(np.mean(numerator_values) / np.mean(denominator_values))
+
+    if len(numerator_values) == 1 and len(denominator_values) == 1:
+        return ratio, ratio, ratio
+
+    # Vectorized bootstrap resampling (independent)
+    rng = np.random.default_rng(seed)
+    n_num = numerator_values.shape[0]
+    n_den = denominator_values.shape[0]
+
+    num_indices = rng.integers(0, n_num, size=(n_resamples, n_num))
+    den_indices = rng.integers(0, n_den, size=(n_resamples, n_den))
+
+    boot_num_means = numerator_values[num_indices].mean(axis=1)
+    boot_den_means = denominator_values[den_indices].mean(axis=1)
+    boot_ratios = boot_num_means / boot_den_means
+
+    # Compute percentile-based CI
+    alpha = 1.0 - confidence_level
+    ci_lo = float(np.percentile(boot_ratios, 100 * alpha / 2))
+    ci_hi = float(np.percentile(boot_ratios, 100 * (1 - alpha / 2)))
+
+    return ratio, ci_lo, ci_hi
+
+
 def classify_scenes_by_scenario(
     nusc: NuScenes,
     scene_tokens: list[str],
@@ -165,6 +288,247 @@ def classify_scenes_by_scenario(
         logger.info("  %s: %d (%.1f%%)", bucket, count, pct)
 
     return mapping
+
+
+def classify_scenes_by_environment(
+    scene_names: list[str],
+    night_scenes: set[str],
+    rain_scenes: set[str],
+) -> dict[str, list[str]]:
+    """Map scenes to independent night/rain/day_clear environmental subsets.
+
+    Parameters
+    ----------
+    scene_names
+        List of scene names to classify.
+    night_scenes
+        Set of scene names identified as night/low-light conditions.
+    rain_scenes
+        Set of scene names identified as rain/wet conditions.
+
+    Returns
+    -------
+    dict[str, list[str]]
+        Mapping from environment type to list of scene names.
+        Keys: "night", "rain", "day_clear"
+        Scenes can appear in multiple subsets (e.g., night+rain scenes are in both).
+
+    Notes
+    -----
+    This function creates INDEPENDENT, possibly OVERLAPPING subsets:
+    - "night": All night scenes (including night+rain)
+    - "rain": All rain scenes (including night+rain)
+    - "day_clear": Baseline scenes with neither night nor rain conditions
+
+    Night+rain scenes contribute to both night and rain performance metrics,
+    which is scientifically correct for isolating each environmental effect.
+
+    Examples
+    --------
+    >>> result = classify_scenes_by_environment(
+    ...     ["scene-0001", "scene-0002", "scene-0003", "scene-0004"],
+    ...     night_scenes={"scene-0001", "scene-0002"},
+    ...     rain_scenes={"scene-0002", "scene-0003"}
+    ... )
+    >>> result["night"]
+    ['scene-0001', 'scene-0002']
+    >>> result["rain"]
+    ['scene-0002', 'scene-0003']
+    >>> result["day_clear"]
+    ['scene-0004']
+    """
+    night_list = [s for s in scene_names if s in night_scenes]
+    rain_list = [s for s in scene_names if s in rain_scenes]
+    day_clear_list = [s for s in scene_names if s not in night_scenes and s not in rain_scenes]
+
+    # Validate that every YAML scene is present in the probe set
+    # Catches both format mismatches (scene-XXXX vs scene_XXXX) and missing data
+    scene_names_set = set(scene_names)
+
+    # Helper to check format mismatch before count mismatch
+    def _validate_scene_list(yaml_scenes: set[str], scene_type: str, matched_list: list[str]) -> None:
+        missing = yaml_scenes - scene_names_set
+        if not missing:
+            return  # All scenes found
+
+        # Check format consistency FIRST
+        # Pick a missing scene to check format
+        if yaml_scenes and scene_names_set and missing:
+            missing_sample = next(iter(missing))
+            probe_sample = next(iter(scene_names_set))
+
+            # Check case mismatch: if lowercase match exists but exact doesn't
+            probe_lower_set = {s.lower() for s in scene_names_set}
+            if missing_sample.lower() in probe_lower_set and missing_sample not in scene_names_set:
+                raise ValueError(
+                    f"Scene-name format mismatch: YAML {scene_type}_scenes uses different case. "
+                    f"Example: YAML={missing_sample}, probe uses lowercase. "
+                    f"This affects {len(missing)} {scene_type} scenes."
+                )
+
+            # Check dash vs underscore
+            yaml_has_dash = "-" in missing_sample
+            probe_has_dash = "-" in probe_sample
+
+            if yaml_has_dash != probe_has_dash:
+                raise ValueError(
+                    f"Scene-name format mismatch: YAML uses {'scene-XXXX' if yaml_has_dash else 'scene_XXXX'}, "
+                    f"probe uses {'scene-XXXX' if probe_has_dash else 'scene_XXXX'}. "
+                    f"Example: YAML={missing_sample}, probe={probe_sample}. "
+                    f"This affects {len(missing)} {scene_type} scenes."
+                )
+
+        # Format looks consistent, so this is missing data
+        if len(missing) == len(yaml_scenes):
+            raise ValueError(
+                f"All {len(yaml_scenes)} {scene_type} scenes missing from probe data. "
+                f"YAML {scene_type}_scenes: {sorted(yaml_scenes)[:3]}, probe scene_names: {sorted(scene_names)[:3]}. "
+                f"Check that probe training included these scenes."
+            )
+        else:
+            raise ValueError(
+                f"Incomplete probe data: {len(missing)} {scene_type} scenes missing from probe results. "
+                f"Missing: {sorted(missing)[:5]}. YAML defines {len(yaml_scenes)} {scene_type} scenes "
+                f"but probe only has {len(matched_list)}."
+            )
+
+    if night_scenes:
+        _validate_scene_list(night_scenes, "night", night_list)
+
+    if rain_scenes:
+        _validate_scene_list(rain_scenes, "rain", rain_list)
+
+    # Find overlaps
+    overlap = set(night_list) & set(rain_list)
+
+    # Log distribution
+    total_scenes = len(scene_names)
+    logger.info("Environment subset distribution (total=%d):", total_scenes)
+    logger.info("  night:     %d (%.1f%%)", len(night_list), 100.0 * len(night_list) / total_scenes if total_scenes > 0 else 0.0)
+    logger.info("  rain:      %d (%.1f%%)", len(rain_list), 100.0 * len(rain_list) / total_scenes if total_scenes > 0 else 0.0)
+    logger.info("  day_clear: %d (%.1f%%)", len(day_clear_list), 100.0 * len(day_clear_list) / total_scenes if total_scenes > 0 else 0.0)
+    if overlap:
+        logger.info("  overlap (night+rain): %d scenes", len(overlap))
+
+    return {
+        "night": sorted(night_list),
+        "rain": sorted(rain_list),
+        "day_clear": sorted(day_clear_list),
+    }
+
+
+def compute_robustness_ratios(
+    encoder_df: pd.DataFrame,
+    env_subsets: dict[str, list[str]],
+    steer_denorm_factor: float,
+    accel_denorm_factor: float,
+    n_resamples: int,
+    bootstrap_seed: int,
+    confidence_level: float,
+) -> list[dict]:
+    """Compute robustness ratios with bootstrap CIs for one encoder.
+
+    Processes both steering and acceleration metrics, computing night/day and
+    rain/day RMSE ratios with bootstrap confidence intervals.
+
+    Args:
+        encoder_df: Per-scene RMSE for one encoder (columns: scene_name, steer_rmse, accel_rmse)
+        env_subsets: Environment scene lists from classify_scenes_by_environment
+        steer_denorm_factor: Multiply steer_rmse by this to get degrees
+        accel_denorm_factor: Multiply accel_rmse by this to get m/s²
+        n_resamples: Bootstrap resamples (typically 1000)
+        bootstrap_seed: Seed for reproducibility
+        confidence_level: CI level (typically 0.95)
+
+    Returns:
+        List of dicts with columns: encoder, metric, rmse_night, rmse_rain, rmse_day_clear,
+        ratio_night_day, ci_lo_night_day, ci_hi_night_day, ratio_rain_day, ci_lo_rain_day,
+        ci_hi_rain_day, n_night, n_rain, n_day_clear
+
+    Notes:
+        - Skips metrics when n_day_clear == 0 (no baseline for ratio)
+        - Sets ratio columns to None when environment subset is empty
+        - Returns 2 rows (one per metric) if both have valid baselines
+    """
+    results = []
+
+    # Process both metrics (values start in normalized [-1, 1] space)
+    for metric_col, metric_name, denorm_factor in [
+        ("steer_rmse", "steer_rmse_deg", steer_denorm_factor),
+        ("accel_rmse", "accel_rmse_mps2", accel_denorm_factor),
+    ]:
+        # Extract per-scene RMSE for each environment (normalized [-1, 1] space)
+        night_df = encoder_df[encoder_df["scene_name"].isin(env_subsets["night"])]
+        rain_df = encoder_df[encoder_df["scene_name"].isin(env_subsets["rain"])]
+        day_clear_df = encoder_df[encoder_df["scene_name"].isin(env_subsets["day_clear"])]
+
+        night_values_norm = night_df[metric_col].values  # normalized [-1, 1]
+        rain_values_norm = rain_df[metric_col].values    # normalized [-1, 1]
+        day_clear_values_norm = day_clear_df[metric_col].values  # normalized [-1, 1]
+
+        # Convert to physical units (degrees for steering, m/s² for acceleration)
+        night_values = night_values_norm * denorm_factor  # → degrees or m/s²
+        rain_values = rain_values_norm * denorm_factor    # → degrees or m/s²
+        day_clear_values = day_clear_values_norm * denorm_factor  # → degrees or m/s²
+
+        n_night = len(night_values)
+        n_rain = len(rain_values)
+        n_day_clear = len(day_clear_values)
+
+        # Validate baseline
+        if n_day_clear == 0:
+            continue  # Skip this metric (no baseline for ratio)
+
+        # Compute mean RMSE for each environment
+        rmse_night = float(night_values.mean()) if n_night > 0 else None
+        rmse_rain = float(rain_values.mean()) if n_rain > 0 else None
+        rmse_day_clear = float(day_clear_values.mean())
+
+        # Compute night/day ratio with bootstrap CI
+        if n_night > 0:
+            ratio_night_day, ci_lo_night_day, ci_hi_night_day = bootstrap_ratio_ci(
+                night_values,
+                day_clear_values,
+                n_resamples=n_resamples,
+                seed=bootstrap_seed,
+                confidence_level=confidence_level,
+            )
+        else:
+            ratio_night_day = None
+            ci_lo_night_day = None
+            ci_hi_night_day = None
+
+        # Compute rain/day ratio with bootstrap CI
+        if n_rain > 0:
+            ratio_rain_day, ci_lo_rain_day, ci_hi_rain_day = bootstrap_ratio_ci(
+                rain_values,
+                day_clear_values,
+                n_resamples=n_resamples,
+                seed=bootstrap_seed,
+                confidence_level=confidence_level,
+            )
+        else:
+            ratio_rain_day = None
+            ci_lo_rain_day = None
+            ci_hi_rain_day = None
+
+        results.append({
+            "metric": metric_name,
+            "rmse_night": rmse_night,
+            "rmse_rain": rmse_rain,
+            "rmse_day_clear": rmse_day_clear,
+            "ratio_night_day": ratio_night_day,
+            "ci_lo_night_day": ci_lo_night_day,
+            "ci_hi_night_day": ci_hi_night_day,
+            "ratio_rain_day": ratio_rain_day,
+            "ci_lo_rain_day": ci_lo_rain_day,
+            "ci_hi_rain_day": ci_hi_rain_day,
+            "n_night": n_night,
+            "n_rain": n_rain,
+            "n_day_clear": n_day_clear,
+        })
+
+    return results
 
 
 def compute_per_scenario_rmse(
