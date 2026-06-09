@@ -25,6 +25,7 @@ env/
 
 # Project outputs (large; not committed)
 outputs/
+artifacts/
 data/raw/
 data/processed/
 data/cache/

@@ -34,9 +34,9 @@ def main():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda",
+        default=None,
         choices=["cuda", "mps", "cpu"],
-        help="Device to run attribution on",
+        help="Device to run attribution on (default: auto-detect cuda > mps > cpu)",
     )
     parser.add_argument(
         "--output-dir",
@@ -98,3 +98,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# --- Merged from main-tier2 ---
+

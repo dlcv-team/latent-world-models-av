@@ -24,7 +24,7 @@ from evaluation.sidecars import write_data_quality_report, write_per_scenario_rm
 
 
 @pytest.mark.skipif(
-    not Path("data/raw/nuscenes/v1.0-trainval").exists(),
+    not Path("data/v1.0-trainval").exists(),
     reason="NuScenes data not available",
 )
 def test_data_quality_report_integration(tmp_path: Path) -> None:
@@ -70,7 +70,7 @@ def test_data_quality_report_integration(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(
-    not Path("data/raw/nuscenes/v1.0-trainval").exists(),
+    not Path("data/v1.0-trainval").exists(),
     reason="NuScenes data not available",
 )
 def test_per_scenario_rmse_integration(tmp_path: Path) -> None:
@@ -132,3 +132,7 @@ def test_per_scenario_rmse_integration(tmp_path: Path) -> None:
     for scenario in output_df["scenario"].unique():
         n = output_df[output_df["scenario"] == scenario]["n_scenes"].iloc[0]
         print(f"    {scenario}: {n} scenes")
+
+
+# --- Merged from main-tier2 ---
+

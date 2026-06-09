@@ -13,10 +13,18 @@ from data.splits import (
 from data.dataset import NuScenesFrameDataset
 
 
-pytestmark = pytest.mark.skipif(
-    not Path("data/raw/nuscenes/v1.0-mini").exists(),
+skip_if_no_mini = pytest.mark.skipif(
+    not Path("data/v1.0-mini").exists(),
     reason="NuScenes v1.0-mini data not available",
 )
+
+skip_if_no_trainval = pytest.mark.skipif(
+    not Path("data/v1.0-trainval").exists(),
+    reason="NuScenes v1.0-trainval data not available",
+)
+
+# Default: require mini for all tests (smoke splits)
+pytestmark = skip_if_no_mini
 
 
 @pytest.fixture
@@ -165,8 +173,9 @@ def test_generate_mini_splits_wrong_version():
         generate_mini_splits(nusc_fake)
 
 
+@skip_if_no_trainval
 class TestCanonicalSplits:
-    """Tests for canonical manifest splits (requires canonical.yaml)."""
+    """Tests for canonical manifest splits (requires v1.0-trainval)."""
 
     def test_get_split_from_canonical_p0_train(self):
         """Test loading p0_train from canonical manifest."""
@@ -211,4 +220,8 @@ class TestCanonicalSplits:
         for sample_info in ds.samples:
             assert sample_info['scene_name'] in p0_train_scenes
 
+
+
+
+# --- Merged from main-tier2 ---
 
