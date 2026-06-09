@@ -10,6 +10,7 @@ Usage::
 from __future__ import annotations
 
 import os
+import sys
 
 try:
     import modal
@@ -68,6 +69,7 @@ def upload_da11_checkpoints(hf_repo: str):
 
     uploaded = 0
     skipped = 0
+    errors = 0
 
     # DiT-actseq checkpoints
     for enc in ENCODERS:
@@ -82,6 +84,7 @@ def upload_da11_checkpoints(hf_repo: str):
                         uploaded += 1
                         print(f"  Uploaded: {hf_path}")
                     except Exception as e:
+                        errors += 1
                         print(f"  ERROR: {hf_path}: {e}")
                 else:
                     skipped += 1
@@ -100,11 +103,12 @@ def upload_da11_checkpoints(hf_repo: str):
                         uploaded += 1
                         print(f"  Uploaded: {hf_path}")
                     except Exception as e:
+                        errors += 1
                         print(f"  ERROR: {hf_path}: {e}")
                 else:
                     skipped += 1
 
-    return {"uploaded": uploaded, "skipped": skipped}
+    return {"uploaded": uploaded, "skipped": skipped, "errors": errors}
 
 
 def _modal_entrypoint_decorator(fn):
@@ -121,4 +125,7 @@ def main():
         return
     print(f"Backing up DA11 checkpoints to {HF_REPO}")
     result = upload_da11_checkpoints.remote(HF_REPO)
-    print(f"Done: uploaded={result['uploaded']}, skipped={result['skipped']}")
+    print(f"Done: uploaded={result['uploaded']}, skipped={result['skipped']}, errors={result.get('errors', 0)}")
+
+    if result.get("errors", 0) > 0:
+        sys.exit(1)

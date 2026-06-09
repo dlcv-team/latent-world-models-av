@@ -1,0 +1,126 @@
+{
+  "smoke": true,
+  "mlp_hidden": 1024,
+  "mode": "diffusion",
+  "action_dropout": 0.3,
+  "direct_baseline_mean": 0.527,
+  "mlp_baseline_mean": 0.484,
+  "conditioned_direct_mean": 0.527,
+  "eval_subset": "high_action_variance_top_quartile_steer_std",
+  "hv_threshold_steer_std": 0.056086,
+  "n_hv_test": 64,
+  "epoch_losses": [
+    1.412665,
+    1.289225,
+    1.176525,
+    1.13777
+  ],
+  "dit_distributional": {
+    "n_samples": 16,
+    "mean_cossim": 0.230079,
+    "best_of_k_mean_cossim": 0.230079,
+    "sample_diversity_l2": 0.000521,
+    "n_test": 64,
+    "uncond": true
+  },
+  "dit": {
+    "mean_cossim": 0.230079,
+    "n_params": 5396288,
+    "n_ddim_steps": 10
+  },
+  "uncond_direct": {
+    "cossim_by_step": [
+      0.494101,
+      0.432751,
+      0.394751,
+      0.367473,
+      0.352993,
+      0.340985,
+      0.329646,
+      0.317816,
+      0.307138,
+      0.297431,
+      0.288732,
+      0.282019,
+      0.271916,
+      0.266196,
+      0.261288,
+      0.261326
+    ],
+    "copy_by_step": [
+      0.441506,
+      0.353584,
+      0.309212,
+      0.269485,
+      0.254917,
+      0.240313,
+      0.224401,
+      0.211383,
+      0.196958,
+      0.184759,
+      0.178642,
+      0.166804,
+      0.161847,
+      0.159744,
+      0.159085,
+      0.157071
+    ],
+    "mean_cossim": 0.32916,
+    "n_test": 64
+  },
+  "copy_baseline": {
+    "cossim_by_step": [
+      0.441506,
+      0.353584,
+      0.309212,
+      0.269485,
+      0.254917,
+      0.240313,
+      0.224401,
+      0.211383,
+      0.196958,
+      0.184759,
+      0.178642,
+      0.166804,
+      0.161847,
+      0.159744,
+      0.159085,
+      0.157071
+    ],
+    "copy_by_step": [
+      0.441506,
+      0.353584,
+      0.309212,
+      0.269485,
+      0.254917,
+      0.240313,
+      0.224401,
+      0.211383,
+      0.196958,
+      0.184759,
+      0.178642,
+      0.166804,
+      0.161847,
+      0.159744,
+      0.159085,
+      0.157071
+    ],
+    "mean_cossim": 0.229357,
+    "n_test": 64
+  },
+  "g7": {
+    "outcome": "fail",
+    "best_of_k_mean_cossim": 0.230079,
+    "uncond_direct_mean": 0.32916,
+    "best_minus_uncond_direct": -0.099081,
+    "sample_diversity_l2": 0.000521,
+    "conditioned_direct_mean": 0.527,
+    "eval_subset": "high_action_variance_top_quartile_steer_std",
+    "K": 16
+  },
+  "smoke_gate": {
+    "pass": true,
+    "loss_decreased": true,
+    "finite": true
+  }
+}
