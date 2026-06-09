@@ -1,5 +1,6 @@
 """Evaluation harness for encoder benchmarking.
 
+<<<<<<< HEAD
 Submodules are imported **lazily** (PEP 562 ``__getattr__``) so that
 lightweight consumers -- CosSim / DeltaCosSim evaluation
 (:mod:`evaluation.latent_eval`, :mod:`evaluation.lang_scene_eval`) and
@@ -67,3 +68,42 @@ def __getattr__(name: str) -> Any:
 
 def __dir__() -> list[str]:
     return sorted(set(globals()) | set(_EXPORTS) | _SUBMODULES)
+=======
+from evaluation.attribution_grid import AttributionGridGenerator
+from evaluation.gradcam import AttributionPipeline
+from evaluation.latent_eval import (
+    COSSIM_CSV_FILENAME,
+    COSSIM_JSON_FILENAME,
+    compute_delta_cossim,
+    evaluate_cossim,
+    export_cossim_results,
+    run_latent_eval,
+)
+from evaluation.metrics import (
+    compute_rmse,
+    classify_scenes_by_scenario,
+    compute_per_scenario_rmse,
+    convert_steer_rmse_to_deg,
+)
+from evaluation.sidecars import (
+    write_data_quality_report,
+    write_per_scenario_rmse,
+)
+
+__all__ = [
+    "AttributionGridGenerator",
+    "AttributionPipeline",
+    "COSSIM_CSV_FILENAME",
+    "COSSIM_JSON_FILENAME",
+    "compute_delta_cossim",
+    "evaluate_cossim",
+    "export_cossim_results",
+    "run_latent_eval",
+    "compute_rmse",
+    "classify_scenes_by_scenario",
+    "compute_per_scenario_rmse",
+    "convert_steer_rmse_to_deg",
+    "write_data_quality_report",
+    "write_per_scenario_rmse",
+]
+>>>>>>> origin/main-tier2

@@ -152,3 +152,19 @@ train_dataset = NuScenesFrameDataset(split="p0_train", mode="single_frame")
 Open feature branches off the appropriate member branch
 (`m1/scaffold-canonical-contract`, `m2/dataset-single-frame`, etc.) and PR
 into `main`.
+
+## Hugging Face backup (durable storage)
+
+Modal volume data is ephemeral when credits expire. Important checkpoints and
+embeddings are mirrored to private HF repos:
+
+- `surlac/lwm-av-checkpoints` (models): spatial/VAE DiT checkpoints, result JSONs
+- `surlac/lwm-av-embeddings` (dataset): `spatial/*_fullgrid.npz`, `sd_vae_latents.npz`
+
+Upload from the volume without local download:
+
+```bash
+modal run --detach scripts/backup_spatial_vae_hf_modal.py
+```
+
+Requires Modal secret `huggingface-token` with `HF_TOKEN` set.
