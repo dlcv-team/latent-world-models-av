@@ -33,7 +33,24 @@ mechanical:
 | Bootstrap CI protocol (n=1000, seed 42) | `evaluation.bootstrap` | M2 |
 | Paired-test correction policy (`ttest_rel` + Bonferroni; n_comparisons computed not asserted) | `evaluation.paired_tests` | M1 |
 | Scenario bucket lists (P0 and P2-extended) | `evaluation.scenario_buckets*` | M2 / M3 |
+| Environment scene lists (night/rain manual classification for p0_test) | `configs/environment_scene_lists.yaml` | M2 |
 | Figure DPI (300) and required caption strings | `figures` | M2 |
+
+## Environment scene lists reproducibility
+
+`configs/environment_scene_lists.yaml` contains manually-identified night and rain scenes from p0_test. The night list is derived from timestamps (6pm-6am) using `scripts/list_test_scene_descriptions.py`, while rain scenes are manually identified from scene descriptions.
+
+**Reproducibility contract**: `tests/test_environment_scene_lists.py` verifies:
+1. YAML `night_scenes` matches timestamp-based classification (6pm-6am from logfile)
+2. YAML `rain_scenes` are valid p0_test scene names
+3. YAML `notes` section documents correct scene counts
+
+If you update the YAML file:
+1. Re-run `scripts/list_test_scene_descriptions.py` to verify night scenes
+2. Update the `notes` section with correct counts
+3. Run `pytest tests/test_environment_scene_lists.py` to verify reproducibility
+
+The test prevents drift between the hand-copied YAML and the timestamp derivation script.
 
 ## What's NOT in the repo
 
@@ -47,6 +64,9 @@ mechanical:
 * **nuScenes raw data**. Each member sets `NUSCENES_DATAROOT` locally.
 * **Encoder embedding caches, probe checkpoints, figures**. Land under
   `outputs/` (gitignored).
+* **Environmental analysis outputs**:
+  - `outputs/analysis/per_environment_rmse.csv` — Per-environment RMSE with bootstrap CI
+  - `outputs/analysis/environmental_robustness.csv` — Night/day and rain/day RMSE ratios
 
 ## How to use it from module code
 

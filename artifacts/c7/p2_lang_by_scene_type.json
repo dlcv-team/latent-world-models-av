@@ -1,0 +1,190 @@
+{
+  "buckets": [
+    "highway",
+    "urban",
+    "intersection",
+    "night",
+    "rain",
+    "other"
+  ],
+  "by_scene_type": [
+    {
+      "bucket": "highway",
+      "n_samples": 952,
+      "n_scenes": 7,
+      "per_encoder": {
+        "vjepa2_rep64": {
+          "cossim_action": [
+            0.9949975609779358,
+            0.9950324296951294,
+            0.9951059818267822,
+            0.9951424598693848
+          ],
+          "cossim_lang": [
+            0.9949975609779358,
+            0.9950324296951294,
+            0.9951059818267822,
+            0.9951424598693848
+          ],
+          "delta_cossim": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "bucket": "urban",
+      "n_samples": 952,
+      "n_scenes": 7,
+      "per_encoder": {
+        "vjepa2_rep64": {
+          "cossim_action": [
+            0.995773434638977,
+            0.9957690834999084,
+            0.9957815408706665,
+            0.9957554936408997
+          ],
+          "cossim_lang": [
+            0.995773434638977,
+            0.9957690834999084,
+            0.9957815408706665,
+            0.9957554936408997
+          ],
+          "delta_cossim": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "bucket": "intersection",
+      "n_samples": 952,
+      "n_scenes": 7,
+      "per_encoder": {
+        "vjepa2_rep64": {
+          "cossim_action": [
+            0.9954990148544312,
+            0.9954975247383118,
+            0.9955244064331055,
+            0.9955044388771057
+          ],
+          "cossim_lang": [
+            0.9954990148544312,
+            0.9954975247383118,
+            0.9955244064331055,
+            0.9955044388771057
+          ],
+          "delta_cossim": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "bucket": "night",
+      "n_samples": 931,
+      "n_scenes": 7,
+      "per_encoder": {
+        "vjepa2_rep64": {
+          "cossim_action": [
+            0.9957478642463684,
+            0.995761513710022,
+            0.9957917928695679,
+            0.9957806468009949
+          ],
+          "cossim_lang": [
+            0.9957478642463684,
+            0.995761513710022,
+            0.9957917928695679,
+            0.9957806468009949
+          ],
+          "delta_cossim": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "bucket": "rain",
+      "n_samples": 816,
+      "n_scenes": 6,
+      "per_encoder": {
+        "vjepa2_rep64": {
+          "cossim_action": [
+            0.995627224445343,
+            0.9956151843070984,
+            0.9956322312355042,
+            0.9956074357032776
+          ],
+          "cossim_lang": [
+            0.995627224445343,
+            0.9956151843070984,
+            0.9956322312355042,
+            0.9956074357032776
+          ],
+          "delta_cossim": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "bucket": "other",
+      "n_samples": 816,
+      "n_scenes": 6,
+      "per_encoder": {
+        "vjepa2_rep64": {
+          "cossim_action": [
+            0.9954015612602234,
+            0.9953780770301819,
+            0.9953716397285461,
+            0.9953328967094421
+          ],
+          "cossim_lang": [
+            0.9954015612602234,
+            0.9953780770301819,
+            0.9953716397285461,
+            0.9953328967094421
+          ],
+          "delta_cossim": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    }
+  ],
+  "encoders": [
+    "vjepa2_rep64"
+  ],
+  "horizon": 4,
+  "inputs": {
+    "captions": "outputs/p2/_smoke_inputs/captions.json",
+    "encoder": "vjepa2_rep64",
+    "sample_scenes": "outputs/p2/_smoke_inputs/sample_scenes.json",
+    "z_hat_action": "z_hat_conditioned.pt",
+    "z_hat_lang": "z_hat_conditioned.pt",
+    "z_real": "z_real_conditioned.pt"
+  },
+  "method": "per_bucket_delta_cossim(lang_conditioned_minus_action_only)",
+  "metric": "DeltaCosSim(k) = CosSim(z_hat_lang, z_real)(k) - CosSim(z_hat_action, z_real)(k)",
+  "status": "smoke_untrained_head",
+  "warning": "SMOKE ARTIFACT -- NOT a benchmark result. The language head is UNTRAINED: initialised from M1 it reproduces the action-only predictor exactly (see models.lang_latent_pred.init_shared_layers_from and tests/test_lang_latent_pred.py::test_init_reproduces_m1_for_any_text), so z_hat_lang := z_hat_action := the real vjepa2_rep64 action-conditioned output and delta_cossim == 0 by construction. cossim_lang/cossim_action ARE real CosSim on the 5419-sequence full-test split, but the per-sample scene->bucket partition is SYNTHETIC: scripts/export_z_hat.py does not currently emit a per-sample scene sidecar (recommended A18 follow-up), so real stratification is not yet possible. Regenerate real numbers with a trained language head, real C6 captions (python -m data.scene_captions), and a real sample-scene sidecar via: python -m evaluation.lang_scene_eval."
+}

@@ -14,6 +14,7 @@ Usage:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -23,7 +24,7 @@ from config import load_canonical
 from evaluation.metrics import bootstrap_mean_ci, classify_scenes_by_scenario, denormalize_rmse_dataframe
 
 
-def main():
+def main() -> int:
     print("Generating per_scenario_rmse.csv from probe results...")
 
     # Load config
@@ -37,16 +38,26 @@ def main():
 
     # Load probe results
     probe_root = Path("outputs/probes")
+    if not probe_root.exists():
+        print(f"ERROR: {probe_root} does not exist", file=sys.stderr)
+        return 1
+
     encoders = sorted([d.name for d in probe_root.iterdir() if d.is_dir()])
+    if not encoders:
+        print(f"ERROR: No encoder directories found in {probe_root}", file=sys.stderr)
+        return 1
+
     print(f"Found {len(encoders)} encoders: {encoders}")
 
     # Collect all predictions
     all_predictions = []
+    missing_csvs = []
 
     for encoder in encoders:
         csv_path = probe_root / encoder / "per_scene_rmse.csv"
         if not csv_path.exists():
-            print(f"Warning: {csv_path} not found, skipping")
+            print(f"ERROR: {csv_path} not found", file=sys.stderr)
+            missing_csvs.append(encoder)
             continue
 
         df = pd.read_csv(csv_path)
@@ -61,6 +72,14 @@ def main():
                 "steer_rmse": row["steer_rmse"],
                 "accel_rmse": row["accel_rmse"],
             })
+
+    if missing_csvs:
+        print(f"ERROR: Missing per_scene_rmse.csv for encoders: {missing_csvs}", file=sys.stderr)
+        return 1
+
+    if not all_predictions:
+        print("ERROR: No predictions collected from any encoder", file=sys.stderr)
+        return 1
 
     predictions_df = pd.DataFrame(all_predictions)
     print(f"\nTotal prediction rows: {len(predictions_df)}")
@@ -134,11 +153,25 @@ def main():
                     "ci_hi": ci_hi,
                 })
 
+    if not results:
+        print("ERROR: No per-scenario results computed", file=sys.stderr)
+        return 1
+
     results_df = pd.DataFrame(results)
     results_df = results_df.sort_values(["encoder", "scenario", "metric"]).reset_index(drop=True)
 
     print("\nConverting to physical units for output CSV...")
     results_df = denormalize_rmse_dataframe(results_df, cfg)
+
+    # Validate results_df is not empty and contains valid data
+    if len(results_df) == 0:
+        print("ERROR: results_df is empty after denormalization", file=sys.stderr)
+        return 1
+
+    # Check for all-None/all-NaN in critical columns
+    if results_df["mean"].isna().all():
+        print("ERROR: All mean values are NaN in results_df", file=sys.stderr)
+        return 1
 
     print(f"Computed {len(results_df)} rows:")
     print(f"  Encoders: {sorted(results_df['encoder'].unique())}")
@@ -156,7 +189,8 @@ def main():
     # Show sample
     print("\nSample (first 10 rows):")
     print(results_df.head(10).to_string(index=False))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
