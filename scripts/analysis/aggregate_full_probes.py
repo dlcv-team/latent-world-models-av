@@ -30,7 +30,7 @@ from torch import nn
 from config import load_canonical
 from models.probe import ActionProbe
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_PROBE_ROOT = PROJECT_ROOT / "artifacts" / "full" / "probes"
 DEFAULT_EMBED_ROOT = PROJECT_ROOT / "artifacts" / "full" / "embeddings"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "probes"

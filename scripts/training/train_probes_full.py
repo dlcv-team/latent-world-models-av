@@ -285,7 +285,7 @@ def _validate_canonical():
     Raises AssertionError on any mismatch so drift is caught before jobs launch.
     """
     # Add project root to path so config module is importable
-    project_root = str(Path(__file__).resolve().parent.parent)
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
     from config import load_canonical  # noqa: WPS433 (late import, local-only)
