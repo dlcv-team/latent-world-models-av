@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis import paired_tests as pt
+from scripts.analysis import paired_tests as pt
 
 
 # ---------------------------------------------------------------------------
