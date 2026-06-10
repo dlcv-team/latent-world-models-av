@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from figures.render_cossim_comparison import (
+from scripts.figures.render_cossim_comparison import (
     load_cossim_csv,
     build_caption,
     render_cossim_comparison,

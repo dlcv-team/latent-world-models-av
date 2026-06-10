@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from figures.render_dit_architecture import (
+from scripts.figures.render_dit_architecture import (
     render_dit_architecture,
     main,
     Z_DIM,
