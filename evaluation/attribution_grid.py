@@ -41,7 +41,7 @@ class AttributionGridGenerator:
     >>> print(f"Generated: {output_path}")
     """
 
-    # Encoder keys in order (M1 canonical pilot_name keys from training.train_probe.ENCODER_REGISTRY)
+    # Encoder keys in order (M1 canonical pilot_name keys from scripts.train_probe.ENCODER_REGISTRY)
     ENCODERS = [
         "vit_s16",
         "dino_vits14",
