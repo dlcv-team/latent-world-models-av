@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from data.temporal import TemporalEmbeddingDataset
 from models.fourier_embed import FourierActionEmbedding
 from models.latent_pred import LatentPredictor, train_latent_predictor
-from scripts.export_z_hat import _run_inference
+from scripts.embeddings.export_z_hat import _run_inference
 
 
 # ---------------------------------------------------------------------------
