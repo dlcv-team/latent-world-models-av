@@ -1,170 +1,120 @@
-# latent-world-models-av
+<div align="center">
+<h1>Diffusion Transformer World-Action Model for AV Scene Prediction</h1>
 
-Benchmarks five pretrained visual encoders (ViT-S/16, DINOv2-S/14, CLIP
-ViT-B/32, VQ-VAE, V-JEPA2 ViT-L) for latent-space autonomous driving world
-models. By probing frozen embeddings to predict CAN-bus ego-actions on
-nuScenes, we evaluate which encoders best preserve the spatial and temporal
-dynamics required for action-conditioned planning.
+![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen)
+![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)
 
-## Project documents
+<br>
 
-The full PRD, EDD, Roles, and Implementation Plan live in the team's docs
-repo. The implementation plan's per-member task tables are the ground truth
-for what to work on; this README is just the developer entry point.
+Ruslan Sharifullin, Benjamin Jiang, Max Chew
+<br>
+*Department of Computer Science*
+<br>
+*Stanford University*
 
-## Repo layout
+</div>
 
-```
-configs/
-  canonical.yaml               # the contract — see docs/CANONICAL_ARTIFACTS.md
-  trainval_subset_manifest.json
-config.py                      # canonical-config loader
-encoders/                      # encoder wrappers (M1)
-models/                        # ActionProbe, BC baseline, latent predictor (M1, M3)
-data/                          # NuScenesFrameDataset, splits, scene captions (M2, M3)
-evaluation/                    # RMSE, GradCAM, perturbation, CosSim (M2, M3)
-training/                      # train_probe, train_bc, train_latent_pred (M1, M3)
-analysis/                      # paired_tests, CIs (M1)
-scripts/
-  check_canonical_contract.py  # CLI guard (also runs in CI)
-tests/
-  test_canonical_contract.py
-  test_reproduces_baselines.py
-  data/pilot_baselines.json    # pinned reference numbers from M1's pilot run
-docs/
-  CANONICAL_ARTIFACTS.md
-.github/workflows/ci.yml       # contract + reproducibility gate
-```
+**Diffusion Transformer World-Action Model for AV Scene Prediction** is an autoregressive video-action prediction framework for autonomous driving. We train a **VAE-Latent Diffusion Transformer (DiT)** jointly on video sequences and CAN-bus ego-actions from nuScenes. By organizing video and action streams into a unified temporal sequence under a diffusion objective, the model learns the complex multi-modal distributions of future traffic scenarios, enabling highly realistic, action-controllable future video generation that overcomes the blurry mean-regression problem of standard spatial models.
 
-## Setup
+## Highlights
+
+### 1. Visual Priors for Action Prediction
+Before building the world model, we establish a rigorous linear-probing frontier across five foundation models. We find that structurally-aware, joint-embedding predictive architectures (V-JEPA2) and self-supervised vision transformers (DINOv2) significantly outperform CLIP and VQ-VAE in capturing the spatial semantics necessary for autonomous driving.
+
+<div align="center">
+  <img src="artifacts/full/figures/fig_encoder_rmse.png" width="400" alt="Encoder RMSE Frontier">
+</div>
+
+### 2. Spatial vs. Latent Diffusion World Models
+
+We implement and evaluate two major architectures for future-state prediction:
+* **Spatial DiT (Direct/Residual)**: Operates on raw spatial grids from ViT/DINOv2. High semantic cosine similarity but struggles with visual blurriness over long horizons.
+* **VAE-Latent Diffusion**: Adapts a Stable Diffusion v1.5 VAE latent space into an autoregressive policy. Trades some raw cosine similarity for dramatically better image fidelity (FID/KID) and physical realism.
+
+<div align="center">
+
+| Model Formulation | Latent CosSim (15-step) ↑ | FID ↓ | KID (mean) ↓ |
+|---|---|---|---|
+| **Direct DiT (Spatial)** | **0.4708** | 370.77 | 0.3748 |
+| **Diffusion DiT (VAE)** | 0.2597 | **162.50** | **0.0782** |
+| *Interpolated (Diffusion + Caltrain)* | 0.3162 | 166.55 | 0.0839 |
+
+</div>
+
+<div align="center">
+  <img src="artifacts/full/figures/fig_fidkid.png" width="400" alt="FID vs CosSim Frontier">
+</div>
+
+### 3. Action Controllability & Generative Realism
+
+A critical test of a World-Action Model is whether its predicted futures obey the injected action commands. We sweep steering inputs [-0.28, 0.21] and measure the resultant lateral shift in the generated video.
+
+<div align="center">
+
+| Architecture | Steering-to-Shift Spearman Rank ρ ↑ | Monotone Correctness |
+|---|---|---|
+| **Direct/Residual DiT** | -0.1806 | 35.9% |
+| **VAE-Latent Diffusion** | **0.8131** | **100.0%** |
+
+</div>
+
+The diffusion model strongly respects action inputs (perfect monotonic consistency), whereas direct regression models ignore the action and average out to blurry straight-ahead paths.
+
+### 4. Qualitative Rollouts
+
+Our autoregressive VAE-Latent Diffusion model maintains sharp image quality over multi-second rollouts (15 steps = ~7.5 seconds) while predicting future states conditioned on ego-actions.
+
+<div align="center">
+
+![Qualitative Rollouts](artifacts/full/figures/vae_4row_demo.png)
+
+</div>
+
+### 5. Evaluation Suite
+
+We provide a comprehensive, extensible evaluation harness designed to rigorously test world model dynamics:
+* **Latent Cosine Similarity (`evaluation/latent_eval.py`)**: Computes semantic drift over long horizons by comparing the unrolled trajectory embeddings against ground-truth encoded sequences.
+* **Environmental Robustness (`evaluation/metrics.py`)**: Uses non-parametric bootstrapping with 95% Confidence Intervals to measure steering and acceleration RMSE degradation under night and rain conditions.
+* **Generative Metrics**: Evaluates physical realism of the World-Action Model rollouts using FID, KID, and LPIPS over 15-frame autoregressive horizons.
+
+## Getting Started
+
+### Installation
 
 ```bash
-# Python 3.11 recommended (matches CI).
+# Python 3.11 recommended
+git clone <repo-url>
+cd latent-world-models-av
+
+# Create and activate virtual environment
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Verify your local contract is intact:
+# Verify your local contract and environment
 python scripts/check_canonical_contract.py
 
-# Run the floor-of-correctness tests:
+# Run the correctness tests
 PYTHONPATH=. pytest -q
 ```
 
-## How to work in this repo
+### Reproducibility & The Canonical Contract
 
-Three rules — CI enforces them, so a passing build means you've followed
-them. There's no separate checklist to paste into PRs.
+This repository enforces strict reproducibility through a central configuration contract. 
 
-1. **Read shared constants from `configs/canonical.yaml`** via
-   `config.load_canonical()`. Do not hardcode splits, seeds, normalization
-   constants, or hyperparameters anywhere in module code.
-2. **Every numeric result you produce ships with a CSV/JSON sidecar**
-   under `outputs/`. Figure scripts read from those sidecars; nothing
-   load-bearing lives only in a notebook.
-3. **Figures are saved at `dpi=300`** and their captions name the
-   trainval-mirror subset (180/20/40, seed 42) and the FR-08 VQ fallback
-   policy if VQ uses fallback.
+1. **`configs/canonical.yaml`**: Do not hardcode splits, seeds, normalization constants, or hyperparameters. Always use `config.load_canonical()`.
+2. **Artifact Sidecars**: Every numeric result produced in scripts must output a JSON/CSV to `artifacts/full/`. Figures are generated directly from these sidecars.
+3. **Continuous Integration**: CI runs `check_canonical_contract.py` and Pytest on every PR to ensure all metrics map exactly to the tracked artifacts.
 
-If a PR can pass `scripts/check_canonical_contract.py` and `pytest -q` on
-a clean checkout, it satisfies rules 1–3 mechanically. Rule 2 is enforced
-by the figure-side tests that land alongside Member 2's plotting code; if
-you add a numeric result without a sidecar, those tests will fail.
+### Dataset Preparation
 
-See `docs/CANONICAL_ARTIFACTS.md` for the full contract and how to change
-anything pinned.
+The action labels CSV (`camfront_keyframe_actions.csv`) is required. 
+The full nuScenes dataset (raw images, CAN bus expansion) is expected at `$NUSCENES_DATAROOT`.
+We support two splits: `v1.0-mini` (smoke tests) and `v1.0-trainval` (frozen 180-train/20-val/40-test split). See `docs/CANONICAL_ARTIFACTS.md` for details.
 
-## External data
+## Checkpoints and Storage
 
-The action labels CSV (~10 MB) is not committed. Resolution order:
+Pre-trained model weights, VAE latents, and full-grid spatial embeddings are hosted on Hugging Face:
+* `surlac/lwm-av-checkpoints`: DiT weights, VAE weights, and robust evaluation metrics.
+* `surlac/lwm-av-embeddings`: Pre-extracted `.npz` sequence arrays.
 
-1. `$NUSCENES_ACTIONS_CSV` if set,
-2. `data/raw/camfront_keyframe_actions.csv` (gitignored).
-
-`scripts/check_canonical_contract.py` verifies its sha256 when found.
-
-The full nuScenes dataset (raw images, CAN bus expansion) is referenced via
-`$NUSCENES_DATAROOT`; see `data/dataset.py` (forthcoming, M2 task B3) for
-the loader.
-
-## Dataset Splits
-
-This project supports two split configurations:
-
-### Smoke Splits (v1.0-mini)
-Fast iteration and smoke testing during development.
-
-- **smoke_train**: 8 scenes from nuScenes `mini_train`
-- **smoke_val**: 1 scene from nuScenes `mini_val` (deterministic split, seed 42)
-- **smoke_test**: 1 scene from nuScenes `mini_val` (deterministic split, seed 42)
-
-### Benchmark Splits (v1.0-trainval)
-Canonical splits from the project manifest (see `configs/canonical.yaml`).
-
-- **p0_train**: 180 scenes (frozen subset for Phase 0 benchmark)
-- **p0_val**: 20 scenes (frozen subset for Phase 0 validation)
-- **p0_test**: 40 scenes (frozen subset for Phase 0 evaluation)
-- **p1p2_scenes**: 80 additional scenes (reserved for future phases)
-
-**CAN Filtering**: Pre-applied in canonical manifest. Scenes without CAN bus data are excluded.
-
-**Verification**: All splits are SHA256-verified against the canonical manifest.
-
-### Usage
-
-```python
-from data.splits import get_split_from_canonical
-from data import NuScenesFrameDataset
-
-# Get canonical benchmark splits
-p0_train_scenes = get_split_from_canonical("p0_train")
-p0_val_scenes = get_split_from_canonical("p0_val")
-
-# Or use the dataset directly (canonical splits only)
-train_dataset = NuScenesFrameDataset(split="p0_train", mode="single_frame")
-```
-
-**Note**: For smoke testing during development, v1.0-mini splits are available via internal API.
-
-### Split Statistics
-
-| Split | Scenes | Samples |
-|-------|--------|---------|
-| **Smoke (v1.0-mini)** | | |
-| smoke_train | 8 | 323 |
-| smoke_val | 1 | 41 |
-| smoke_test | 1 | 40 |
-| **Benchmark (v1.0-trainval)** | | |
-| p0_train | 180 | ~18,000 |
-| p0_val | 20 | ~2,000 |
-| p0_test | 40 | ~4,000 |
-
-*Note: Benchmark sample counts are approximate (depends on CAN alignment filtering).*
-
-## Branching
-
-| Branch | Owner | Scope |
-|---|---|---|
-| `main` | all | merge target; protected |
-| `m1-encoders` | Member 1 | encoders, probe, latent predictor, statistics |
-| `m2-data` | Member 2 | data pipeline, eval harness, GradCAM, figures |
-| `m3-analysis` | Member 3 | BC baseline, CosSim eval, language conditioning |
-
-Open feature branches off the appropriate member branch
-(`m1/scaffold-canonical-contract`, `m2/dataset-single-frame`, etc.) and PR
-into `main`.
-
-## Hugging Face backup (durable storage)
-
-Modal volume data is ephemeral when credits expire. Important checkpoints and
-embeddings are mirrored to private HF repos:
-
-- `surlac/lwm-av-checkpoints` (models): spatial/VAE DiT checkpoints, result JSONs
-- `surlac/lwm-av-embeddings` (dataset): `spatial/*_fullgrid.npz`, `sd_vae_latents.npz`
-
-Upload from the volume without local download:
-
-```bash
-modal run --detach scripts/backup_spatial_vae_hf_modal.py
-```
-
-Requires Modal secret `huggingface-token` with `HF_TOKEN` set.
+You can download these artifacts directly from the Hugging Face repositories using the standard `huggingface_hub` CLI.
