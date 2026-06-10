@@ -44,7 +44,7 @@ from tqdm import tqdm
 from config import load_canonical
 from evaluation.metrics import bootstrap_mean_ci, compute_rmse
 from models.probe import ActionProbe
-from training.train_probe import ENCODER_REGISTRY
+from scripts.train_probe import ENCODER_REGISTRY
 
 logger = logging.getLogger(__name__)
 
