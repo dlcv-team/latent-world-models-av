@@ -33,6 +33,9 @@ LIGHT_NAMES = [
     "convert_steer_rmse_to_deg",
     "write_data_quality_report",
     "write_per_scenario_rmse",
+    "compute_robustness_ratios",
+    "classify_scenes_by_environment",
+    "bootstrap_ratio_ci",
 ]
 
 # Names that pull in the attribution stack on resolution.
