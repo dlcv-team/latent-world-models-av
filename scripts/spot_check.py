@@ -31,7 +31,7 @@ def spot_check_encoder(
     atol: float = 1e-5,
 ) -> dict:
     """Spot-check a single encoder's cached embeddings against live forward pass."""
-    from scripts.train_probe import build_encoder
+    from scripts.training.train_probe import build_encoder
 
     # Load cached embeddings
     embed_path = embeddings_dir / f"{pilot_name}.npz"
