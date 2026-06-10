@@ -22,7 +22,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis import delta_cossim_summary as dcs
+from scripts.analysis import delta_cossim_summary as dcs
 
 
 # ---------------------------------------------------------------------------

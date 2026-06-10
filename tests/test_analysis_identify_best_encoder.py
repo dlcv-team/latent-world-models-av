@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis import identify_best_encoder as ibe
+from scripts.analysis import identify_best_encoder as ibe
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ def test_against_in_repo_pilot(tmp_path):
     significance, and the result is consistent with the canonical key
     pinned in tests/data/pilot_baselines.json::expected_best_encoder.
     """
-    from analysis import paired_tests as pt_mod
+    from scripts.analysis import paired_tests as pt_mod
 
     probe_root = tmp_path / "probes"
     analysis_root = tmp_path / "analysis"
