@@ -6,7 +6,7 @@
 
 <br>
 
-Ruslan Sharifullin, Benjamin Jiang, Max Chew
+Ruslan Sharifullin, Benjamin Jiang, Kai Xi Chew
 <br>
 *Department of Computer Science*
 <br>
