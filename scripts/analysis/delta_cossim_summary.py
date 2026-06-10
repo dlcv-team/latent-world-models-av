@@ -472,8 +472,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Path to baselines.json for the BC comparison paragraph. "
-            "Default: <repo>/baselines.json. Pass a path that does not "
-            "exist to skip the BC paragraph gracefully."
+            "Default: <repo>/configs/baselines.json. Pass a path that does not "
+            "exist to skip BC comparison."
         ),
     )
     parser.add_argument(
@@ -500,7 +500,7 @@ def _default_paths(cfg: CanonicalConfig) -> tuple[Path, Path, Path, Path]:
     return (
         root / "artifacts" / "cossim_eval" / "cossim_results.csv",
         root / "artifacts" / "cossim_eval" / "cossim_results.json",
-        root / "baselines.json",
+        root / "configs" / "baselines.json",
         root / "outputs" / "analysis",
     )
 
