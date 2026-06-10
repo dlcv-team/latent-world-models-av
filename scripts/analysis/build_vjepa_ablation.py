@@ -23,7 +23,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BASELINES = ROOT / "baselines.json"
+BASELINES = ROOT / "configs" / "baselines.json"
 ENCODER_CI = ROOT / "outputs" / "analysis" / "encoder_summary_with_ci.csv"
 OUT_DIR = ROOT / "outputs" / "analysis"
 

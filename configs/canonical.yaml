@@ -30,7 +30,7 @@ dataset:
     n_samples: 33552
     split_ratio: "75/10/15 (train/val/test by scene)"
     seeds: [0, 1, 2]
-    baselines_path: baselines.json
+    baselines_path: configs/baselines.json
 
   # The split manifest lives in the repo so contract checks are hermetic.
   # sha256 is verified by scripts/check_canonical_contract.py and by

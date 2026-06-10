@@ -602,7 +602,7 @@ def test_smoke_vendored_artifact_parses_summarizes_and_renders():
         else None
     )
     bc = dcs.load_bc_baseline(
-        repo_root / "baselines.json",
+        repo_root / "configs" / "baselines.json",
         (metadata or {}).get("encoder", dcs.DEFAULT_ENCODER),
     )
     rendered = dcs.render_summary_markdown(analysis, bc, metadata)

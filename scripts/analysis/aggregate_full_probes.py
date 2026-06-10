@@ -34,7 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PROBE_ROOT = PROJECT_ROOT / "artifacts" / "full" / "probes"
 DEFAULT_EMBED_ROOT = PROJECT_ROOT / "artifacts" / "full" / "embeddings"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "probes"
-DEFAULT_BASELINES_PATH = PROJECT_ROOT / "baselines.json"
+DEFAULT_BASELINES_PATH = PROJECT_ROOT / "configs" / "baselines.json"
 
 SEEDS = [0, 1, 2]
 
