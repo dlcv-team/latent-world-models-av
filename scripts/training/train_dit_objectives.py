@@ -627,7 +627,7 @@ def _validate_dit_config():
     """Assert duplicated constants match configs/dit.yaml."""
     import yaml
 
-    dit_yaml = Path(__file__).resolve().parent.parent / "configs" / "dit.yaml"
+    dit_yaml = Path(__file__).resolve().parent.parent.parent / "configs" / "dit.yaml"
     with open(dit_yaml) as f:
         raw = yaml.safe_load(f)
 

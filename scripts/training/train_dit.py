@@ -616,7 +616,7 @@ def _validate_dit_config():
     """
     import yaml
 
-    dit_yaml = Path(__file__).resolve().parent.parent / "configs" / "dit.yaml"
+    dit_yaml = Path(__file__).resolve().parent.parent.parent / "configs" / "dit.yaml"
     with open(dit_yaml) as f:
         raw = yaml.safe_load(f)
 
@@ -657,7 +657,7 @@ def _validate_dit_config():
             )
 
     # Validate Fourier params against canonical.yaml
-    project_root = str(Path(__file__).resolve().parent.parent)
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
     from config import load_canonical

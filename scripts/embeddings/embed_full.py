@@ -73,7 +73,7 @@ VJEPA2_SHARDS = 3
 # Container images
 # ---------------------------------------------------------------------------
 
-_project_root = str(Path(__file__).resolve().parent.parent)
+_project_root = str(Path(__file__).resolve().parent.parent.parent)
 
 base_image = (
     modal.Image.debian_slim(python_version="3.11")

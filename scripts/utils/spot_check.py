@@ -109,7 +109,7 @@ def main():
     args = parser.parse_args()
 
     random.seed(args.seed)
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
     ENCODERS = {
         "vits16":   "vit_s16",

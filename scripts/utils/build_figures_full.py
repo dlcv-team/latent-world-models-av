@@ -25,7 +25,7 @@ import numpy as np
 from config import ENCODER_DISPLAY
 import viz_style as S
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SUMMARY_PATH = PROJECT_ROOT / "outputs" / "analysis" / "encoder_summary_with_ci.csv"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "artifacts" / "full" / "figures"
 DPI = 300

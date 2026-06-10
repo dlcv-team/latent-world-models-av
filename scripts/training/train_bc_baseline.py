@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
 
     # Add project root to path for imports
-    project_root = Path(__file__).resolve().parent.parent
+    project_root = Path(__file__).resolve().parent.parent.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 

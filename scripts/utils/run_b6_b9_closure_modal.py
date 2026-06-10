@@ -34,7 +34,7 @@ DATA_ROOT = Path(f"{VOL_PATH}/nuscenes")
 ARTIFACT_ROOT = Path(f"{VOL_PATH}/b6_b9_artifacts")
 APP_ROOT = Path("/app")
 
-_project_root = str(Path(__file__).resolve().parent.parent)
+_project_root = str(Path(__file__).resolve().parent.parent.parent)
 
 base_image = (
     modal.Image.debian_slim(python_version="3.11")

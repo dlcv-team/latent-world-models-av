@@ -25,7 +25,7 @@ from pathlib import Path
 
 # Make repo modules importable when the script is invoked directly without
 # `pip install -e .`.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config import (  # noqa: E402  (sys.path tweak above)
     load_canonical,

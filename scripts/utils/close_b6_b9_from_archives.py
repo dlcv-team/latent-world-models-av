@@ -30,7 +30,7 @@ from config import load_canonical
 from evaluation.metrics import bootstrap_mean_ci, denormalize_rmse_dataframe
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_ARCHIVE_ROOT = Path("external_artifacts/fullscope_archive")
 SCENARIO_ORDER = ["highway", "urban", "intersection", "other"]
 
