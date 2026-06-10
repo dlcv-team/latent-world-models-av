@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from scripts import build_cossim_figures as bcf
+from scripts.figures import build_cossim_figures as bcf
 
 
 # ---------------------------------------------------------------------------
