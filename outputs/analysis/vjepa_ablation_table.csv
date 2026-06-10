@@ -1,4 +1,0 @@
-encoder,input_mode,frames,steer_rmse_scene_mean,steer_ci95_lo,steer_ci95_hi,accel_rmse_scene_mean,accel_ci95_lo,accel_ci95_hi,combined_rmse,rank
-V-JEPA2 (64-frame),temporal,64,0.0579,0.0475,0.0703,0.0545,0.0512,0.0582,0.0774,1
-V-JEPA2 (1-frame),single-frame,1,0.0974,0.08,0.118,0.0588,0.0548,0.063,0.1175,2
-DINOv2-S (1-frame),single-frame,1,0.1042,0.0875,0.1237,0.072,0.0681,0.0759,0.1192,3
