@@ -104,7 +104,7 @@ class TestConfigValidation:
         with open(dit_yaml) as f:
             raw = yaml.safe_load(f)
 
-        from scripts.evaluation.rollout_dit import DIT_CANONICAL
+        from scripts.inference.rollout_dit import DIT_CANONICAL
         for key in DIT_CANONICAL:
             assert key in raw["dit"], f"DIT_CANONICAL key {key!r} missing from dit.yaml"
 
@@ -117,7 +117,7 @@ class TestConfigValidation:
         with open(dit_yaml) as f:
             raw = yaml.safe_load(f)
 
-        from scripts.evaluation.rollout_dit import DIFFUSION_CANONICAL
+        from scripts.inference.rollout_dit import DIFFUSION_CANONICAL
         assert DIFFUSION_CANONICAL["n_train_steps"] == raw["diffusion"]["n_train_steps"]
 
     def test_eval_n_sample_steps_matches_yaml(self):
@@ -129,7 +129,7 @@ class TestConfigValidation:
         with open(dit_yaml) as f:
             raw = yaml.safe_load(f)
 
-        from scripts.evaluation.rollout_dit import EVAL_CANONICAL
+        from scripts.inference.rollout_dit import EVAL_CANONICAL
         assert EVAL_CANONICAL["n_sample_steps"] == raw["diffusion"]["n_sample_steps"]
 
 
