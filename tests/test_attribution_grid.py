@@ -21,12 +21,12 @@ class TestHelperFunctions:
 
     def test_get_encoder_display_name(self):
         """Test encoder key to display name mapping using M1 canonical keys."""
-        assert get_encoder_display_name("vit_s16") == "ViT-S/16\n(supervised)"
-        assert get_encoder_display_name("dino_vits14") == "DINOv2\nViT-S/14"
-        assert get_encoder_display_name("clip_b32") == "CLIP\nViT-B/32"
-        assert get_encoder_display_name("vq_track") == "VQ-VAE\nTracker"
-        assert get_encoder_display_name("vjepa2_rep64") == "V-JEPA2\n(fpc64)"
-        assert get_encoder_display_name("vjepa2_rep1") == "V-JEPA2\n(fpc1)"
+        assert get_encoder_display_name("vit_s16") == "ViT-S/16"
+        assert get_encoder_display_name("dino_vits14") == "DINOv2-S/14"
+        assert get_encoder_display_name("clip_b32") == "CLIP ViT-B/32"
+        assert get_encoder_display_name("vq_track") == "VQ-VAE"
+        assert get_encoder_display_name("vjepa2_rep64") == "V-JEPA2"
+        assert get_encoder_display_name("vjepa2_rep1") == "V-JEPA2 (1-frame)"
         assert get_encoder_display_name("unknown") == "unknown"
 
     def test_get_scenario_display_name(self):

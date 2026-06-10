@@ -612,7 +612,7 @@ class AttributionPipeline:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Store encoder specifications (name → wrapper class)
-        # Uses M1 canonical keys (pilot_name from training.train_probe.ENCODER_REGISTRY)
+        # Uses M1 canonical keys (pilot_name from scripts.training.train_probe.ENCODER_REGISTRY)
         # Encoders are loaded sequentially in run() to reduce memory footprint
         self.encoder_specs = {
             "vit_s16": ViTS16Wrapper,

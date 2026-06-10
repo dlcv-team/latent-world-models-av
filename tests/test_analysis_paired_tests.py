@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis import paired_tests as pt
+from scripts.analysis import paired_tests as pt
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +279,7 @@ def _adopt_in_repo_pilot(out_root: Path) -> None:
     # Import lazily because scripts/ isn't a regular package.
     _REPO_ROOT = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-    import adopt_pilot_artifacts as apa
+    from scripts.utils import adopt_pilot_artifacts as apa
 
     apa.adopt(
         artifact_root=apa.DEFAULT_ARTIFACT_ROOT,
@@ -293,7 +293,7 @@ def _adopt_in_repo_pilot(out_root: Path) -> None:
 def _in_repo_pilot_present() -> bool:
     _REPO_ROOT = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-    import adopt_pilot_artifacts as apa
+    from scripts.utils import adopt_pilot_artifacts as apa
 
     return (apa.DEFAULT_ARTIFACT_ROOT / "per_scene" / "per_scene_rmse.csv").exists()
 

@@ -1,0 +1,19 @@
+{
+  "strides": {
+    "1": {
+      "seconds_ahead": 8.0,
+      "n_windows": 600,
+      "n_hv": 150,
+      "sigma_scene_future": 0.7418,
+      "copy_1_minus_cos": 0.7613
+    },
+    "2": {
+      "seconds_ahead": 16.0,
+      "n_windows": 600,
+      "n_hv": 150,
+      "sigma_scene_future": 0.7077,
+      "copy_1_minus_cos": 0.744
+    }
+  },
+  "k_nn": 12
+}

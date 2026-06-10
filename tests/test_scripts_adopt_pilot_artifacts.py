@@ -15,11 +15,8 @@ from pathlib import Path
 
 import pytest
 
-# Path-resolve scripts/ since it isn't a real package.
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-
-import adopt_pilot_artifacts as apa  # noqa: E402  (after sys.path tweak)
+# Removed sys.path hack because scripts is now a proper package.
+from scripts.utils import adopt_pilot_artifacts as apa
 
 
 # ---------------------------------------------------------------------------

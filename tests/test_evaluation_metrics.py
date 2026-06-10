@@ -970,3 +970,7 @@ def test_compute_robustness_ratios_nan_handling():
     accel_row = results[1]
     assert not np.isnan(accel_row["rmse_night"])
     assert accel_row["ratio_night_day"] is not None
+
+
+# --- Merged from main-tier2 ---
+

@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis import identify_best_encoder as ibe
+from scripts.analysis import identify_best_encoder as ibe
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +354,7 @@ def test_main_writes_to_separate_output_root(tmp_path):
 def _adopt_in_repo_pilot(out_root: Path) -> None:
     _REPO_ROOT = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-    import adopt_pilot_artifacts as apa
+    from scripts.utils import adopt_pilot_artifacts as apa
 
     apa.adopt(
         artifact_root=apa.DEFAULT_ARTIFACT_ROOT,
@@ -368,7 +368,7 @@ def _adopt_in_repo_pilot(out_root: Path) -> None:
 def _in_repo_pilot_present() -> bool:
     _REPO_ROOT = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-    import adopt_pilot_artifacts as apa
+    from scripts.utils import adopt_pilot_artifacts as apa
 
     return (apa.DEFAULT_ARTIFACT_ROOT / "per_scene" / "per_scene_rmse.csv").exists()
 
@@ -384,7 +384,7 @@ def test_against_in_repo_pilot(tmp_path):
     significance, and the result is consistent with the canonical key
     pinned in tests/data/pilot_baselines.json::expected_best_encoder.
     """
-    from analysis import paired_tests as pt_mod
+    from scripts.analysis import paired_tests as pt_mod
 
     probe_root = tmp_path / "probes"
     analysis_root = tmp_path / "analysis"

@@ -7,8 +7,15 @@
 # Owned by Member 1. Changes require joint sign-off in Slack and a PR that
 # bumps `version` and updates `docs/CANONICAL_ARTIFACTS.md` accordingly.
 
-version: "1.0.2"
-last_updated: "2026-05-14"
+version: "1.0.3"
+last_updated: "2026-06-09"
+
+# Stable Diffusion VAE constants (runwayml/stable-diffusion-v1-5).
+# scaling_factor is read from vae.config.scaling_factor at load time and
+# reproduced here so scripts can stay independent of the model object.
+vae:
+  model_id: runwayml/stable-diffusion-v1-5
+  scaling_factor: 0.18215
 
 dataset:
   name: nuscenes
@@ -23,7 +30,7 @@ dataset:
     n_samples: 33552
     split_ratio: "75/10/15 (train/val/test by scene)"
     seeds: [0, 1, 2]
-    baselines_path: baselines.json
+    baselines_path: configs/baselines.json
 
   # The split manifest lives in the repo so contract checks are hermetic.
   # sha256 is verified by scripts/check_canonical_contract.py and by

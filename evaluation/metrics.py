@@ -811,3 +811,7 @@ def denormalize_rmse_dataframe(
     df.loc[accel_mask, "metric"] = "accel_rmse_mps2"
 
     return df
+
+
+# --- Merged from main-tier2 ---
+

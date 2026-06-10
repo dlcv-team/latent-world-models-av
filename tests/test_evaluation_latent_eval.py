@@ -919,3 +919,7 @@ def test_cli_main_perturbation_args_must_be_paired(tmp_path, capsys):
     assert rc == 1
     stderr = capsys.readouterr().err
     assert "must both be provided" in stderr
+
+
+# --- Merged from main-tier2 ---
+

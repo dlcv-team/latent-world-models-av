@@ -130,14 +130,16 @@ class TestConfigValidation:
     def test_dit_canonical_keys_present(self):
         """All expected keys exist in DIT_CANONICAL."""
         # Import the module-level constants
+        # Load scripts/training/train_dit.py as a module dynamically
         import importlib.util
         spec = importlib.util.spec_from_file_location(
             "train_dit_module",
-            "scripts/train_dit.py",
+            "scripts/training/train_dit.py",
         )
-        # We can't fully import (Modal dependency), so just check the file
-        # contains the expected constant names
-        with open("scripts/train_dit.py") as f:
+        mod = importlib.util.module_from_spec(spec)
+        
+        # Verify it has no __main__ execution block that immediately runs on import
+        with open("scripts/training/train_dit.py") as f:
             content = f.read()
 
         for key in ["DIT_CANONICAL", "DIFFUSION_CANONICAL", "TRAINING_CANONICAL", "FOURIER_CANONICAL"]:

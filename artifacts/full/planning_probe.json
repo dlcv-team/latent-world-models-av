@@ -1,0 +1,39 @@
+{
+  "n_scenes": 30,
+  "horizon_step": 15,
+  "steer_grid": [
+    -0.2853,
+    -0.1604,
+    -0.0355,
+    0.0895,
+    0.2144
+  ],
+  "heldout_targets": [
+    -0.2229,
+    -0.0979,
+    0.027,
+    0.1519
+  ],
+  "inverse_control_chance_mae": 0.1628,
+  "note": "PRELIMINARY Future-Work probe; planning-primitive diagnostic, not closed-loop planning.",
+  "direct": {
+    "inverse_control": {
+      "mae_steer": 0.2022,
+      "mae_vs_chance_ratio": 1.242,
+      "mean_grid_R2": 0.318,
+      "mean_grid_spearman": -0.112,
+      "n_valid": 29,
+      "metric": "held-out interpolated target steers + cross-seed; s_hat via linear inversion of the steer->shift grid; MAE=|s_hat-s*| vs random-pick chance"
+    }
+  },
+  "diffusion": {
+    "inverse_control": {
+      "mae_steer": 0.1093,
+      "mae_vs_chance_ratio": 0.671,
+      "mean_grid_R2": 0.672,
+      "mean_grid_spearman": 0.816,
+      "n_valid": 16,
+      "metric": "held-out interpolated target steers + cross-seed; s_hat via linear inversion of the steer->shift grid; MAE=|s_hat-s*| vs random-pick chance"
+    }
+  }
+}

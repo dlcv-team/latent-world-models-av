@@ -132,3 +132,7 @@ def test_per_scenario_rmse_integration(tmp_path: Path) -> None:
     for scenario in output_df["scenario"].unique():
         n = output_df[output_df["scenario"] == scenario]["n_scenes"].iloc[0]
         print(f"    {scenario}: {n} scenes")
+
+
+# --- Merged from main-tier2 ---
+
