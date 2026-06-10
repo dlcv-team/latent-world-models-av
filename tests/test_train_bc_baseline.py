@@ -18,7 +18,7 @@ import pytest
 import torch
 
 # We import main() and mock the embedding loader so tests are self-contained.
-from scripts.train_bc_baseline import main, NATIVE_DIMS
+from scripts.training.train_bc_baseline import main, NATIVE_DIMS
 
 
 # ---------------------------------------------------------------------------
