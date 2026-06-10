@@ -18,7 +18,7 @@ import pytest
 import torch
 from torch import nn
 
-from training import train_probe as tp
+from scripts import train_probe as tp
 
 
 # ---------------------------------------------------------------------------
