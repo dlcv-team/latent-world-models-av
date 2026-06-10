@@ -91,7 +91,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Verify your local contract and environment
-python scripts/check_canonical_contract.py
+python scripts/utils/check_canonical_contract.py
 
 # Run the correctness tests
 PYTHONPATH=. pytest -q
