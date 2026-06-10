@@ -432,7 +432,7 @@ def embed_single_frame(encoder_name: str):
     if vqgan_cache.exists():
         os.environ["VQGAN_CKPT_PATH"] = str(vqgan_cache)
 
-    from training.train_probe import build_encoder
+    from scripts.train_probe import build_encoder
     encoder = build_encoder(encoder_name, pretrained=True).to(device)
     encoder.eval()
 
@@ -607,7 +607,7 @@ def embed_vjepa2(shard_id: int, n_shards: int, rep: int = 64):
     os.environ["HF_HOME"] = HF_CACHE
     os.environ["TRANSFORMERS_CACHE"] = f"{HF_CACHE}/hub"
 
-    from training.train_probe import build_encoder
+    from scripts.train_probe import build_encoder
     encoder = build_encoder("vjepa2", pretrained=True).to(device)
     encoder.eval()
 
