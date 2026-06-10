@@ -72,6 +72,9 @@ def test_yaml_night_scenes_match_timestamp_classification():
     # Derive night scenes from timestamps
     nuscenes_root = cfg.root / "data"
     version = cfg.raw["dataset"]["version"]
+    if not (nuscenes_root / version).exists():
+        pytest.skip(f"NuScenes dataset {version} not found at {nuscenes_root}")
+    
     nusc = NuScenes(version=version, dataroot=str(nuscenes_root), verbose=False)
 
     test_scenes = manifest_split(cfg, "p0_test")

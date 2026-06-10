@@ -72,7 +72,7 @@ def synthetic_data():
 def mock_loader(synthetic_data):
     """Patch ``load_encoder_embedding`` to return synthetic data."""
     with mock.patch(
-        "scripts.train_bc_baseline.load_encoder_embedding",
+        "data.embeddings.load_encoder_embedding",
         return_value=synthetic_data,
     ) as m:
         yield m
@@ -272,7 +272,7 @@ def test_main_with_adapter_encoder(tmp_path):
     data = _make_synthetic_embeddings(dim=NATIVE_DIMS[encoder])
 
     with mock.patch(
-        "scripts.train_bc_baseline.load_encoder_embedding",
+        "data.embeddings.load_encoder_embedding",
         return_value=data,
     ):
         rc = main([
@@ -306,7 +306,7 @@ def test_early_stopping_fires_when_loss_plateaus(tmp_path):
         "scene_names": np.array([f"s{i}" for i in range(n * 3)]),
     }
     with mock.patch(
-        "scripts.train_bc_baseline.load_encoder_embedding",
+        "data.embeddings.load_encoder_embedding",
         return_value=data,
     ):
         rc = main([
